@@ -1,0 +1,4 @@
+{
+  "_comment": "SYNTHETIC placeholder — replace with anonymized real capture (see README.md)",
+  "text": "MemberID    Role        Priority    CPU-Mac         Description\n *+1        Master      1           00e0-fc00-1101  ---\n   2        Slave       1           00e0-fc00-1102  ---\n--------------------------------------------------\n * indicates the device is the master.\n + indicates the device through which the user logs in.\n\nThe switchboard MAC of this IRF: 00e0-fc00-1100"
+}

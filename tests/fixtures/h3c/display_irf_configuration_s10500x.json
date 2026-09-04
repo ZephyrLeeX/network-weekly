@@ -1,0 +1,4 @@
+{
+  "_comment": "SYNTHETIC placeholder — replace with anonymized real capture (see README.md)",
+  "text": "MemberID    NewID    IRF-Port1                     IRF-Port2\n 1          1        Ten-GigabitEthernet1/0/27     disable\n 2          2        disable                       Ten-GigabitEthernet2/0/27"
+}

@@ -1,0 +1,69 @@
+# Example device inventory for the Network Weekly Report System.
+# Copy to /etc/network-report/devices.toml and fill in real values.
+# Non-sensitive metadata only — credentials live in secrets.env (0600).
+#
+# model_family supports only "s10500x" and "s12500" (SYSTEM_SPEC.md §2.2).
+# irf_member_count is set only for IRF fabrics (>= 2); omit it for standalone
+# devices. credential_profile selects the key prefix in secrets.env.
+
+[[device]]
+name = "core-s10500x-01"
+management_ip = "192.0.2.11"
+model_family = "s10500x"
+credential_profile = "default"
+
+[[device]]
+name = "core-s10500x-02"
+management_ip = "192.0.2.12"
+model_family = "s10500x"
+credential_profile = "default"
+
+[[device]]
+name = "core-s10500x-03"
+management_ip = "192.0.2.13"
+model_family = "s10500x"
+credential_profile = "default"
+
+[[device]]
+name = "core-s10500x-04"
+management_ip = "192.0.2.14"
+model_family = "s10500x"
+credential_profile = "default"
+
+[[device]]
+name = "core-s10500x-05"
+management_ip = "192.0.2.15"
+model_family = "s10500x"
+credential_profile = "default"
+
+[[device]]
+name = "core-s10500x-06"
+management_ip = "192.0.2.16"
+model_family = "s10500x"
+credential_profile = "default"
+
+[[device]]
+name = "core-s10500x-07"
+management_ip = "192.0.2.17"
+model_family = "s10500x"
+credential_profile = "default"
+
+[[device]]
+name = "core-s10500x-08"
+management_ip = "192.0.2.18"
+model_family = "s10500x"
+credential_profile = "default"
+
+[[device]]
+name = "core-s10500x-irf"
+management_ip = "192.0.2.19"
+model_family = "s10500x"
+irf_member_count = 2
+credential_profile = "default"
+
+[[device]]
+name = "core-s12500-irf"
+management_ip = "192.0.2.20"
+model_family = "s12500"
+irf_member_count = 2
+credential_profile = "default"

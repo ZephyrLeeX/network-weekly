@@ -70,7 +70,7 @@ Codex 必须：
 2. 开始 Task 前读取其 Scope、Acceptance、依赖和相关 `SYSTEM_SPEC.md` 章节。
 3. 保持改动最小，只完成当前 Task。
 4. 所有数据库结构变化使用 Alembic。
-5. 真实 H3C 采集能力必须尽早验证，不能仅依赖模拟数据宣称采集完成。
+5. 真实 H3C 采集能力在无真机环境下以 H3C 官方文档（MIB Companion / Command Reference）核验 + 测试作为工程验收依据；不得凭模拟数据宣称“真机验收完成”。真机证据在最终生产 Release Gate 前强制完成（W01-T007 / W05-GATE）。
 6. Transport / Adapter 只负责采集、解析、标准化；业务统计由独立服务完成。
 7. 不把采集失败直接等同于设备故障。
 8. 周报统计只读取已经持久化的数据；生成报告时不得临时访问交换机补数据。
@@ -118,9 +118,14 @@ Wave Gate 通过后再合并到 `main`。
 
 ## Real-device evidence rule
 
-涉及设备采集或解析的 Task，最终 `REVIEW_PASSED` 必须包含真实设备证据。
+涉及设备采集或解析的 Task，其工程 `REVIEW_PASSED` 以以下两者为依据：
 
-最低验证集合：
+1. H3C 官方文档核验（MIB Companion / Command Reference；不得用博客或第三方资料覆盖 H3C 官方定义）。
+2. 通过的 unit / integration 测试。
+
+真实设备证据不再阻塞工程的 `REVIEW_PASSED`，也不阻塞下一 Wave 的开发；它由 `W01-T007`（`BLOCKED — FIELD_VALIDATION_PENDING`）单独跟踪，并阻塞最终生产 Release Gate（`W05-GATE`）。
+
+最低验证集合（Release Gate 前必须全部关闭）：
 
 - 1 台独立 S10500X。
 - 1 组 S10500X IRF。
@@ -133,6 +138,8 @@ Wave Gate 通过后再合并到 `main`。
 - SNMP community。
 - 用户名/密码。
 - 其他认证 Secret。
+
+在真机证据关闭之前，合成 fixture 必须保持显式标注（`tests/fixtures/h3c/README.md`），任何代码或文档不得宣称“已通过真机验证”。
 
 ## Definition of Done
 

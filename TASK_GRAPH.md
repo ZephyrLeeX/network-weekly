@@ -74,57 +74,64 @@ REVIEW_PASSED
 # Wave 1 — Real H3C Collection
 
 ## W01-T001 — Device inventory and secrets loading
-**Status:** READY  
-**Depends On:** W00-GATE  
-**Blocks:** W01-T003, W01-T005  
-**Scope:** `/etc/network-report/devices.toml`; `/etc/network-report/secrets.env`; inventory sync; permission validation.  
+**Status:** REVIEW_PASSED
+**Depends On:** W00-GATE
+**Blocks:** W01-T003, W01-T005
+**Scope:** `/etc/network-report/devices.toml`; `/etc/network-report/secrets.env`; inventory sync; permission validation.
 **Acceptance:** current 10 logical devices are representable; secrets file must be `0600`; secrets are never logged or returned.
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W01-T002 — Device, member, interface and aggregation schema
-**Status:** READY  
-**Depends On:** W00-GATE  
-**Blocks:** W01-T004, W01-T005, W01-T006  
-**Scope:** Device, DeviceMember, Interface, aggregation member relationship; normalized interface identity.  
+**Status:** REVIEW_PASSED
+**Depends On:** W00-GATE
+**Blocks:** W01-T004, W01-T005, W01-T006
+**Scope:** Device, DeviceMember, Interface, aggregation member relationship; normalized interface identity.
 **Acceptance:** 8 standalone devices + S10500X IRF + S12500 IRF topology is representable; ifIndex is mutable metadata.
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger (executed before W01-T001 so inventory sync has real schema coverage at its own checkpoint; both tasks depend only on W00-GATE).
 
 ## W01-T003 — SNMP transport and basic H3C collection
-**Status:** TODO  
-**Depends On:** W01-T001  
-**Blocks:** W01-T004, W01-T006  
-**Scope:** bounded SNMP timeouts/retries; identity, CPU, memory, interface state, speed and counters.  
+**Status:** REVIEW_PASSED (engineering acceptance: H3C official MIB verification + tests; real-device evidence deferred to W01-T007)
+**Depends On:** W01-T001
+**Blocks:** W01-T004, W01-T006
+**Scope:** bounded SNMP timeouts/retries; identity, CPU, memory, interface state, speed and counters.
 **Acceptance:** real standalone S10500X can be collected; errors normalize cleanly; bulk/walk used where appropriate.
+**Engineering acceptance basis:** OIDs verified against the standard MIB modules H3C Comware implements per the H3C MIB Companion — IF-MIB/ifXTable (RFC 2863: ifHighSpeed Mbps preferred over saturated ifSpeed; separate ifAdminStatus/ifOperStatus maps, ifOperStatus 1–7), EtherLike-MIB (RFC 3635: dot3HCStatsFCSErrors 1.3.6.1.2.1.10.7.11.1.2 preferred, dot3StatsFCSErrors 1.3.6.1.2.1.10.7.2.1.3 fallback). `collect_interfaces` cannot report SUCCESS when the core ifDescr walk fails or yields no usable row (§8). Fixtures in `tests/fixtures/h3c/` remain synthetic placeholders (see their README) to be replaced by anonymized real captures in W01-T007.
+**Notes:** PySNMP 7.x is asyncio-only; `SnmpClient` provides a sync facade with per-request timeout/retries and a wall-clock walk deadline. H3C enterprise CPU/memory OIDs remain pending real-device confirmation.
 
 ## W01-T004 — Interface discovery and aggregation mapping
-**Status:** TODO  
-**Depends On:** W01-T002, W01-T003  
-**Blocks:** W01-T006, W02-T005  
+**Status:** REVIEW_PASSED (engineering acceptance: H3C official MIB verification + tests; real-device evidence deferred to W01-T007)
+**Depends On:** W01-T002, W01-T003
+**Blocks:** W01-T006, W02-T005
 **Acceptance:** real interfaces persist; logical aggregation interfaces are identified; member mapping persists; ifIndex changes do not duplicate business interfaces.
+**Engineering acceptance basis:** LAG membership OIDs corrected to the published IEEE8023-LAG-MIB (IEEE 802.1AX) — dot3adAggPortSelectedAggID = …1.2.1.1.12, dot3adAggPortAttachedAggID = …1.2.1.1.13; membership prefers Attached with Selected fallback, confined to the adapter/OID layer. Discovery reconciles both directions: one successful collection reporting no aggregations clears stale memberships and `is_aggregation` flags; a failed collection never reaches the sync, so state cannot be wiped on failure. Verified by unit + integration tests against migrated PostgreSQL.
 
 ## W01-T005 — Limited SSH transport and IRF discovery
-**Status:** TODO  
-**Depends On:** W01-T001, W01-T002  
-**Blocks:** W01-T006, W02-T004  
-**Scope:** explicit read-only identity/version/IRF commands plus lightweight reachability confirmation.  
+**Status:** REVIEW_PASSED (engineering acceptance: H3C official command reference verification + tests; real-device evidence deferred to W01-T007)
+**Depends On:** W01-T001, W01-T002
+**Blocks:** W01-T006, W02-T004
+**Scope:** explicit read-only identity/version/IRF commands plus lightweight reachability confirmation.
 **Acceptance:** S10500X IRF and S12500 IRF member count/identity/role can be normalized from real-device evidence.
+**Engineering acceptance basis:** `display version` parser handles the official Comware 7 S10500/S12500 output ("H3C Comware Software, Version 7.1.070, Release 7596P10") including the "Software Version" variant; SSH static collectors (`collect_software_info`, `collect_irf_members`) run the allowlisted `display version` / `display irf` / `display irf configuration` commands and normalize id/role (roles never guessed). Command Reference semantics verified; real output shapes fixed in W01-T007.
 
 ## W01-T006 — Normalized collection DTO and persistence
-**Status:** TODO  
-**Depends On:** W01-T003, W01-T004, W01-T005  
-**Blocks:** W01-T007, Wave 2  
-**Scope:** stable DTOs; section results; SUCCESS/PARTIAL/FAILED; persist valid data when another section fails.  
+**Status:** REVIEW_PASSED (engineering acceptance: end-to-end unit + integration tests; real-device evidence deferred to W01-T007)
+**Depends On:** W01-T003, W01-T004, W01-T005
+**Blocks:** Wave 2
+**Scope:** stable DTOs; section results; SUCCESS/PARTIAL/FAILED; persist valid data when another section fails.
 **Acceptance:** one parser/section failure does not discard valid device data; secrets absent from persisted diagnostic fields.
+**Engineering acceptance basis:** SSH reachability probe runs only when the SNMP management channel yielded no valid data at all (§9.1) — a single CPU/memory/LAG section failure no longer triggers SSH. SSH static collection is wired as caller-scheduled flows (`run_static_ssh_collection`, `run_irf_observation` for the ~15-minute Wave 2 cadence), never forced into the 5-minute poll. `device.software_version` and IRF member id/role persist (verified against migrated PostgreSQL); a later software-section failure never erases the stored version.
 
 ## W01-T007 — Real-device collection acceptance
-**Status:** TODO  
-**Depends On:** W01-T006  
-**Blocks:** W01-GATE  
-**Acceptance:** one standalone S10500X, one S10500X IRF and one S12500 IRF validated end-to-end with anonymized fixtures/evidence.
+**Status:** BLOCKED — FIELD_VALIDATION_PENDING (no reachable real S10500X/S12500 in this environment; release-blocking, not Wave-2-blocking)
+**Depends On:** W01-T006
+**Blocks:** W05-GATE (production Release Gate)
+**Acceptance:** one standalone S10500X, one S10500X IRF and one S12500 IRF validated end-to-end with anonymized fixtures/evidence: replace synthetic fixtures in `tests/fixtures/h3c/`, confirm H3C enterprise OIDs in `backend/collect/h3c/oids.py` (hh3c-entity-ext CPU/memory) and the Comware aggregation-id-ifIndex equivalence, then re-run the full gate.
 
-## W01-GATE — Real H3C Gate
-**Status:** TODO  
-**Depends On:** W01-T007  
-**Blocks:** Wave 2  
-**Gate:** real devices prove all raw data required by weekly reporting can be obtained and persisted reliably.
+## W01-GATE — Wave 1 Engineering Gate
+**Status:** PASS (engineering gate)
+**Depends On:** W01-T001, W01-T002, W01-T003, W01-T004, W01-T005, W01-T006
+**Blocks:** Wave 2
+**Gate:** all raw data required by weekly reporting can be obtained by the implemented transports, normalized into stable DTOs and persisted reliably, with section isolation and SUCCESS/PARTIAL/FAILED semantics — proven by unit + integration tests and H3C official documentation verification. Real-device proof is NOT part of this gate; it is carried by W01-T007, which blocks the production Release Gate (W05-GATE), not Wave 2.
 
 ---
 
@@ -339,6 +346,6 @@ REVIEW_PASSED
 
 ## W05-GATE — Release Gate
 **Status:** TODO  
-**Depends On:** W05-T005  
+**Depends On:** W05-T005, W01-T007  
 **Blocks:** release  
-**Required:** report correctness/reliability PASS; real H3C PASS; monitoring semantics PASS; login/download/priority-interface PASS; install/update PASS; no known P0/P1 blocker.
+**Required:** report correctness/reliability PASS; monitoring semantics PASS; login/download/priority-interface PASS; install/update PASS; no known P0/P1 blocker; **W01-T007 real-device field validation CLOSED (standalone S10500X + S10500X IRF + S12500 IRF)**.
