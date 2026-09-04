@@ -4,8 +4,8 @@
 
 ```text
 Current Wave: W00
-Current Task: W00-T002 / W00-T003 (both READY)
-Current Task Status: W00-T001 REVIEW_PASSED
+Current Task: W00-T002
+Current Task Status: IN_PROGRESS
 Branch: work/wave-00
 ```
 
