@@ -1,0 +1,67 @@
+# Compose services are fixed to web / worker / postgres (SYSTEM_SPEC.md §25).
+# web and worker share the same application image with different commands.
+#
+# Requires a .env file next to this file (see .env.example). PostgreSQL data
+# and generated reports persist under ${NETWORK_REPORT_DATA_DIR}.
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: network-weekly-app:0.1.0
+    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
+      NETWORK_REPORT_ENVIRONMENT: production
+      NETWORK_REPORT_DATA_DIR: /var/lib/network-report
+      TZ: Asia/Shanghai
+    volumes:
+      - ${NETWORK_REPORT_DATA_DIR:-./data}/reports:/var/lib/network-report/reports
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Real /health request (W00-T005): the web app must actually respond.
+      test: ["CMD", "python", "-c", "import json, sys, urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3); d = json.load(r); sys.exit(0 if r.status == 200 and d.get('status') == 'ok' else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  worker:
+    image: network-weekly-app:0.1.0
+    command: ["python", "-m", "backend.worker"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
+      NETWORK_REPORT_ENVIRONMENT: production
+      NETWORK_REPORT_DATA_DIR: /var/lib/network-report
+      TZ: Asia/Shanghai
+    volumes:
+      - ${NETWORK_REPORT_DATA_DIR:-./data}/reports:/var/lib/network-report/reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    volumes:
+      - ${NETWORK_REPORT_DATA_DIR:-./data}/postgres:/var/lib/postgresql/data
+    ports:
+      # Loopback only: exposed for host-side Alembic/pytest runs during development.
+      - "127.0.0.1:15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
