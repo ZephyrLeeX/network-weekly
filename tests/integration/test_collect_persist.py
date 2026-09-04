@@ -169,6 +169,36 @@ def test_persist_collection_with_identity_only(
         assert session.scalar(select(func.count()).select_from(Interface)) == 0
 
 
+def test_persist_collection_with_failed_aggregations_section_keeps_state(
+    db_engine: Engine, device_id: int
+) -> None:
+    """A failed aggregations section (None) must never clear stale state."""
+
+    with Session(db_engine) as session:
+        persist_collection(session, device_id, _outcome(), NOW)
+        session.commit()
+        assert session.scalar(select(func.count()).select_from(AggregationMember)) == 1
+
+        # Section failed on the next poll: outcome.aggregations is None.
+        outcome = DeviceCollectionOutcome(
+            device_name="core-s10500x-irf",
+            sections=[
+                SectionResult(name="identity", status="SUCCESS"),
+                SectionResult(name="aggregations", status="FAILED", error="SnmpError"),
+            ],
+            interfaces=[_iface(49, "Ten-GigabitEthernet1/0/49"), _iface(65, "Bridge-Aggregation1")],
+            aggregations=None,
+        )
+        persist_collection(session, device_id, outcome, NOW)
+        session.commit()
+
+        assert session.scalar(select(func.count()).select_from(AggregationMember)) == 1
+        agg = session.execute(
+            select(Interface).where(Interface.normalized_name == "bridge-aggregation1")
+        ).scalar_one()
+        assert agg.is_aggregation is True
+
+
 def test_persist_unknown_device_rejected(db_engine: Engine) -> None:
     with Session(db_engine) as session:
         with pytest.raises(ValueError, match="does not exist"):

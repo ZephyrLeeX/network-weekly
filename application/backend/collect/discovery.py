@@ -118,11 +118,18 @@ def sync_aggregations(
 ) -> AggregationSyncReport:
     """Persist aggregation -> member membership from the current mapping.
 
-    Membership rows not present in the current mapping are removed so the
-    database reflects the device (a port leaving a lag must not stay a
-    member). Interfaces involved must already have been discovered (their
-    ifIndex must map to a row); anything unresolvable is reported, never
-    guessed.
+    The database is reconciled to the device, both directions:
+
+    - Membership rows for a still-mapped aggregation follow the current
+      member list (a port leaving a lag must not stay a member).
+    - Membership rows and `is_aggregation` flags whose aggregation no
+      longer appears in the mapping are removed — a successful collection
+      that reports *no* aggregations clears stale state. Callers must only
+      invoke this with mappings from a *successful* collection
+      (`aggregations is not None`); a failed collection never clears.
+
+    Interfaces involved must already have been discovered (their ifIndex
+    must map to a row); anything unresolvable is reported, never guessed.
     """
 
     rows = (
@@ -131,6 +138,8 @@ def sync_aggregations(
         .all()
     )
     by_if_index = {row.if_index: row for row in rows if row.if_index is not None}
+    by_id = {row.id: row for row in rows}
+    mapped_agg_if_indexes = {mapping.aggregation_if_index for mapping in mappings}
 
     unresolved: list[str] = []
     added = removed = 0
@@ -173,6 +182,26 @@ def sync_aggregations(
             if member_id not in desired_ids:
                 session.delete(membership)
                 removed += 1
+
+    # Stale state: memberships (and the aggregation flag) whose aggregation
+    # interface is absent from the current successful mapping. Rows whose
+    # ifIndex is unknown are left alone rather than guessed.
+    for membership in session.execute(
+        select(AggregationMember).where(
+            AggregationMember.aggregation_interface_id.in_(by_id.keys())
+        )
+    ).scalars():
+        agg_row = by_id[membership.aggregation_interface_id]
+        if agg_row.if_index is not None and agg_row.if_index not in mapped_agg_if_indexes:
+            session.delete(membership)
+            removed += 1
+    for row in rows:
+        if (
+            row.is_aggregation
+            and row.if_index is not None
+            and row.if_index not in mapped_agg_if_indexes
+        ):
+            row.is_aggregation = False
 
     if unresolved:
         logger.warning(
