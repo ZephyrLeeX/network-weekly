@@ -3,29 +3,42 @@
 ## Current execution
 
 ```text
-Current Wave: W00
-Current Task: W00-T005
-Current Task Status: IN_PROGRESS
-Branch: work/wave-00
+Current Wave: W01
+Current Task: W01-T001 / W01-T002 (both READY)
+Current Task Status: W00-GATE PASS, Wave 0 closed
+Branch: main (Wave 0 merged; create work/wave-01 for the next Task)
 ```
 
 ## Last completed task
 
 ```text
-W00-T004 — PostgreSQL and Alembic baseline: REVIEW_PASSED
-Checkpoint: deed3fd266ed56b8fb7e936bbf972bd197e30cff
+W00-GATE — Foundation Gate: PASS
+W00-T005 — Runtime config, logging, health and worker heartbeat: REVIEW_PASSED
+Checkpoint: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1 (+ cleanup 5f0d14333c094cea81bea711dc1c56244ce2ea5b)
 ```
 
 ## Last checkpoint
 
 ```text
-W00-T004 checkpoint: deed3fd266ed56b8fb7e936bbf972bd197e30cff
+W00-T005 checkpoint: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1
+W00-GATE verification: see merge commit into main (recorded in next state commit)
+```
+
+## Checkpoint ledger (Wave 0)
+
+```text
+W00-T001: cd65eee2e5979785939f35f273d364f4cd4826f0
+W00-T002: 7f00ce12021477f00cfeb9c0673edb8e5ebe92a2
+W00-T003: ba575e6e231d627cd3906bac8b84572f94fe3f39
+W00-T004: deed3fd266ed56b8fb7e936bbf972bd197e30cff
+W00-T005: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1
+W00-GATE: PASS
 ```
 
 ## Blocked tasks
 
 ```text
-W00-GATE (blocked by W00-T005)
+None in W01 pending pickup; W01-T003+ wait on W01 internals.
 ```
 
 ## Open design gaps
@@ -37,13 +50,15 @@ None
 ## Next ready candidates
 
 ```text
-W00-T005 — Runtime config, logging, health and worker heartbeat
+W01-T001 — Device inventory and secrets loading (READY)
+W01-T002 — Device, member, interface and aggregation schema (READY)
+W01 implementation was NOT started in the Wave 0 session.
 ```
 
 ## Current Wave Gate
 
 ```text
-W00-GATE — Foundation Gate
+W01-GATE — Real H3C Gate
 Status: TODO
 ```
 

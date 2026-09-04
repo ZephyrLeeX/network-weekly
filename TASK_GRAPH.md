@@ -50,14 +50,14 @@ REVIEW_PASSED
 **Acceptance:** fresh PostgreSQL reaches Alembic head; production schema creation is migration-driven.
 
 ## W00-T005 — Runtime config, logging, health and worker heartbeat
-**Status:** READY  
+**Status:** REVIEW_PASSED  
 **Depends On:** W00-T002, W00-T004  
 **Blocks:** W01-T003, W05-T001  
 **Scope:** runtime config; explicit Asia/Shanghai; secret-safe logging; health endpoint; persistent worker heartbeat.  
 **Acceptance:** timezone is explicit; secret patterns are redacted; web health and worker heartbeat are independently testable.
 
 ## W00-GATE — Foundation Gate
-**Status:** TODO  
+**Status:** PASS  
 **Depends On:** W00-T004, W00-T005  
 **Blocks:** Wave 1  
 **Gate:** web/worker/postgres/Alembic/tests/lint/type operational; dependencies match `SYSTEM_SPEC.md`.
@@ -67,14 +67,14 @@ REVIEW_PASSED
 # Wave 1 — Real H3C Collection
 
 ## W01-T001 — Device inventory and secrets loading
-**Status:** TODO  
+**Status:** READY  
 **Depends On:** W00-GATE  
 **Blocks:** W01-T003, W01-T005  
 **Scope:** `/etc/network-report/devices.toml`; `/etc/network-report/secrets.env`; inventory sync; permission validation.  
 **Acceptance:** current 10 logical devices are representable; secrets file must be `0600`; secrets are never logged or returned.
 
 ## W01-T002 — Device, member, interface and aggregation schema
-**Status:** TODO  
+**Status:** READY  
 **Depends On:** W00-GATE  
 **Blocks:** W01-T004, W01-T005, W01-T006  
 **Scope:** Device, DeviceMember, Interface, aggregation member relationship; normalized interface identity.  
