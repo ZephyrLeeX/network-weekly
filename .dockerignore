@@ -1,0 +1,14 @@
+# Keep the build context to what the image actually needs.
+.git
+.venv
+.env
+data
+tests
+docs
+scripts
+.idea
+.vscode
+.pytest_cache
+.mypy_cache
+.ruff_cache
+**/__pycache__
