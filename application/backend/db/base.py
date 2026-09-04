@@ -8,4 +8,4 @@ from sqlalchemy.orm import DeclarativeBase
 
 
 class Base(DeclarativeBase):
-    pass
+    """Declarative base shared by every ORM model in this project."""
