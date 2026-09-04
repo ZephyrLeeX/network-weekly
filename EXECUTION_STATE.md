@@ -46,12 +46,16 @@ W00-GATE revalidated after audit hotfix: PASS
 ```text
 W01-T002: 28a94107ef52d4546eb29ad10e72a588be96d33d
 W01-T001: dc8e021f9b2059fa3867b5b3bc53c1e6dca0b22b
+W01-T003: 891ad123d838b3dc2a144de760eb4bd0b78c08bc (BLOCKED: real-device evidence)
 ```
 
 ## Blocked tasks
 
 ```text
-None in W01 pending pickup; W01-T003+ wait on W01 internals.
+W01-T003: BLOCKED for REVIEW_PASSED — no reachable real S10500X/S12500 in
+  this environment. Code implemented + unit-tested (synthetic fixtures);
+  real-device collection evidence still required. Same condition is
+  expected to apply to W01-T004/T005/T006 and W01-GATE.
 ```
 
 ## Open design gaps

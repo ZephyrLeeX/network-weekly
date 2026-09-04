@@ -98,9 +98,9 @@ REVIEW_PASSED
 **Notes:** PySNMP 7.x is asyncio-only; `SnmpClient` provides a sync facade with per-request timeout/retries and a wall-clock walk deadline. H3C entity-ext CPU/memory OIDs and the dot3Agg membership OID are documented in `backend/collect/h3c/oids.py` as pending real-device confirmation. Fixtures in `tests/fixtures/h3c/` are synthetic placeholders (see their README) to be replaced by anonymized real captures in W01-T007.
 
 ## W01-T004 — Interface discovery and aggregation mapping
-**Status:** TODO  
-**Depends On:** W01-T002, W01-T003  
-**Blocks:** W01-T006, W02-T005  
+**Status:** BLOCKED (real-device evidence unavailable; discovery/persistence service implemented and integration-tested, REVIEW_PASSED withheld until real interface + aggregation evidence exists)
+**Depends On:** W01-T002, W01-T003
+**Blocks:** W01-T006, W02-T005
 **Acceptance:** real interfaces persist; logical aggregation interfaces are identified; member mapping persists; ifIndex changes do not duplicate business interfaces.
 
 ## W01-T005 — Limited SSH transport and IRF discovery
