@@ -118,15 +118,15 @@ REVIEW_PASSED
 **Acceptance:** one parser/section failure does not discard valid device data; secrets absent from persisted diagnostic fields.
 
 ## W01-T007 — Real-device collection acceptance
-**Status:** TODO  
-**Depends On:** W01-T006  
-**Blocks:** W01-GATE  
+**Status:** TODO (cannot execute: no reachable real S10500X/S12500 in this environment)
+**Depends On:** W01-T006
+**Blocks:** W01-GATE
 **Acceptance:** one standalone S10500X, one S10500X IRF and one S12500 IRF validated end-to-end with anonymized fixtures/evidence.
 
 ## W01-GATE — Real H3C Gate
-**Status:** TODO  
-**Depends On:** W01-T007  
-**Blocks:** Wave 2  
+**Status:** BLOCKED (all non-device gate checks PASS — 111 unit + 24 integration tests, ruff, mypy, alembic 0002 head, compose smoke healthy; real-device evidence missing, so PASS is impossible without mocks and was not claimed)
+**Depends On:** W01-T007
+**Blocks:** Wave 2
 **Gate:** real devices prove all raw data required by weekly reporting can be obtained and persisted reliably.
 
 ---

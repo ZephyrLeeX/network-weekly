@@ -4,18 +4,18 @@
 
 ```text
 Current Wave: W01
-Current Task: W01-T003 (BLOCKED for real-device sign-off; code may proceed)
-Current Task Status: W01-T001 + W01-T002 REVIEW_PASSED
-Branch: work/wave-01
+Current Task: W01-GATE (BLOCKED — real-device evidence unavailable)
+Current Task Status: W01-T001/T002 REVIEW_PASSED; T003–T006 implemented+tested, BLOCKED for real-device sign-off
+Branch: work/wave-01 (NOT merged — gate not PASS)
 ```
 
 ## Last completed task
 
 ```text
-W01-T001 — Device inventory and secrets loading: REVIEW_PASSED
-  (devices.toml loader with validation; 0600-enforced secrets.env loader
-   registering values for log redaction; inventory_sync upsert CLI;
-   docs/devices.toml.example + docs/secrets.env.example)
+W01-GATE non-device verification (no task status change):
+  uv sync --frozen OK; pytest 111 unit + 24 integration pass; ruff clean;
+  mypy clean; alembic upgrade head idempotent at 0002; compose rebuild +
+  smoke: web healthy, worker heartbeat persistent.
 ```
 
 ## Last checkpoint
@@ -77,7 +77,13 @@ real device is reachable they must stay BLOCKED (no mock sign-off).
 
 ```text
 W01-GATE — Real H3C Gate
-Status: TODO
+Status: BLOCKED — real S10500X/S12500 evidence unavailable in this
+environment; NOT PASS, NOT merged to main. All non-device gate checks
+already PASS (tests/lint/types/migrations/compose smoke). When real device
+access exists: run W01-T007 evidence collection (standalone S10500X,
+S10500X IRF, S12500 IRF), replace synthetic fixtures in
+tests/fixtures/h3c/, confirm OIDs in backend/collect/h3c/oids.py, then
+re-run the gate and merge.
 ```
 
 ## Product baseline
