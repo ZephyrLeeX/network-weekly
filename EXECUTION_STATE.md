@@ -12,6 +12,10 @@ Branch: main (Wave 0 merged; create work/wave-01 for the next Task)
 ## Last completed task
 
 ```text
+W00-AUDIT — Wave 0 audit hotfix: REVIEW_PASSED
+  (web/uvicorn secret redaction wiring, integration-test DB destruction guard,
+   compose config injection, reports volume writability, dispose_engine,
+   README corrections; no W01 work started)
 W00-GATE — Foundation Gate: PASS
 W00-T005 — Runtime config, logging, health and worker heartbeat: REVIEW_PASSED
 Checkpoint: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1 (+ cleanup 5f0d14333c094cea81bea711dc1c56244ce2ea5b)
@@ -20,6 +24,7 @@ Checkpoint: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1 (+ cleanup 5f0d14333c094cea
 ## Last checkpoint
 
 ```text
+W00-AUDIT checkpoint: recorded after the audit-fix commit lands (see ledger)
 W00-T005 checkpoint: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1
 W00-GATE verification commit: 9798e87 (work/wave-00), merged into main as a1f539344f854597eb9f980b620c2e6accd00606
 ```
@@ -33,6 +38,8 @@ W00-T003: ba575e6e231d627cd3906bac8b84572f94fe3f39
 W00-T004: deed3fd266ed56b8fb7e936bbf972bd197e30cff
 W00-T005: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1
 W00-GATE: PASS
+W00-AUDIT: see git log for the wave-00-audit-fix checkpoint commit
+W00-GATE revalidated after audit hotfix: PASS
 ```
 
 ## Blocked tasks
@@ -52,7 +59,7 @@ None
 ```text
 W01-T001 — Device inventory and secrets loading (READY)
 W01-T002 — Device, member, interface and aggregation schema (READY)
-W01 implementation was NOT started in the Wave 0 session.
+Wave 1 implementation was NOT started in the Wave 0 audit-fix session.
 ```
 
 ## Current Wave Gate

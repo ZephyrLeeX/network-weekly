@@ -21,6 +21,7 @@ import logging
 import re
 import sys
 import threading
+import traceback
 from typing import IO
 
 from sqlalchemy.engine import make_url
@@ -91,11 +92,24 @@ def redact_text(text: str) -> str:
 
 
 class SecretRedactingFilter(logging.Filter):
-    """Mutates a record's message so every downstream formatter is safe."""
+    """Mutates a record so every downstream formatter is safe.
+
+    Besides the rendered message, pre-rendered exception traceback text
+    (`exc_text`) and stack information are redacted in place. Formatting a
+    record's traceback happens per handler; redacting it once here means
+    handlers with their own formatters (uvicorn's, for example) cannot emit
+    secret material contained in an exception or its traceback either.
+    """
 
     def filter(self, record: logging.LogRecord) -> bool:
         record.msg = redact_text(record.getMessage())
         record.args = ()
+        if record.exc_info is not None:
+            if record.exc_text is None:
+                record.exc_text = "".join(traceback.format_exception(*record.exc_info))
+            record.exc_text = redact_text(record.exc_text)
+        if record.stack_info:
+            record.stack_info = redact_text(record.stack_info)
         return True
 
 
@@ -108,6 +122,22 @@ class SecretRedactingFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         return redact_text(super().format(record))
+
+
+class SecretRedactingFormatterWrapper(logging.Formatter):
+    """Wraps an existing formatter and redacts whatever it renders.
+
+    Used for the loggers uvicorn configures itself: their formatters may
+    depend on `record.args` (the access log unpacks a 5-tuple), so records
+    must not be mutated — only the final rendered line is redacted here.
+    """
+
+    def __init__(self, wrapped: logging.Formatter) -> None:
+        super().__init__()
+        self.wrapped = wrapped
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_text(self.wrapped.format(record))
 
 
 def _register_configured_secrets(settings: Settings) -> None:
@@ -145,10 +175,21 @@ def setup_logging(
     root.addHandler(handler)
 
     if configure_uvicorn:
-        # uvicorn installs its own handlers/log levels when it starts; attach the
-        # redacting filter to those loggers so their records are safe as well.
+        # uvicorn installs its own handlers/log levels/formatters when it
+        # starts. Their records must not be mutated (the access formatter
+        # unpacks record.args), so wrap each of their formatters instead:
+        # every rendered access/error line — including exception tracebacks —
+        # is redacted while uvicorn's own formatting stays intact.
         for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
             uvicorn_logger = logging.getLogger(name)
             uvicorn_logger.setLevel(level)
-            if not any(isinstance(f, SecretRedactingFilter) for f in uvicorn_logger.filters):
-                uvicorn_logger.addFilter(SecretRedactingFilter())
+            for uvicorn_handler in uvicorn_logger.handlers:
+                formatter = uvicorn_handler.formatter
+                if isinstance(formatter, SecretRedactingFormatterWrapper):
+                    continue
+                if formatter is None:
+                    uvicorn_handler.setFormatter(
+                        SecretRedactingFormatter("%(levelname)s %(name)s %(message)s")
+                    )
+                else:
+                    uvicorn_handler.setFormatter(SecretRedactingFormatterWrapper(formatter))

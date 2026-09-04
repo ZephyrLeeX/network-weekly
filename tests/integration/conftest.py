@@ -2,6 +2,11 @@
 
 Tests here never use SQLite: migrations and database behavior are validated
 against PostgreSQL only (SYSTEM_SPEC.md runtime database).
+
+The test database is dropped/recreated through `db_guard`, which refuses any
+target that is not an obvious test database on a loopback address (or that
+lacks the explicit destructive-test opt-in). Database names are always bound
+via `psycopg.sql.Identifier`, never interpolated into SQL strings.
 """
 
 import os
@@ -14,6 +19,13 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from db_guard import (
+    assert_destructive_target_allowed,
+    create_database_statement,
+    database_name,
+    drop_database_statement,
+    to_psycopg_dsn,
+)
 from sqlalchemy import Engine, create_engine
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -23,20 +35,10 @@ DEFAULT_TEST_URL = (
 )
 
 
-def to_psycopg_dsn(sqlalchemy_url: str) -> str:
-    """Convert a `postgresql+psycopg://` URL into a plain psycopg DSN."""
-
-    return sqlalchemy_url.replace("postgresql+psycopg://", "postgresql://", 1)
-
-
 def _admin_dsn(sqlalchemy_url: str) -> str:
     dsn = to_psycopg_dsn(sqlalchemy_url)
     parts = urlsplit(dsn)
     return urlunsplit((parts.scheme, parts.netloc, "postgres", parts.query, ""))
-
-
-def _database_name(sqlalchemy_url: str) -> str:
-    return urlsplit(to_psycopg_dsn(sqlalchemy_url)).path.lstrip("/")
 
 
 @pytest.fixture(scope="session")
@@ -56,11 +58,12 @@ def migrated_database_url(alembic_cfg: Config) -> Iterator[str]:
     """A fresh test database migrated to head with the real Alembic migrations."""
 
     test_url = os.environ.get("NETWORK_REPORT_TEST_DATABASE_URL", DEFAULT_TEST_URL)
-    dbname = _database_name(test_url)
+    assert_destructive_target_allowed(test_url)
+    dbname = database_name(test_url)
 
     with psycopg.connect(_admin_dsn(test_url), autocommit=True) as admin:
-        admin.execute(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)')
-        admin.execute(f'CREATE DATABASE "{dbname}"')
+        admin.execute(drop_database_statement(dbname))
+        admin.execute(create_database_statement(dbname))
 
     previous = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = test_url
@@ -72,8 +75,9 @@ def migrated_database_url(alembic_cfg: Config) -> Iterator[str]:
             os.environ.pop("DATABASE_URL", None)
         else:
             os.environ["DATABASE_URL"] = previous
+        assert_destructive_target_allowed(test_url)
         with psycopg.connect(_admin_dsn(test_url), autocommit=True) as admin:
-            admin.execute(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)')
+            admin.execute(drop_database_statement(dbname))
 
 
 @pytest.fixture

@@ -23,6 +23,11 @@ RUN uv sync --frozen --no-dev --no-editable
 FROM python:3.14-slim-trixie
 RUN groupadd --system --gid 1000 app \
     && useradd --system --uid 1000 --gid app --home-dir /app app
+# Report storage (SYSTEM_SPEC.md §5). The reports volume is seeded from this
+# app-owned directory, so the non-root app user can create/write/read/delete
+# generated DOCX files even on a clean host.
+RUN mkdir -p /var/lib/network-report/reports \
+    && chown -R app:app /var/lib/network-report
 WORKDIR /app
 COPY --from=build /app/.venv /app/.venv
 # Migration-driven schema management (SYSTEM_SPEC.md §23/§26): the image can
