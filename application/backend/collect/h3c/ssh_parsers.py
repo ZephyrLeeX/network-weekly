@@ -11,28 +11,38 @@ import re
 
 from backend.collect.dto import IrfMemberSample
 
-# display version: "H3C Comware Platform Software, Software Version 7.1.070, Release 7510P21"
-_VERSION_RE = re.compile(r"Software Version\s+(\S+)")
-# display version: "H3C S10508X uptime is 0 week, 0 day, 3 hours, 12 minutes" (model line)
-_MODEL_RE = re.compile(r"^\s*H3C\s+(S\d+[A-Z0-9X]*)", re.MULTILINE)
+# Comware `display version` software line. Verified shapes (H3C Comware 7
+# S10500/S12500 documentation):
+#   "H3C Comware Software, Version 7.1.070, Release 7596P10"
+#   "H3C Comware Platform Software, Software Version 7.1.070, Release 7510P21"
+_VERSION_RE = re.compile(r"Version\s+(?P<version>\d[\w.]*)", re.IGNORECASE)
+_RELEASE_RE = re.compile(r"Release\s+(?P<release>\d[\w.-]*)", re.IGNORECASE)
+# Model line: "H3C S10508X uptime is ..." / "H3C S12516X-G uptime is ...".
+_MODEL_RE = re.compile(r"^\s*H3C\s+(?P<model>S\d+[A-Z0-9X]*(?:-G)?)\b", re.MULTILINE)
 
 # Table rows of `display irf` / `display irf configuration`. Leading IRF
 # markers (`*` = master, `+` = logged-in member) may precede the member id.
 _ROW_RE = re.compile(r"^\s*[*+]*\s*(?P<member>\d+)\s+(?P<rest>\S.*?)\s*$")
 
 # Role tokens accepted verbatim. Kept to the documented Comware IRF role
-# vocabulary; anything else leaves role as None instead of guessing.
-_KNOWN_ROLES = {"master", "slave", "backup", "standing", "running"}
+# vocabulary (Master/Slave, plus Standby as reported by some Comware 7
+# releases); anything else leaves role as None instead of guessing.
+_KNOWN_ROLES = {"master", "slave", "backup", "standby"}
 
 
 def parse_display_version(text: str) -> dict[str, str | None]:
-    """Extract (version, model) from `display version`; unknown stays None."""
+    """Extract (version, release, model) from `display version`.
+
+    Anything the output does not identify with confidence stays None.
+    """
 
     version = _VERSION_RE.search(text)
+    release = _RELEASE_RE.search(text)
     model = _MODEL_RE.search(text)
     return {
-        "version": version.group(1) if version else None,
-        "model": model.group(1) if model else None,
+        "version": version.group("version") if version else None,
+        "release": release.group("release") if release else None,
+        "model": model.group("model") if model else None,
     }
 
 

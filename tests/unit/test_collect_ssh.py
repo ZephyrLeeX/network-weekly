@@ -92,8 +92,28 @@ def test_check_reachable_true_and_false() -> None:
 
 def test_parse_display_version() -> None:
     parsed = parse_display_version(_fixture_text("display_version_s10500x.json"))
-    assert parsed["version"] == "7.1.070,"
+    # Official Comware 7 shape: "H3C Comware Software, Version 7.1.070,
+    # Release 7596P10".
+    assert parsed["version"] == "7.1.070"
+    assert parsed["release"] == "7596P10"
     assert parsed["model"] == "S10508X"
+
+
+def test_parse_display_version_platform_variant() -> None:
+    # Older "Comware Platform Software, Software Version ..." wording.
+    parsed = parse_display_version(
+        "H3C Comware Platform Software, Software Version 7.1.070, Release 7510P21\n"
+        "Copyright (c) 2004-2026 New H3C Technologies Co., Ltd.\n"
+        "H3C S12516X-G uptime is 1 week, 2 days, 3 hours, 4 minutes"
+    )
+    assert parsed["version"] == "7.1.070"
+    assert parsed["release"] == "7510P21"
+    assert parsed["model"] == "S12516X-G"
+
+
+def test_parse_display_version_unknown_stays_none() -> None:
+    parsed = parse_display_version("unrecognizable output")
+    assert parsed == {"version": None, "release": None, "model": None}
 
 
 def test_parse_display_irf_members_and_roles() -> None:
@@ -112,3 +132,74 @@ def test_parse_display_irf_configuration_member_ids() -> None:
         _fixture_text("display_irf_configuration_s10500x.json")
     )
     assert [m.member_id for m in members] == [1, 2]
+
+
+class _StubSshClient:
+    """H3CSshClient stub: command -> output text or SshError."""
+
+    def __init__(self, outputs: dict[str, str | Exception]) -> None:
+        self._outputs = outputs
+        self.ran: list[str] = []
+
+    def run(self, command: str) -> str:
+        self.ran.append(command)
+        result = self._outputs[command]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def test_collect_software_info_from_display_version() -> None:
+    from backend.collect.h3c.ssh_collectors import collect_software_info
+
+    client = _StubSshClient({"display version": _fixture_text("display_version_s10500x.json")})
+    software = collect_software_info(client)  # type: ignore[arg-type]
+    assert software.version == "7.1.070"
+    assert software.release == "7596P10"
+    assert software.model == "S10508X"
+    assert software.software_version == "7.1.070 Release 7596P10"
+
+
+def test_collect_irf_members_merges_both_commands() -> None:
+    from backend.collect.h3c.ssh_collectors import collect_irf_members
+
+    client = _StubSshClient(
+        {
+            "display irf": _fixture_text("display_irf_s10500x.json"),
+            "display irf configuration": _fixture_text(
+                "display_irf_configuration_s10500x.json"
+            ),
+        }
+    )
+    members = collect_irf_members(client)  # type: ignore[arg-type]
+    assert [(m.member_id, m.role) for m in members] == [(1, "Master"), (2, "Slave")]
+
+
+def test_collect_irf_members_falls_back_to_configuration_only() -> None:
+    from backend.collect.h3c.ssh_collectors import collect_irf_members
+
+    client = _StubSshClient(
+        {
+            "display irf": SshError("ssh command failed: OSError"),
+            "display irf configuration": _fixture_text(
+                "display_irf_configuration_s10500x.json"
+            ),
+        }
+    )
+    members = collect_irf_members(client)  # type: ignore[arg-type]
+    # Member ids survive; roles stay None (never guessed from configuration).
+    assert [m.member_id for m in members] == [1, 2]
+    assert all(m.role is None for m in members)
+
+
+def test_collect_irf_members_no_rows_is_error() -> None:
+    from backend.collect.h3c.ssh_collectors import collect_irf_members
+
+    client = _StubSshClient(
+        {
+            "display irf": "garbage output",
+            "display irf configuration": "garbage output",
+        }
+    )
+    with pytest.raises(SshError, match="no IRF member rows"):
+        collect_irf_members(client)  # type: ignore[arg-type]
