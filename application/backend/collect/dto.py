@@ -75,6 +75,21 @@ class InterfaceSample:
 
 
 @dataclass(frozen=True)
+class IrfMemberSample:
+    """One IRF member (chassis) as observed over SSH (SYSTEM_SPEC.md §17).
+
+    `role` is the role string exactly as the device reports it (e.g.
+    "Master"/"Slave"/"Backup"); it stays None when the source output does
+    not identify roles reliably — never guessed.
+    """
+
+    member_id: int
+    role: str | None = None
+    model: str | None = None
+    software_version: str | None = None
+
+
+@dataclass(frozen=True)
 class AggregationMapping:
     """aggregation interface -> physical member interfaces (SYSTEM_SPEC.md §11)."""
 

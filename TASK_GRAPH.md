@@ -104,10 +104,10 @@ REVIEW_PASSED
 **Acceptance:** real interfaces persist; logical aggregation interfaces are identified; member mapping persists; ifIndex changes do not duplicate business interfaces.
 
 ## W01-T005 — Limited SSH transport and IRF discovery
-**Status:** TODO  
-**Depends On:** W01-T001, W01-T002  
-**Blocks:** W01-T006, W02-T004  
-**Scope:** explicit read-only identity/version/IRF commands plus lightweight reachability confirmation.  
+**Status:** BLOCKED (real-device evidence unavailable; allowlisted SSH transport + IRF parsers implemented and unit-tested, REVIEW_PASSED withheld until real IRF member/role evidence exists)
+**Depends On:** W01-T001, W01-T002
+**Blocks:** W01-T006, W02-T004
+**Scope:** explicit read-only identity/version/IRF commands plus lightweight reachability confirmation.
 **Acceptance:** S10500X IRF and S12500 IRF member count/identity/role can be normalized from real-device evidence.
 
 ## W01-T006 — Normalized collection DTO and persistence

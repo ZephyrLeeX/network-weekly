@@ -10,6 +10,7 @@ from backend.collect.dto import (
     DeviceIdentity,
     EntityLoadSample,
     InterfaceSample,
+    IrfMemberSample,
     normalize_interface_name,
 )
 
@@ -18,5 +19,6 @@ __all__ = [
     "DeviceIdentity",
     "EntityLoadSample",
     "InterfaceSample",
+    "IrfMemberSample",
     "normalize_interface_name",
 ]
