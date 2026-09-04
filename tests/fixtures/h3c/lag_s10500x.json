@@ -1,0 +1,10 @@
+{
+  "_comment": "SYNTHETIC placeholder — replace with anonymized real capture (see README.md)",
+  "column": "1.2.840.10006.300.43.1.2.1.1.13",
+  "varbinds": [
+    {"oid": "1.2.840.10006.300.43.1.2.1.1.13.1", "value": 0},
+    {"oid": "1.2.840.10006.300.43.1.2.1.1.13.2", "value": 0},
+    {"oid": "1.2.840.10006.300.43.1.2.1.1.13.49", "value": 65},
+    {"oid": "1.2.840.10006.300.43.1.2.1.1.13.50", "value": 65}
+  ]
+}

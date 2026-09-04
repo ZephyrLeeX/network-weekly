@@ -90,11 +90,12 @@ REVIEW_PASSED
 **Checkpoint:** see EXECUTION_STATE.md checkpoint ledger (executed before W01-T001 so inventory sync has real schema coverage at its own checkpoint; both tasks depend only on W00-GATE).
 
 ## W01-T003 — SNMP transport and basic H3C collection
-**Status:** TODO  
-**Depends On:** W01-T001  
-**Blocks:** W01-T004, W01-T006  
-**Scope:** bounded SNMP timeouts/retries; identity, CPU, memory, interface state, speed and counters.  
+**Status:** BLOCKED (real-device evidence unavailable in this environment; transport + parsers implemented and unit-tested, REVIEW_PASSED withheld until real S10500X collection evidence exists)
+**Depends On:** W01-T001
+**Blocks:** W01-T004, W01-T006
+**Scope:** bounded SNMP timeouts/retries; identity, CPU, memory, interface state, speed and counters.
 **Acceptance:** real standalone S10500X can be collected; errors normalize cleanly; bulk/walk used where appropriate.
+**Notes:** PySNMP 7.x is asyncio-only; `SnmpClient` provides a sync facade with per-request timeout/retries and a wall-clock walk deadline. H3C entity-ext CPU/memory OIDs and the dot3Agg membership OID are documented in `backend/collect/h3c/oids.py` as pending real-device confirmation. Fixtures in `tests/fixtures/h3c/` are synthetic placeholders (see their README) to be replaced by anonymized real captures in W01-T007.
 
 ## W01-T004 — Interface discovery and aggregation mapping
 **Status:** TODO  

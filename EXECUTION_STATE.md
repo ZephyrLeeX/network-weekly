@@ -4,22 +4,24 @@
 
 ```text
 Current Wave: W01
-Current Task: W01-T001 (READY -> next)
-Current Task Status: W01-T002 REVIEW_PASSED
+Current Task: W01-T003 (BLOCKED for real-device sign-off; code may proceed)
+Current Task Status: W01-T001 + W01-T002 REVIEW_PASSED
 Branch: work/wave-01
 ```
 
 ## Last completed task
 
 ```text
-W01-T002 — Device, member, interface and aggregation schema: REVIEW_PASSED
-  (migration 0002; executed before W01-T001 so inventory sync has real
-   schema coverage at its own checkpoint; both depend only on W00-GATE)
+W01-T001 — Device inventory and secrets loading: REVIEW_PASSED
+  (devices.toml loader with validation; 0600-enforced secrets.env loader
+   registering values for log redaction; inventory_sync upsert CLI;
+   docs/devices.toml.example + docs/secrets.env.example)
 ```
 
 ## Last checkpoint
 
 ```text
+W01-T001 checkpoint: dc8e021f9b2059fa3867b5b3bc53c1e6dca0b22b (work/wave-01)
 W01-T002 checkpoint: 28a94107ef52d4546eb29ad10e72a588be96d33d (work/wave-01)
 W00-AUDIT checkpoint: f9bf4ea4f3b48124e95e5cef3a6b78800a4549f8
 W00-T005 checkpoint: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1
@@ -43,6 +45,7 @@ W00-GATE revalidated after audit hotfix: PASS
 
 ```text
 W01-T002: 28a94107ef52d4546eb29ad10e72a588be96d33d
+W01-T001: dc8e021f9b2059fa3867b5b3bc53c1e6dca0b22b
 ```
 
 ## Blocked tasks
@@ -60,9 +63,10 @@ None
 ## Next ready candidates
 
 ```text
-W01-T001 — Device inventory and secrets loading (READY)
-W01-T003..T006, W01-GATE — real-device evidence still required; if no real
-S10500X/S12500 is reachable they must stay BLOCKED (no mock sign-off).
+W01-T003 — SNMP transport and basic H3C collection (READY)
+W01-T005 — Limited SSH transport and IRF discovery (READY after T001/T002)
+W01-T004, W01-T006, W01-GATE — require real S10500X/S12500 evidence; if no
+real device is reachable they must stay BLOCKED (no mock sign-off).
 ```
 
 ## Current Wave Gate
