@@ -4,7 +4,7 @@
 
 ```text
 Current Wave: W00
-Current Task: W00-T002
+Current Task: W00-T003
 Current Task Status: IN_PROGRESS
 Branch: work/wave-00
 ```
@@ -12,20 +12,22 @@ Branch: work/wave-00
 ## Last completed task
 
 ```text
-W00-T001 — Initialize repository structure: REVIEW_PASSED
-Checkpoint: cd65eee2e5979785939f35f273d364f4cd4826f0
+W00-T002 — Python project and quality toolchain: REVIEW_PASSED
+Checkpoint: 7f00ce12021477f00cfeb9c0673edb8e5ebe92a2
 ```
 
 ## Last checkpoint
 
 ```text
-W00-T001 checkpoint: cd65eee2e5979785939f35f273d364f4cd4826f0
+W00-T002 checkpoint: 7f00ce12021477f00cfeb9c0673edb8e5ebe92a2
 ```
 
 ## Blocked tasks
 
 ```text
-None
+W00-T004 (blocked by W00-T003)
+W00-T005 (blocked by W00-T004)
+W00-GATE (blocked by W00-T004, W00-T005)
 ```
 
 ## Open design gaps
@@ -37,7 +39,6 @@ None
 ## Next ready candidates
 
 ```text
-W00-T002 — Python project and quality toolchain
 W00-T003 — Compose skeleton
 ```
 

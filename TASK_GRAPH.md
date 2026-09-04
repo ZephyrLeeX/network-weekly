@@ -30,7 +30,7 @@ REVIEW_PASSED
 **Acceptance:** required directories and five control files exist; repository contains no implementation outside current Task.
 
 ## W00-T002 — Python project and quality toolchain
-**Status:** IN_PROGRESS  
+**Status:** REVIEW_PASSED  
 **Depends On:** W00-T001  
 **Blocks:** W00-T004, W00-T005  
 **Scope:** `pyproject.toml`, `uv.lock`, pytest, ruff, type-check command, dependencies required by `SYSTEM_SPEC.md`.  
