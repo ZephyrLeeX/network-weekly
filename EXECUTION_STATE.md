@@ -21,7 +21,7 @@ Checkpoint: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1 (+ cleanup 5f0d14333c094cea
 
 ```text
 W00-T005 checkpoint: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1
-W00-GATE verification: see merge commit into main (recorded in next state commit)
+W00-GATE verification commit: 9798e87 (work/wave-00), merged into main as a1f539344f854597eb9f980b620c2e6accd00606
 ```
 
 ## Checkpoint ledger (Wave 0)
