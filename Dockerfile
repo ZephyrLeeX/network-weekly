@@ -25,6 +25,10 @@ RUN groupadd --system --gid 1000 app \
     && useradd --system --uid 1000 --gid app --home-dir /app app
 WORKDIR /app
 COPY --from=build /app/.venv /app/.venv
+# Migration-driven schema management (SYSTEM_SPEC.md §23/§26): the image can
+# run `alembic upgrade head` during install/update.
+COPY migrations ./migrations
+COPY alembic.ini ./
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 USER app
