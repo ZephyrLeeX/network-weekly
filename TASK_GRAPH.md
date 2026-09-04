@@ -44,13 +44,13 @@ REVIEW_PASSED
 **Acceptance:** all three services start with correct separation of commands and persistent PostgreSQL/report storage.
 
 ## W00-T004 — PostgreSQL and Alembic baseline
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W00-T002, W00-T003  
 **Blocks:** W01-T001, W01-T002  
 **Acceptance:** fresh PostgreSQL reaches Alembic head; production schema creation is migration-driven.
 
 ## W00-T005 — Runtime config, logging, health and worker heartbeat
-**Status:** TODO  
+**Status:** READY  
 **Depends On:** W00-T002, W00-T004  
 **Blocks:** W01-T003, W05-T001  
 **Scope:** runtime config; explicit Asia/Shanghai; secret-safe logging; health endpoint; persistent worker heartbeat.  

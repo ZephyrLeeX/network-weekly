@@ -4,7 +4,7 @@
 
 ```text
 Current Wave: W00
-Current Task: W00-T004
+Current Task: W00-T005
 Current Task Status: IN_PROGRESS
 Branch: work/wave-00
 ```
@@ -12,21 +12,20 @@ Branch: work/wave-00
 ## Last completed task
 
 ```text
-W00-T003 — Compose skeleton: REVIEW_PASSED
-Checkpoint: ba575e6e231d627cd3906bac8b84572f94fe3f39
+W00-T004 — PostgreSQL and Alembic baseline: REVIEW_PASSED
+Checkpoint: deed3fd266ed56b8fb7e936bbf972bd197e30cff
 ```
 
 ## Last checkpoint
 
 ```text
-W00-T003 checkpoint: ba575e6e231d627cd3906bac8b84572f94fe3f39
+W00-T004 checkpoint: deed3fd266ed56b8fb7e936bbf972bd197e30cff
 ```
 
 ## Blocked tasks
 
 ```text
-W00-T005 (blocked by W00-T004)
-W00-GATE (blocked by W00-T004, W00-T005)
+W00-GATE (blocked by W00-T005)
 ```
 
 ## Open design gaps
@@ -38,7 +37,7 @@ None
 ## Next ready candidates
 
 ```text
-W00-T004 — PostgreSQL and Alembic baseline
+W00-T005 — Runtime config, logging, health and worker heartbeat
 ```
 
 ## Current Wave Gate
