@@ -50,11 +50,35 @@ class EntityLoadSample:
 
 
 @dataclass(frozen=True)
+class DeviceSoftwareInfo:
+    """Software identity from `display version` (SYSTEM_SPEC.md §7.2).
+
+    `version` is the Comware software version (e.g. "7.1.070"); `release`
+    is the release tag (e.g. "7596P10"); `model` is the chassis model token
+    (e.g. "S10508X"). Anything the output does not identify stays None.
+    """
+
+    version: str | None = None
+    release: str | None = None
+    model: str | None = None
+
+    @property
+    def software_version(self) -> str | None:
+        """Persisted form: "version Release release" or just version."""
+
+        if self.version is None:
+            return None
+        if self.release is None:
+            return self.version
+        return f"{self.version} Release {self.release}"
+
+
+@dataclass(frozen=True)
 class InterfaceSample:
     """One interface from the IF-MIB tables (SYSTEM_SPEC.md §10/§15/§16).
 
-    Counters are cumulative 64-bit values when the device provides ifHC*,
-    falling back to 32-bit otherwise; None when the device reports
+    Counters are cumulative 64-bit values when the device provides the HC
+    variant, falling back to 32-bit otherwise; None when the device reports
     no-such-instance for that column.
     """
 
@@ -62,8 +86,8 @@ class InterfaceSample:
     name: str
     normalized_name: str
     description: str | None
-    admin_state: str | None  # "up" / "down" / "testing" / None
-    oper_state: str | None
+    admin_state: str | None  # RFC 2863 ifAdminStatus vocabulary or None
+    oper_state: str | None  # RFC 2863 ifOperStatus vocabulary or None
     speed_bps: int | None
     in_octets: int | None
     out_octets: int | None
@@ -71,6 +95,9 @@ class InterfaceSample:
     out_errors: int | None
     in_discards: int | None
     out_discards: int | None
+    # Cumulative CRC/FCS receive-error counter (EtherLike-MIB
+    # dot3HCStatsFCSErrors, fallback dot3StatsFCSErrors; SYSTEM_SPEC.md §16).
+    fcs_errors: int | None = None
     if_type: int | None = None
 
 

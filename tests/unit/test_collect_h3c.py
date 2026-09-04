@@ -13,12 +13,14 @@ import pytest
 from backend.collect.dto import normalize_interface_name
 from backend.collect.h3c import oids
 from backend.collect.h3c.collectors import (
+    CollectionSectionError,
+    collect_interfaces,
     parse_aggregations,
     parse_entity_usage,
     parse_identity,
     parse_interfaces,
 )
-from backend.collect.snmp import SnmpVarbind
+from backend.collect.snmp import SnmpError, SnmpVarbind
 
 FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "h3c"
 
@@ -74,11 +76,13 @@ def test_parse_interfaces_from_fixture() -> None:
     assert ten1.description == "to-server-farm"
     assert ten1.admin_state == "up"
     assert ten1.oper_state == "up"
+    # ifHighSpeed (Mbps) preferred over the saturated 32-bit ifSpeed.
     assert ten1.speed_bps == 10_000_000_000
     assert ten1.in_octets == 123456789012  # 64-bit HC counter preferred
     assert ten1.out_octets == 456789012345
     assert ten1.in_errors == 0
     assert ten1.out_errors == 0
+    assert ten1.fcs_errors == 7  # HC FCS counter preferred
     assert ten1.if_type == 6
 
     ten2 = by_name[normalize_interface_name("Ten-GigabitEthernet1/0/2")]
@@ -86,10 +90,20 @@ def test_parse_interfaces_from_fixture() -> None:
     assert ten2.in_octets == 0
     assert ten2.in_errors == 3
     assert ten2.out_errors == 1
+    assert ten2.fcs_errors == 3
+
+    ten49 = by_name[normalize_interface_name("Ten-GigabitEthernet1/0/49")]
+    assert ten49.speed_bps == 40_000_000_000
+    assert ten49.fcs_errors == 42  # 32-bit fallback when HC absent
 
     agg = by_name[normalize_interface_name("Bridge-Aggregation1")]
     assert agg.if_index == 65
     assert agg.if_type == 161
+    assert agg.speed_bps == 20_000_000_000
+
+    vlan100 = by_name[normalize_interface_name("Vlan-interface100")]
+    assert vlan100.speed_bps == 1_000_000_000
+    assert vlan100.fcs_errors is None
 
     assert normalize_interface_name("InLoopBack0") in by_name
 
@@ -103,13 +117,133 @@ def test_parse_interfaces_tolerates_missing_columns() -> None:
     assert all(s.oper_state is None and s.in_octets is None for s in samples)
 
 
+def test_admin_and_oper_status_maps_are_separate() -> None:
+    # ifAdminStatus (RFC 2863): up(1)/down(2)/testing(3) only.
+    assert oids.IF_ADMIN_STATUS_MAP == {1: "up", 2: "down", 3: "testing"}
+    # ifOperStatus (RFC 2863): 1..7 with the extended states.
+    assert oids.IF_OPER_STATUS_MAP == {
+        1: "up",
+        2: "down",
+        3: "testing",
+        4: "unknown",
+        5: "dormant",
+        6: "notpresent",
+        7: "lowerlayerdown",
+    }
+
+
+def test_parse_interfaces_maps_oper_status_1_to_7() -> None:
+    descr = [SnmpVarbind(oid=f"{oids.IF_DESCR}.{i}", value=f"XGE{i}") for i in range(1, 8)]
+    oper = [
+        SnmpVarbind(oid=f"{oids.IF_OPER_STATUS}.{i}", value=i) for i in range(1, 8)
+    ]
+    admin = [SnmpVarbind(oid=f"{oids.IF_ADMIN_STATUS}.{i}", value=2) for i in range(1, 8)]
+    samples = parse_interfaces(
+        {oids.IF_DESCR: descr, oids.IF_OPER_STATUS: oper, oids.IF_ADMIN_STATUS: admin}
+    )
+    assert [s.oper_state for s in samples] == [
+        "up",
+        "down",
+        "testing",
+        "unknown",
+        "dormant",
+        "notpresent",
+        "lowerlayerdown",
+    ]
+    assert all(s.admin_state == "down" for s in samples)
+
+
+def test_parse_interfaces_ignores_out_of_range_status() -> None:
+    samples = parse_interfaces(
+        {
+            oids.IF_DESCR: [SnmpVarbind(oid=f"{oids.IF_DESCR}.1", value="XGE1")],
+            oids.IF_OPER_STATUS: [SnmpVarbind(oid=f"{oids.IF_OPER_STATUS}.1", value=9)],
+            oids.IF_ADMIN_STATUS: [SnmpVarbind(oid=f"{oids.IF_ADMIN_STATUS}.1", value=9)],
+        }
+    )
+    assert samples[0].oper_state is None
+    assert samples[0].admin_state is None
+
+
+class _FakeSnmpClient:
+    """bulk_walk stub: map column OID -> varbinds or exception."""
+
+    def __init__(self, columns: dict[str, list[SnmpVarbind] | Exception]) -> None:
+        self._columns = columns
+        self.walked: list[str] = []
+
+    def bulk_walk(self, column: str) -> list[SnmpVarbind]:
+        self.walked.append(column)
+        result = self._columns[column]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def test_collect_interfaces_ifdescr_walk_failure_is_section_error() -> None:
+    data = _load("iftable_s10500x.json")
+    columns: dict[str, list[SnmpVarbind] | Exception] = {
+        col: _varbinds(items) for col, items in data["columns"].items()
+    }
+    columns[oids.IF_DESCR] = SnmpError("walk timeout")
+    client = _FakeSnmpClient(columns)
+    with pytest.raises(CollectionSectionError, match="ifDescr walk failed"):
+        collect_interfaces(client)
+    # The remaining columns were still attempted before failing.
+    assert oids.IF_OPER_STATUS in client.walked
+
+
+def test_collect_interfaces_empty_result_is_section_error() -> None:
+    data = _load("iftable_s10500x.json")
+    columns: dict[str, list[SnmpVarbind] | Exception] = {
+        col: _varbinds(items) for col, items in data["columns"].items()
+    }
+    columns[oids.IF_DESCR] = []  # successful walk, but no interface rows
+    with pytest.raises(CollectionSectionError, match="no usable interface data"):
+        collect_interfaces(_FakeSnmpClient(columns))
+
+
+def test_collect_interfaces_success_with_full_data() -> None:
+    data = _load("iftable_s10500x.json")
+    client = _FakeSnmpClient({col: _varbinds(items) for col, items in data["columns"].items()})
+    samples = collect_interfaces(client)
+    assert len(samples) == 6
+    assert all(col in client.walked for col in (oids.IF_HIGH_SPEED, oids.DOT3_HC_STATS_FCS_ERRORS))
+
+
 def test_parse_aggregations_from_fixture() -> None:
     data = _load("lag_s10500x.json")
     mappings = parse_aggregations(_varbinds(data["varbinds"]))
-    assert len(mappings) == 1
-    mapping = mappings[0]
-    assert mapping.aggregation_if_index == 65
-    assert mapping.member_if_indexes == (49, 50)
+    # Ports 49/50 attached to agg 65; port 51 selected (not yet attached)
+    # into agg 66 via the selected fallback; ports 1/2 are 0 = no membership.
+    assert [(m.aggregation_if_index, m.member_if_indexes) for m in mappings] == [
+        (65, (49, 50)),
+        (66, (51,)),
+    ]
+
+
+def test_lag_oids_match_ieee8023_lag_mib() -> None:
+    # IEEE 802.1AX IEEE8023-LAG-MIB dot3AggPortTable columns (verified
+    # against the published MIB module; H3C MIB Companion implements it).
+    assert oids.DOT3_AGG_PORT_SELECTED_AGG_ID == "1.2.840.10006.300.43.1.2.1.1.12"
+    assert oids.DOT3_AGG_PORT_ATTACHED_AGG_ID == "1.2.840.10006.300.43.1.2.1.1.13"
+
+
+def test_parse_aggregations_attached_takes_precedence() -> None:
+    varbinds = [
+        # selected into 65 but attached to 66: attached wins.
+        SnmpVarbind(oid=f"{oids.DOT3_AGG_PORT_SELECTED_AGG_ID}.10", value=65),
+        SnmpVarbind(oid=f"{oids.DOT3_AGG_PORT_ATTACHED_AGG_ID}.10", value=66),
+    ]
+    mappings = parse_aggregations(varbinds)
+    assert [(m.aggregation_if_index, m.member_if_indexes) for m in mappings] == [(66, (10,))]
+
+
+def test_parse_aggregations_skips_agg_itself() -> None:
+    varbinds = [
+        SnmpVarbind(oid=f"{oids.DOT3_AGG_PORT_ATTACHED_AGG_ID}.65", value=65),
+    ]
+    assert parse_aggregations(varbinds) == []
 
 
 def test_column_index() -> None:
