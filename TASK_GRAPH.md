@@ -111,10 +111,10 @@ REVIEW_PASSED
 **Acceptance:** S10500X IRF and S12500 IRF member count/identity/role can be normalized from real-device evidence.
 
 ## W01-T006 — Normalized collection DTO and persistence
-**Status:** TODO  
-**Depends On:** W01-T003, W01-T004, W01-T005  
-**Blocks:** W01-T007, Wave 2  
-**Scope:** stable DTOs; section results; SUCCESS/PARTIAL/FAILED; persist valid data when another section fails.  
+**Status:** BLOCKED (real-device evidence unavailable; orchestration + persistence implemented with unit and integration tests, REVIEW_PASSED withheld until real end-to-end evidence exists)
+**Depends On:** W01-T003, W01-T004, W01-T005
+**Blocks:** W01-T007, Wave 2
+**Scope:** stable DTOs; section results; SUCCESS/PARTIAL/FAILED; persist valid data when another section fails.
 **Acceptance:** one parser/section failure does not discard valid device data; secrets absent from persisted diagnostic fields.
 
 ## W01-T007 — Real-device collection acceptance
