@@ -53,7 +53,7 @@ W01-T003 fix checkpoint: 9c4b57bd7b0b6445b8b4b9144f1e9fdb84bc2898 (work/wave-01)
 W01-T004 fix checkpoint: a8c394348206a3e65355a643fd6cef7939f0c8da (work/wave-01)
 W01-T005 fix checkpoint: 56010bf3a7d823f7737de160abe163fcf2518ce0 (work/wave-01)
 W01-T006 fix checkpoint: 040069681dc73a76e94fda6bc15390298783e0f1 (work/wave-01)
-W01-GATE revalidation + docs checkpoint: see Checkpoint ledger (Wave 1)
+W01-GATE revalidation checkpoint: <filled at merge time> (work/wave-01)
 W01 merge commit into main: see Checkpoint ledger (Wave 1)
 W01-T002 checkpoint: 28a94107ef52d4546eb29ad10e72a588be96d33d (work/wave-01)
 W01-T001 checkpoint: dc8e021f9b2059fa3867b5b3bc53c1e6dca0b22b (work/wave-01)
@@ -106,8 +106,10 @@ Owner decision recorded 2026-09-04: do NOT start Wave 2 yet.
 ```text
 W01-GATE — Wave 1 Engineering Gate
 Status: PASS (2026-09-04). Engineering gate over W01-T001..T006:
-  pytest 114 unit + 29 integration PASS; ruff clean; mypy clean;
-  alembic upgrade head idempotent; compose smoke healthy.
+  pytest 133 pass (114 unit + 19 non-integration markers) + 29
+  integration against migrated PostgreSQL; ruff clean; mypy clean;
+  alembic upgrade head idempotent at 0002; compose rebuild + smoke:
+  web healthy, worker heartbeat persistent.
 Real-device proof is NOT part of this gate: it is carried by
 W01-T007 (BLOCKED — FIELD_VALIDATION_PENDING), which blocks W05-GATE.
 ```
