@@ -57,10 +57,17 @@ REVIEW_PASSED
 **Acceptance:** timezone is explicit; secret patterns are redacted; web health and worker heartbeat are independently testable.
 
 ## W00-GATE — Foundation Gate
-**Status:** PASS  
-**Depends On:** W00-T004, W00-T005  
-**Blocks:** Wave 1  
+**Status:** PASS
+**Depends On:** W00-T004, W00-T005
+**Blocks:** Wave 1
 **Gate:** web/worker/postgres/Alembic/tests/lint/type operational; dependencies match `SYSTEM_SPEC.md`.
+
+## W00-AUDIT — Wave 0 audit hotfix
+**Status:** REVIEW_PASSED
+**Depends On:** W00-GATE
+**Blocks:** none (quality/audit only; no product capability added)
+**Scope:** web/uvicorn secret redaction wiring; integration-test DROP/CREATE guard (test-name + loopback + explicit opt-in + `psycopg.sql.Identifier`); compose runtime-config injection for web/worker; README stage/de-redaction corrections; reports volume writability as non-root; `dispose_engine` disposes the engine.
+**Acceptance:** all six audit items verified (unit + integration + live container evidence); W00-GATE revalidated PASS; no empty migration; Wave 1 not started.
 
 ---
 

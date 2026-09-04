@@ -1,23 +1,50 @@
 """Unit tests for centralized secret-safe logging (W00-T005)."""
 
+import asyncio
 import io
 import logging
+from collections.abc import Iterator
 
 import pytest
 
 from backend.config import load_settings
 from backend.log import (
     SecretRedactingFormatter,
+    SecretRedactingFormatterWrapper,
     clear_registered_secrets,
     redact_text,
     register_secret,
     setup_logging,
 )
 
+UVICORN_LOGGER_NAMES = ("uvicorn", "uvicorn.error", "uvicorn.access")
+
 
 @pytest.fixture(autouse=True)
 def _clean_secret_registry() -> None:
     clear_registered_secrets()
+
+
+@pytest.fixture
+def _restore_uvicorn_loggers() -> Iterator[None]:
+    """Snapshot and restore uvicorn's loggers so tests cannot pollute them."""
+
+    state: dict[str, tuple[int, list[logging.Handler], list[object], bool]] = {
+        name: (
+            logging.getLogger(name).level,
+            list(logging.getLogger(name).handlers),
+            list(logging.getLogger(name).filters),
+            logging.getLogger(name).propagate,
+        )
+        for name in UVICORN_LOGGER_NAMES
+    }
+    yield
+    for name, (level, handlers, filters, propagate) in state.items():
+        logger = logging.getLogger(name)
+        logger.setLevel(level)
+        logger.handlers = handlers
+        logger.filters = filters  # type: ignore[assignment]
+        logger.propagate = propagate
 
 
 def test_password_assignment_is_redacted() -> None:
@@ -132,3 +159,114 @@ def test_setup_logging_registers_database_url_password(
     assert "db-secret-pw" not in stream.getvalue()
     assert stream.getvalue().count("***") >= 1
     clear_registered_secrets()
+
+
+def _uvicorn_logger_with_plain_handler(stream: io.StringIO) -> logging.Logger:
+    """Attach a plain (uvicorn-style, non-redacting) handler to a uvicorn logger."""
+
+    logger = logging.getLogger("uvicorn.access")
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    logger.handlers = [handler]
+    logger.filters = []
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    return logger
+
+
+@pytest.mark.usefixtures("_restore_uvicorn_loggers")
+def test_setup_logging_redacts_uvicorn_logger_output() -> None:
+    """Access/error logs routed through uvicorn's own handlers must be redacted."""
+
+    stream = io.StringIO()
+    uvicorn_logger = _uvicorn_logger_with_plain_handler(stream)
+
+    setup_logging(load_settings(), stream=io.StringIO())
+
+    uvicorn_logger.info('login failed for password="leaked-pw-1"')
+
+    assert "leaked-pw-1" not in stream.getvalue()
+    assert "password=" in stream.getvalue()
+    assert "***" in stream.getvalue()
+
+
+@pytest.mark.usefixtures("_restore_uvicorn_loggers")
+def test_setup_logging_redacts_uvicorn_exception_traceback() -> None:
+    """Tracebacks rendered by uvicorn's own formatter must be redacted too."""
+
+    stream = io.StringIO()
+    uvicorn_logger = _uvicorn_logger_with_plain_handler(stream)
+
+    setup_logging(load_settings(), stream=io.StringIO())
+
+    try:
+        raise RuntimeError("snmp community=leaked-community-7")
+    except RuntimeError:
+        uvicorn_logger.exception("connection to device failed")
+
+    rendered = stream.getvalue()
+    assert "leaked-community-7" not in rendered
+    assert "Traceback" in rendered  # diagnosis stays available
+
+
+@pytest.mark.usefixtures("_restore_uvicorn_loggers")
+def test_setup_logging_wraps_uvicorn_formatter_exactly_once() -> None:
+    stream = io.StringIO()
+    uvicorn_logger = _uvicorn_logger_with_plain_handler(stream)
+    original_formatter = uvicorn_logger.handlers[0].formatter
+    assert original_formatter is not None
+
+    setup_logging(load_settings(), stream=io.StringIO())
+    setup_logging(load_settings(), stream=io.StringIO())
+
+    formatter = uvicorn_logger.handlers[0].formatter
+    assert isinstance(formatter, SecretRedactingFormatterWrapper)
+    assert formatter.wrapped is original_formatter
+
+
+@pytest.mark.usefixtures("_restore_uvicorn_loggers")
+def test_uvicorn_access_log_with_args_stays_formattable_and_redacted() -> None:
+    """Access records rely on record.args (uvicorn unpacks a 5-tuple).
+
+    The redaction wrapper must keep args intact so uvicorn's formatter keeps
+    working, while the rendered line still loses secret material.
+    """
+
+    stream = io.StringIO()
+    uvicorn_logger = _uvicorn_logger_with_plain_handler(stream)
+
+    setup_logging(load_settings(), stream=io.StringIO())
+
+    uvicorn_logger.info(
+        '%s - "%s %s HTTP/%s" %d',
+        "10.0.0.9:1234",
+        "GET",
+        "/health?password=hunter2",
+        "1.1",
+        200,
+    )
+
+    rendered = stream.getvalue()
+    assert "hunter2" not in rendered
+    assert "password=***" in rendered
+    assert 'GET /health?password=*** HTTP/1.1" 200' in rendered
+
+
+@pytest.mark.usefixtures("_restore_uvicorn_loggers")
+def test_web_lifespan_wires_secret_redaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The web app must call setup_logging during startup (not only the worker)."""
+
+    from backend import main as backend_main
+    from backend.config import Settings
+
+    calls: list[Settings] = []
+    monkeypatch.setattr(backend_main, "setup_logging", calls.append)
+
+    async def _run_lifespan() -> None:
+        async with backend_main.app.router.lifespan_context(backend_main.app):
+            pass
+
+    asyncio.run(_run_lifespan())
+
+    assert len(calls) == 1
+    assert isinstance(calls[0], Settings)

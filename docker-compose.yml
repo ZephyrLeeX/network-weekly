@@ -2,7 +2,9 @@
 # web and worker share the same application image with different commands.
 #
 # Requires a .env file next to this file (see .env.example). PostgreSQL data
-# and generated reports persist under ${NETWORK_REPORT_DATA_DIR}.
+# persists under ${NETWORK_REPORT_DATA_DIR}; generated reports live in the
+# `reports` named volume (pre-owned by the non-root app user in the image, so
+# the bind mount cannot end up root-owned on a clean host).
 
 services:
   web:
@@ -16,9 +18,11 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
       NETWORK_REPORT_ENVIRONMENT: production
       NETWORK_REPORT_DATA_DIR: /var/lib/network-report
-      TZ: Asia/Shanghai
+      NETWORK_REPORT_TIMEZONE: ${NETWORK_REPORT_TIMEZONE:-Asia/Shanghai}
+      NETWORK_REPORT_LOG_LEVEL: ${NETWORK_REPORT_LOG_LEVEL:-INFO}
+      TZ: ${NETWORK_REPORT_TIMEZONE:-Asia/Shanghai}
     volumes:
-      - ${NETWORK_REPORT_DATA_DIR:-./data}/reports:/var/lib/network-report/reports
+      - reports:/var/lib/network-report/reports
     ports:
       - "8000:8000"
     depends_on:
@@ -40,9 +44,13 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
       NETWORK_REPORT_ENVIRONMENT: production
       NETWORK_REPORT_DATA_DIR: /var/lib/network-report
-      TZ: Asia/Shanghai
+      NETWORK_REPORT_TIMEZONE: ${NETWORK_REPORT_TIMEZONE:-Asia/Shanghai}
+      NETWORK_REPORT_LOG_LEVEL: ${NETWORK_REPORT_LOG_LEVEL:-INFO}
+      NETWORK_REPORT_WORKER_ID: ${NETWORK_REPORT_WORKER_ID:-worker}
+      NETWORK_REPORT_HEARTBEAT_INTERVAL_SECONDS: ${NETWORK_REPORT_HEARTBEAT_INTERVAL_SECONDS:-30}
+      TZ: ${NETWORK_REPORT_TIMEZONE:-Asia/Shanghai}
     volumes:
-      - ${NETWORK_REPORT_DATA_DIR:-./data}/reports:/var/lib/network-report/reports
+      - reports:/var/lib/network-report/reports
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,3 +73,9 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+
+volumes:
+  # Shared report storage for web/worker. On first use Docker seeds it from
+  # the image's /var/lib/network-report/reports (app-owned), so the non-root
+  # app user can write without any root-side directory setup.
+  reports:

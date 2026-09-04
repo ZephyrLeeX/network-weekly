@@ -11,6 +11,9 @@ or environment variables. Worker liveness is deliberately NOT part of this
 endpoint: worker heartbeat is an independent check stored in PostgreSQL.
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -18,6 +21,17 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend import __version__
 from backend.config import load_settings
 from backend.db.engine import get_engine
+from backend.log import setup_logging
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Runs after uvicorn has configured its own logging, so setup_logging can
+    # wrap the uvicorn loggers/handlers with secret redaction (AGENTS.md:
+    # logs must filter passwords, community strings, private keys).
+    setup_logging(load_settings())
+    yield
+
 
 app = FastAPI(
     title="Network Weekly Report System",
@@ -25,6 +39,7 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
+    lifespan=_lifespan,
 )
 
 

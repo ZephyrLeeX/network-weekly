@@ -56,7 +56,8 @@ known-first-party = ["backend"]
 
 [tool.mypy]
 python_version = "3.14"
-mypy_path = "application"
+# `tests/integration` hosts the db_guard helper module imported by name.
+mypy_path = "application:tests/integration"
 files = ["application/backend", "tests"]
 disallow_untyped_defs = true
 no_implicit_optional = true

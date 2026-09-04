@@ -30,6 +30,12 @@ def get_session_factory() -> sessionmaker[Session]:
 
 
 def dispose_engine() -> None:
-    """Dispose the cached engine (used by tests and graceful shutdown)."""
+    """Dispose the cached engine, then drop it from the cache.
 
+    Used by tests and graceful shutdown. The next :func:`get_engine` call
+    builds a fresh engine from the current configuration.
+    """
+
+    engine = get_engine()
+    engine.dispose()
     get_engine.cache_clear()
