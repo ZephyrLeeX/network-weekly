@@ -25,8 +25,8 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      # W00-T005 replaces this socket check with a real /health request.
-      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 3).close()"]
+      # Real /health request (W00-T005): the web app must actually respond.
+      test: ["CMD", "python", "-c", "import json, sys, urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3); d = json.load(r); sys.exit(0 if r.status == 200 and d.get('status') == 'ok' else 1)"]
       interval: 10s
       timeout: 5s
       retries: 6

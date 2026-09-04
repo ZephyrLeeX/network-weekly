@@ -39,6 +39,32 @@ uv run pytest -m integration
 集成测试使用 `NETWORK_REPORT_TEST_DATABASE_URL`（默认指向本地 Compose 的
 PostgreSQL），并真实执行 `alembic upgrade head`，不使用 SQLite 替代。
 
+## Runtime（Wave 0）
+
+```bash
+cp .env.example .env   # 填写本地开发值（.env 不入库）
+docker compose up -d --build
+docker compose run --rm web alembic upgrade head   # schema 全部由迁移驱动
+```
+
+- `web`: `GET /health` 返回应用状态与数据库连通性（不含任何 Secret/环境变量）。
+- `worker`: 启动后周期写入 `worker_heartbeat` 表（`worker_id` 主键 upsert），
+  与 web health 相互独立；PostgreSQL 短暂不可用时继续循环重试。
+- 日志：所有 handler 经过集中式 secret 脱敏（密码 / SNMP community / 私钥 /
+  Authorization / 已注册 Secret 值），配置的数据库口令在进程启动时自动注册。
+
+### 运行时配置（环境变量，见 `backend/config.py`）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `DATABASE_URL` | 本地 Compose PostgreSQL | SQLAlchemy + psycopg 3 连接串（口令需 URL 编码） |
+| `NETWORK_REPORT_ENVIRONMENT` | `development` | 运行环境标识 |
+| `NETWORK_REPORT_DATA_DIR` | `./data` | 持久化根目录（报告位于 `<data>/reports`） |
+| `NETWORK_REPORT_TIMEZONE` | `Asia/Shanghai` | 业务时区（SYSTEM_SPEC §3，显式指定） |
+| `NETWORK_REPORT_LOG_LEVEL` | `INFO` | 日志级别 |
+| `NETWORK_REPORT_WORKER_ID` | `worker` | Worker 身份标识 |
+| `NETWORK_REPORT_HEARTBEAT_INTERVAL_SECONDS` | `30` | 心跳周期（秒，必须为正） |
+
 ## 仓库布局
 
 ```text
