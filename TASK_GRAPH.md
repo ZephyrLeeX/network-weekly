@@ -74,11 +74,12 @@ REVIEW_PASSED
 # Wave 1 — Real H3C Collection
 
 ## W01-T001 — Device inventory and secrets loading
-**Status:** READY  
-**Depends On:** W00-GATE  
-**Blocks:** W01-T003, W01-T005  
-**Scope:** `/etc/network-report/devices.toml`; `/etc/network-report/secrets.env`; inventory sync; permission validation.  
+**Status:** REVIEW_PASSED
+**Depends On:** W00-GATE
+**Blocks:** W01-T003, W01-T005
+**Scope:** `/etc/network-report/devices.toml`; `/etc/network-report/secrets.env`; inventory sync; permission validation.
 **Acceptance:** current 10 logical devices are representable; secrets file must be `0600`; secrets are never logged or returned.
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W01-T002 — Device, member, interface and aggregation schema
 **Status:** REVIEW_PASSED

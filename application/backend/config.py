@@ -22,6 +22,9 @@ DEFAULT_DATA_DIR = "./data"
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_WORKER_ID = "worker"
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30
+# Production locations (SYSTEM_SPEC.md §22/§26.1); overridable for tests/dev.
+DEFAULT_DEVICES_FILE = "/etc/network-report/devices.toml"
+DEFAULT_SECRETS_FILE = "/etc/network-report/secrets.env"
 
 _VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
@@ -39,6 +42,8 @@ class Settings:
     log_level: str = DEFAULT_LOG_LEVEL
     worker_id: str = DEFAULT_WORKER_ID
     heartbeat_interval_seconds: int = DEFAULT_HEARTBEAT_INTERVAL_SECONDS
+    devices_file: Path = Path(DEFAULT_DEVICES_FILE)
+    secrets_file: Path = Path(DEFAULT_SECRETS_FILE)
 
     @property
     def report_dir(self) -> Path:
@@ -74,6 +79,13 @@ def load_settings() -> Settings:
 
     worker_id = os.environ.get("NETWORK_REPORT_WORKER_ID", "").strip() or DEFAULT_WORKER_ID
 
+    devices_file = Path(
+        os.environ.get("NETWORK_REPORT_DEVICES_FILE", "").strip() or DEFAULT_DEVICES_FILE
+    )
+    secrets_file = Path(
+        os.environ.get("NETWORK_REPORT_SECRETS_FILE", "").strip() or DEFAULT_SECRETS_FILE
+    )
+
     raw_interval = os.environ.get("NETWORK_REPORT_HEARTBEAT_INTERVAL_SECONDS", "").strip()
     if not raw_interval:
         heartbeat_interval = DEFAULT_HEARTBEAT_INTERVAL_SECONDS
@@ -99,4 +111,6 @@ def load_settings() -> Settings:
         log_level=log_level,
         worker_id=worker_id,
         heartbeat_interval_seconds=heartbeat_interval,
+        devices_file=devices_file,
+        secrets_file=secrets_file,
     )
