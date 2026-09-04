@@ -37,7 +37,7 @@ REVIEW_PASSED
 **Acceptance:** frozen dependency install works; test/lint/type commands are documented and pass.
 
 ## W00-T003 — Compose skeleton
-**Status:** READY  
+**Status:** REVIEW_PASSED  
 **Depends On:** W00-T001  
 **Blocks:** W00-T004  
 **Scope:** one application image; `web`, `worker`, `postgres`; persistent data paths.  

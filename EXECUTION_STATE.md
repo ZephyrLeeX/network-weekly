@@ -4,7 +4,7 @@
 
 ```text
 Current Wave: W00
-Current Task: W00-T003
+Current Task: W00-T004
 Current Task Status: IN_PROGRESS
 Branch: work/wave-00
 ```
@@ -12,20 +12,19 @@ Branch: work/wave-00
 ## Last completed task
 
 ```text
-W00-T002 — Python project and quality toolchain: REVIEW_PASSED
-Checkpoint: 7f00ce12021477f00cfeb9c0673edb8e5ebe92a2
+W00-T003 — Compose skeleton: REVIEW_PASSED
+Checkpoint: ba575e6e231d627cd3906bac8b84572f94fe3f39
 ```
 
 ## Last checkpoint
 
 ```text
-W00-T002 checkpoint: 7f00ce12021477f00cfeb9c0673edb8e5ebe92a2
+W00-T003 checkpoint: ba575e6e231d627cd3906bac8b84572f94fe3f39
 ```
 
 ## Blocked tasks
 
 ```text
-W00-T004 (blocked by W00-T003)
 W00-T005 (blocked by W00-T004)
 W00-GATE (blocked by W00-T004, W00-T005)
 ```
@@ -39,7 +38,7 @@ None
 ## Next ready candidates
 
 ```text
-W00-T003 — Compose skeleton
+W00-T004 — PostgreSQL and Alembic baseline
 ```
 
 ## Current Wave Gate
