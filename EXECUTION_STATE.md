@@ -5,7 +5,7 @@
 ```text
 Current Wave: W01 — CLOSED (engineering gate PASS, merged to main)
 Current Task: none ready — Wave 2 not started (owner decision)
-Branch: work/wave-01 merged into main
+Branch: work/wave-01 merged into main (d3b27515fc977e221c401e5ef23e4ed53d2917fd)
 ```
 
 ## User authorization (2026-09-04)
@@ -53,8 +53,8 @@ W01-T003 fix checkpoint: 9c4b57bd7b0b6445b8b4b9144f1e9fdb84bc2898 (work/wave-01)
 W01-T004 fix checkpoint: a8c394348206a3e65355a643fd6cef7939f0c8da (work/wave-01)
 W01-T005 fix checkpoint: 56010bf3a7d823f7737de160abe163fcf2518ce0 (work/wave-01)
 W01-T006 fix checkpoint: 040069681dc73a76e94fda6bc15390298783e0f1 (work/wave-01)
-W01-GATE revalidation checkpoint: <filled at merge time> (work/wave-01)
-W01 merge commit into main: see Checkpoint ledger (Wave 1)
+W01-GATE revalidation checkpoint: e2c1fba47e8ae0ef471ec04fe1f79492692e7d78 (work/wave-01)
+W01 merge commit into main: d3b27515fc977e221c401e5ef23e4ed53d2917fd
 W01-T002 checkpoint: 28a94107ef52d4546eb29ad10e72a588be96d33d (work/wave-01)
 W01-T001 checkpoint: dc8e021f9b2059fa3867b5b3bc53c1e6dca0b22b (work/wave-01)
 W00-AUDIT checkpoint: f9bf4ea4f3b48124e95e5cef3a6b78800a4549f8
