@@ -81,11 +81,12 @@ REVIEW_PASSED
 **Acceptance:** current 10 logical devices are representable; secrets file must be `0600`; secrets are never logged or returned.
 
 ## W01-T002 — Device, member, interface and aggregation schema
-**Status:** READY  
-**Depends On:** W00-GATE  
-**Blocks:** W01-T004, W01-T005, W01-T006  
-**Scope:** Device, DeviceMember, Interface, aggregation member relationship; normalized interface identity.  
+**Status:** REVIEW_PASSED
+**Depends On:** W00-GATE
+**Blocks:** W01-T004, W01-T005, W01-T006
+**Scope:** Device, DeviceMember, Interface, aggregation member relationship; normalized interface identity.
 **Acceptance:** 8 standalone devices + S10500X IRF + S12500 IRF topology is representable; ifIndex is mutable metadata.
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger (executed before W01-T001 so inventory sync has real schema coverage at its own checkpoint; both tasks depend only on W00-GATE).
 
 ## W01-T003 — SNMP transport and basic H3C collection
 **Status:** TODO  
