@@ -23,21 +23,21 @@ REVIEW_PASSED
 # Wave 0 — Engineering Foundation
 
 ## W00-T001 — Initialize repository structure
-**Status:** READY  
+**Status:** REVIEW_PASSED  
 **Depends On:** none  
 **Blocks:** W00-T002, W00-T003  
 **Scope:** create application/docs/scripts/tests structure; install the five control files at repository root.  
 **Acceptance:** required directories and five control files exist; repository contains no implementation outside current Task.
 
 ## W00-T002 — Python project and quality toolchain
-**Status:** TODO  
+**Status:** READY  
 **Depends On:** W00-T001  
 **Blocks:** W00-T004, W00-T005  
 **Scope:** `pyproject.toml`, `uv.lock`, pytest, ruff, type-check command, dependencies required by `SYSTEM_SPEC.md`.  
 **Acceptance:** frozen dependency install works; test/lint/type commands are documented and pass.
 
 ## W00-T003 — Compose skeleton
-**Status:** TODO  
+**Status:** READY  
 **Depends On:** W00-T001  
 **Blocks:** W00-T004  
 **Scope:** one application image; `web`, `worker`, `postgres`; persistent data paths.  

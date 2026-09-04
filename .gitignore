@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local runtime configuration and secrets (never committed)
+.env
+
+# Local persistent runtime data (PostgreSQL data, generated reports)
+data/

@@ -4,21 +4,22 @@
 
 ```text
 Current Wave: W00
-Current Task: W00-T001
-Current Task Status: READY
+Current Task: W00-T002 / W00-T003 (both READY)
+Current Task Status: W00-T001 REVIEW_PASSED
 Branch: work/wave-00
 ```
 
 ## Last completed task
 
 ```text
-None
+W00-T001 — Initialize repository structure: REVIEW_PASSED
+Checkpoint: recorded in next state commit
 ```
 
 ## Last checkpoint
 
 ```text
-None
+W00-T001 checkpoint: (pending, filled by next state commit)
 ```
 
 ## Blocked tasks
@@ -36,7 +37,8 @@ None
 ## Next ready candidates
 
 ```text
-W00-T001 — Initialize repository structure
+W00-T002 — Python project and quality toolchain
+W00-T003 — Compose skeleton
 ```
 
 ## Current Wave Gate
