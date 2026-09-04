@@ -38,7 +38,7 @@ W00-T003: ba575e6e231d627cd3906bac8b84572f94fe3f39
 W00-T004: deed3fd266ed56b8fb7e936bbf972bd197e30cff
 W00-T005: ec27924b88dbfe92521a93a54ff9f6a1c59d87d1
 W00-GATE: PASS
-W00-AUDIT: f9bf4ea (wave 0 audit hotfix; full SHA recorded in checkpoint ledger below)
+W00-AUDIT: f9bf4ea (wave 0 audit hotfix, work/wave-00-audit-fix), merged into main as fb00f9227d42d57575c517121d93d8df684fc000
 W00-GATE revalidated after audit hotfix: PASS
 ```
 
