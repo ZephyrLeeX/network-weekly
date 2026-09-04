@@ -13,13 +13,13 @@ Branch: work/wave-00
 
 ```text
 W00-T001 — Initialize repository structure: REVIEW_PASSED
-Checkpoint: recorded in next state commit
+Checkpoint: cd65eee2e5979785939f35f273d364f4cd4826f0
 ```
 
 ## Last checkpoint
 
 ```text
-W00-T001 checkpoint: (pending, filled by next state commit)
+W00-T001 checkpoint: cd65eee2e5979785939f35f273d364f4cd4826f0
 ```
 
 ## Blocked tasks
