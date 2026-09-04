@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from backend.collect.dto import (
     AggregationMapping,
     DeviceIdentity,
+    DeviceSoftwareInfo,
     InterfaceSample,
     IrfMemberSample,
     normalize_interface_name,
@@ -197,6 +198,57 @@ def test_persist_collection_with_failed_aggregations_section_keeps_state(
             select(Interface).where(Interface.normalized_name == "bridge-aggregation1")
         ).scalar_one()
         assert agg.is_aggregation is True
+
+
+def test_persist_collection_stores_software_version_and_irf_roles(
+    db_engine: Engine, device_id: int
+) -> None:
+    """SSH static data: device software_version + IRF member id/role (§17)."""
+
+    outcome = DeviceCollectionOutcome(
+        device_name="core-s10500x-irf",
+        sections=[
+            SectionResult(name="software", status="SUCCESS"),
+            SectionResult(name="irf", status="SUCCESS"),
+        ],
+        software=DeviceSoftwareInfo(
+            version="7.1.070", release="7596P10", model="S10508X"
+        ),
+        irf_members=[
+            IrfMemberSample(member_id=1, role="Master"),
+            IrfMemberSample(member_id=2, role="Slave"),
+        ],
+    )
+    with Session(db_engine) as session:
+        persist_collection(session, device_id, outcome, NOW)
+        session.commit()
+
+        device = session.get(Device, device_id)
+        assert device is not None
+        assert device.software_version == "7.1.070 Release 7596P10"
+
+        members = {
+            m.member_id: m
+            for m in session.execute(
+                select(DeviceMember).where(DeviceMember.device_id == device_id)
+            )
+            .scalars()
+            .all()
+        }
+        assert set(members) == {1, 2}
+        assert members[1].role == "Master"
+        assert members[2].role == "Slave"
+
+        # A later software section failure must not erase the stored version.
+        outcome2 = DeviceCollectionOutcome(
+            device_name="core-s10500x-irf",
+            sections=[SectionResult(name="software", status="FAILED", error="SshError")],
+            software=None,
+        )
+        persist_collection(session, device_id, outcome2, NOW)
+        session.commit()
+        session.refresh(device)
+        assert device.software_version == "7.1.070 Release 7596P10"
 
 
 def test_persist_unknown_device_rejected(db_engine: Engine) -> None:

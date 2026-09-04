@@ -189,13 +189,12 @@ def test_empty_successful_mapping_clears_stale_aggregation_state(
         session.commit()
         assert report.memberships_removed == 3
         assert session.scalar(select(func.count()).select_from(AggregationMember)) == 0
-        flags = dict(
-            session.execute(
-                select(Interface.normalized_name, Interface.is_aggregation).where(
-                    Interface.device_id == device_id
-                )
-            ).all()
-        )
+        rows = session.execute(
+            select(Interface.normalized_name, Interface.is_aggregation).where(
+                Interface.device_id == device_id
+            )
+        ).all()
+        flags: dict[str, bool] = {name: flag for name, flag in rows}
         assert flags == {
             "bridge-aggregation1": False,
             "bridge-aggregation2": False,

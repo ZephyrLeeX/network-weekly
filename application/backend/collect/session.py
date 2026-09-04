@@ -21,16 +21,24 @@ from typing import Any
 from backend.collect.dto import (
     AggregationMapping,
     DeviceIdentity,
+    DeviceSoftwareInfo,
     EntityLoadSample,
     InterfaceSample,
     IrfMemberSample,
 )
 from backend.collect.h3c.collectors import (
+    CollectionSectionError,
     collect_aggregations,
     collect_cpu,
     collect_identity,
     collect_interfaces,
     collect_memory,
+)
+from backend.collect.h3c.ssh_collectors import (
+    collect_irf_members as collect_irf_members_ssh,
+)
+from backend.collect.h3c.ssh_collectors import (
+    collect_software_info as collect_software_info_ssh,
 )
 from backend.collect.snmp import SnmpClient, SnmpConfig, SnmpError
 from backend.collect.ssh import H3CSshClient, SshConfig
@@ -63,6 +71,7 @@ class DeviceCollectionOutcome:
     interfaces: list[InterfaceSample] | None = None
     aggregations: list[AggregationMapping] | None = None
     irf_members: list[IrfMemberSample] | None = None
+    software: DeviceSoftwareInfo | None = None
     # Reachability probe result after SNMP trouble (§9.1); None = not probed.
     ssh_reachable: bool | None = None
 
@@ -86,7 +95,15 @@ class DeviceCollectionOutcome:
 
         return any(
             data is not None
-            for data in (self.identity, self.cpu, self.memory, self.interfaces, self.aggregations)
+            for data in (
+                self.identity,
+                self.cpu,
+                self.memory,
+                self.interfaces,
+                self.aggregations,
+                self.irf_members,
+                self.software,
+            )
         )
 
 
@@ -95,6 +112,10 @@ def _run_section(
 ) -> Any:
     try:
         result = func()
+    except CollectionSectionError as exc:
+        # Our own section-failure signal; message is secret-free by construction.
+        outcome.sections.append(SectionResult(name=name, status=FAILED, error=str(exc)))
+        return None
     except SnmpError as exc:
         outcome.sections.append(SectionResult(name=name, status=FAILED, error=str(exc)))
         return None
@@ -107,14 +128,29 @@ def _run_section(
     return result
 
 
+def _snmp_channel_failed(outcome: DeviceCollectionOutcome) -> bool:
+    """True when the SNMP management channel itself yielded nothing.
+
+    Only then does the §9.1 SSH reachability probe run. A single failing
+    CPU/memory/LAG section with valid data from other sections proves the
+    SNMP channel works and must NOT trigger SSH.
+    """
+
+    return not outcome.has_valid_data()
+
+
 def run_collection(
     snmp: SnmpConfig, ssh: SshConfig | None, device_name: str
 ) -> DeviceCollectionOutcome:
     """Run all SNMP sections for one device; never raises (§7/§8).
 
-    When any SNMP section failed and an SSH config is available, one
-    lightweight SSH reachability probe runs (§9.1). The probe result is
-    recorded on the outcome; Down/Recovery decisions are Wave 2 semantics.
+    The lightweight SSH reachability probe (§9.1) runs only when the SNMP
+    management channel truly failed — no section produced any valid data.
+    The probe result is recorded on the outcome; Down/Recovery decisions
+    are Wave 2 semantics. SSH static collection (version/IRF) is a
+    separate, caller-scheduled flow (:func:`run_static_ssh_collection` /
+    :func:`run_irf_observation`) and is never forced into this 5-minute
+    poll.
     """
 
     outcome = DeviceCollectionOutcome(device_name=device_name)
@@ -130,9 +166,9 @@ def run_collection(
             outcome, "aggregations", lambda: collect_aggregations(client)
         )
 
-    if outcome.failed_sections and ssh is not None:
+    if _snmp_channel_failed(outcome) and ssh is not None:
         logger.info(
-            "snmp sections failed for %s (%s); probing ssh reachability",
+            "snmp management channel failed for %s (%s); probing ssh reachability",
             device_name,
             ", ".join(outcome.failed_sections),
         )
@@ -145,3 +181,46 @@ def run_collection(
         ", ".join(outcome.failed_sections) or "none",
     )
     return outcome
+
+
+def run_static_ssh_collection(
+    ssh: SshConfig, device_name: str
+) -> DeviceCollectionOutcome:
+    """Collect SSH static data: software version + IRF members (§7.2).
+
+    A standalone, caller-scheduled flow (not part of the 5-minute
+    DEVICE_POLL): sections run with the same isolation rules, and the
+    returned outcome persists through :func:`persist_collection` — device
+    software_version and IRF member id/role (§17).
+    """
+
+    outcome = DeviceCollectionOutcome(device_name=device_name)
+    client = H3CSshClient(ssh)
+    outcome.software = _run_section(
+        outcome, "software", lambda: collect_software_info_ssh(client)
+    )
+    outcome.irf_members = _run_section(
+        outcome, "irf", lambda: collect_irf_members_ssh(client)
+    )
+    logger.info(
+        "static ssh collection for %s: %s (failed sections: %s)",
+        device_name,
+        outcome.overall_status,
+        ", ".join(outcome.failed_sections) or "none",
+    )
+    return outcome
+
+
+def run_irf_observation(ssh: SshConfig, device_name: str) -> list[IrfMemberSample] | None:
+    """One IRF member observation (§7.3), sized for the ~15-minute cadence.
+
+    Standalone entry point for the Wave 2 IRF scheduler: returns the
+    observed members, or None when the observation failed. Never raises.
+    """
+
+    try:
+        members = collect_irf_members_ssh(H3CSshClient(ssh))
+    except Exception as exc:  # noqa: BLE001  (normalized upstream; class name only)
+        logger.warning("irf observation failed for %s: %s", device_name, type(exc).__name__)
+        return None
+    return members

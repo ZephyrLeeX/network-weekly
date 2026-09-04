@@ -188,7 +188,7 @@ def test_collect_interfaces_ifdescr_walk_failure_is_section_error() -> None:
     columns[oids.IF_DESCR] = SnmpError("walk timeout")
     client = _FakeSnmpClient(columns)
     with pytest.raises(CollectionSectionError, match="ifDescr walk failed"):
-        collect_interfaces(client)
+        collect_interfaces(client)  # type: ignore[arg-type]
     # The remaining columns were still attempted before failing.
     assert oids.IF_OPER_STATUS in client.walked
 
@@ -200,13 +200,13 @@ def test_collect_interfaces_empty_result_is_section_error() -> None:
     }
     columns[oids.IF_DESCR] = []  # successful walk, but no interface rows
     with pytest.raises(CollectionSectionError, match="no usable interface data"):
-        collect_interfaces(_FakeSnmpClient(columns))
+        collect_interfaces(_FakeSnmpClient(columns))  # type: ignore[arg-type]
 
 
 def test_collect_interfaces_success_with_full_data() -> None:
     data = _load("iftable_s10500x.json")
     client = _FakeSnmpClient({col: _varbinds(items) for col, items in data["columns"].items()})
-    samples = collect_interfaces(client)
+    samples = collect_interfaces(client)  # type: ignore[arg-type]
     assert len(samples) == 6
     assert all(col in client.walked for col in (oids.IF_HIGH_SPEED, oids.DOT3_HC_STATS_FCS_ERRORS))
 

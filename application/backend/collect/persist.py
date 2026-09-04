@@ -39,6 +39,10 @@ def persist_collection(
         device.sys_object_id = outcome.identity.sys_object_id
         device.updated_at = now
 
+    if outcome.software is not None and outcome.software.software_version is not None:
+        device.software_version = outcome.software.software_version
+        device.updated_at = now
+
     if outcome.interfaces is not None:
         sync_interfaces(session, device_id, outcome.interfaces, now)
 
