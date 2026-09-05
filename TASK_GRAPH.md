@@ -151,7 +151,7 @@ REVIEW_PASSED
 **Depends On:** W02-T001, W01-T006  
 **Blocks:** W02-T003, W02-T004, W02-T007  
 **Acceptance:** aligned 5-minute cycles; no overlapping poll for the same device; restart resumes future cycles without mass realtime backfill.
-**Implementation:** `monitoring/scheduler.py` (epoch-aligned 5-minute boundaries; per-device in-flight registry — a poll outliving its cycle is skipped, that cycle stays missing with no run row, never overlapped; loop always targets the next future boundary so restart never backfills §27.12; per-device executor threads contain failures §8); `monitoring/poll.py` (`poll_device`: Wave 1 `run_collection` re-used unchanged + topology sync + poll run + metrics in ONE transaction); `monitoring/credentials.py` (per-cycle device reload from DB + 0600 secrets; SNMP community required, SSH optional — SNMP-only devices simply have no §9.1 probe); worker runs heartbeat + scheduler threads on one stop event.
+**Implementation:** `monitoring/scheduler.py` (epoch-aligned 5-minute boundaries; per-device in-flight registry — a poll outliving its cycle is never started twice; since W02-AUDIT the skipped planned cycle is bookkept as a FAILED poll run (`overlap`) without advancing the §9/§13 state machines; loop always targets the next future boundary so restart never backfills §27.12; per-device executor threads contain failures §8); `monitoring/poll.py` (`poll_device`: Wave 1 `run_collection` re-used unchanged + topology sync + poll run + metrics in ONE transaction); `monitoring/credentials.py` (per-cycle device reload from DB + 0600 secrets; SNMP community required, SSH optional — SNMP-only devices simply have no §9.1 probe); worker runs heartbeat + scheduler threads on one stop event.
 **Tests:** unit `tests/unit/test_monitoring_scheduler.py` (alignment, strictly-future cycles, no-overlap skip, restart no-backfill, per-device failure containment, loader-failure survival) + `tests/unit/test_monitoring_credentials.py`; integration `tests/integration/test_poll_device.py` (full cycle persisted end-to-end, FAILED run recorded with §9.1 probe result).
 
 ## W02-T003 — Utilization and counter rebaseline
@@ -212,7 +212,7 @@ REVIEW_PASSED
 **Tests:** integration `tests/integration/test_retention.py` (expired raw data deleted / recent kept, incidents+IRF+settings survive, batching bounds, below-90 rejected, interface metrics cleaned in own batches); unit `tests/unit/test_config.py` extension (default 90, override 180, 89/0/-30/non-numeric refused).
 
 ## W02-GATE — Monitoring Pipeline Gate
-**Status:** PASS (engineering gate, 2026-09-05)  
+**Status:** PASS (engineering gate, 2026-09-05; revalidated PASS after W02-AUDIT)  
 **Depends On:** W02-T004, W02-T006, W02-T007, W02-T008, W02-T009  
 **Blocks:** Wave 3  
 **Gate:** 5-minute monitoring data, incident semantics, IRF observations and retention behavior are trustworthy for weekly statistics.  
@@ -222,6 +222,20 @@ REVIEW_PASSED
 - `tests/integration/test_w02_gate_scenarios.py`: one device across 7 consecutive cycles — SUCCESS runs, utilization 80% over actual elapsed, counter-reset rebaseline (no spike), FAILED×2 → device DOWN (started_at = first failed cycle), reachable×2 → RECOVERED (recovered_at = first reachable cycle), sustained-high needs 3 consecutive valid samples, retention deletes old raw rows and spares the incident.
 - Gate checklist: 5-minute scheduling ✓; no same-device overlap ✓; restart-continues-future ✓; SUCCESS/PARTIAL/FAILED persistence ✓; counter reset/rebaseline ✓; device Down/Recovery ✓; priority-interface Down/Recovery ✓; sustained CPU/memory/utilization ✓; IRF missing/reappearance/role change ✓; 90-day retention ✓.
 - Real-device proof remains carried by W01-T007 (BLOCKED — FIELD_VALIDATION_PENDING), which blocks W05-GATE only; this gate does not affect it.
+
+## W02-AUDIT — Wave 2 audit hotfix
+**Status:** REVIEW_PASSED  
+**Depends On:** W02-GATE  
+**Blocks:** none (audit only; no product capability added, no schema change)  
+**Scope:** §8 planned-cycle completeness; no-fake-SUCCESS collection semantics; whole-cycle poll idempotency; sustained-high interval duration semantics (§14/§15.3); control-doc/comment corrections.  
+**Implementation:**
+- §8 completeness: every planned cycle of every enabled device lands exactly one `device_poll_runs` row. A cycle that cannot even be attempted is bookkept FAILED with a marker in `failed_sections` — `overlap` (the device's previous poll still in flight; recorded by the scheduler through `record_skipped_poll`) or `credentials` (missing SNMP community per device, or the secrets file unreadable for the whole cycle — every enabled device then gets an unattemptable context). Never overlapped (§27.11), never backfilled (§27.12). Such rows are bookkeeping, not device evidence: the §9 reachability and §13 interface state machines never advance for them, and the §9 continuity anchor treats them as gaps.
+- §8 no-fake-SUCCESS: `collect_cpu`/`collect_memory` raise a section error when no usable sample is collected (never SUCCESS with empty data); `collect_interfaces` returns the assembled samples plus any missing key column group (state / speed / octets / errors; HC-or-32bit fallback counts as present) as a DEGRADED section — the collected samples are kept, the poll run lands PARTIAL instead of a dressed-up SUCCESS.
+- Whole-cycle idempotency: `poll_device` skips an already-persisted `(device_id, cycle_started_at)` before collecting, and `persist_poll_result` now reports `newly_persisted` as a race backstop — the §9/§13 state machines advance only when the call created the run row, so a replayed Down sample can no longer falsely confirm device or interface DOWN.
+- §14/§15.3 duration semantics: a sustained-high interval is the half-open window `[first sample ts, last sample ts + one cycle slot)`; 3 consecutive 5-minute samples now report 15 minutes (`duration_seconds` = sample_count × slot on the planned grid) instead of 10. Wave 3 reads start/end/duration from exactly this implementation (`monitoring/sustained.py`, bound to thresholds in `monitoring/thresholds.py`).
+- Corrected the `DevicePollRun` model docstring and the scheduler/poll/credentials docstrings that described the old "skipped cycle gets NO row" behavior contradicting §8.
+**Tests:** unit — sustained interval end/duration boundaries (exactly 3 samples → 900 s, long run, custom slot, non-positive slot rejected), empty cpu/memory → section error, interfaces degraded groups + 32-bit fallback not degraded, unpollable context coverage, scheduler skip recording + recorder-failure containment, worker secrets-failure loader; integration — duplicate-cycle idempotency (reachability count stays 1 after replay, no false device/interface DOWN, no duplicate metric rows), missing-credential FAILED run without state advance, overlap-skip FAILED run idempotent, sustained interval 900 s over persisted series.
+**Acceptance:** pytest 218 unit + 77 integration PASS on migrated PostgreSQL (0007); ruff clean; mypy clean (78 files); `alembic upgrade head` idempotent at 0007 (no migration needed); compose rebuild + smoke: web healthy, worker records the unattemptable cycle FAILED (`credentials`) per cycle and stays alive; W02-GATE revalidated PASS; Wave 3 not started.
 
 ---
 

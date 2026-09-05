@@ -3,9 +3,9 @@
 ## Current execution
 
 ```text
-Current Wave: W02 — CLOSED (engineering gate PASS, merged to main)
+Current Wave: W02 — CLOSED (engineering gate PASS revalidated after W02-AUDIT, merged to main)
 Current Task: none ready — Wave 3 not started (owner decision required)
-Branch: work/wave-02 merged into main (1709676adf17214d24cfdf30ba14f8c8d2255c33)
+Branch: work/wave-02-audit-fix merged into main (<MERGE_SHA>)
 ```
 
 ## Wave 2 checkpoint ledger
@@ -51,6 +51,11 @@ W02-GATE: PASS (engineering gate, 2026-09-05)
 W02 merge commit into main: 1709676adf17214d24cfdf30ba14f8c8d2255c33
   (post-merge re-check on main: 205 unit + 72 integration PASS, ruff/mypy
   clean, alembic at 0007)
+W02-AUDIT: <AUDIT_SHA> — REVIEW_PASSED
+  (§8 planned-cycle completeness, no-fake-SUCCESS collection semantics,
+  whole-cycle poll idempotency, sustained-high interval duration §14/§15.3;
+  no schema change, no migration; no product capability added)
+W02-AUDIT merge commit into main: <MERGE_SHA>
 ```
 
 ## User authorization (2026-09-04)
@@ -80,21 +85,33 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
-W02-GATE (Wave 2 — Monitoring Pipeline) PASS (engineering):
-  pytest 205 unit + 72 integration PASS on migrated PostgreSQL (0007);
-  ruff clean; mypy clean; alembic upgrade head idempotent at 0007;
-  compose rebuild + smoke: web healthy, worker runs heartbeat + 5-min
-  DEVICE_POLL scheduler + 15-min IRF observation loop + retention, heartbeat
-  persisted, restart semantics verified live (next-boundary start, no
-  backfill), missing dev secrets contained per cycle.
-Gate scenario test walks one device end-to-end: utilization over actual
-elapsed, counter-reset rebaseline, FAILED×2 -> DOWN, reachable×2 ->
-RECOVERED, sustained-high semantics, retention vs long-term incidents.
+W02-AUDIT (Wave 2 audit hotfix) — REVIEW_PASSED:
+  1. §8 completeness: every planned cycle lands one device_poll_run —
+     overlap skips recorded FAILED ('overlap') by the scheduler;
+     missing per-device SNMP credentials and an unreadable secrets file
+     land FAILED ('credentials') via unattemptable contexts. No overlap,
+     no backfill; §9/§13 state machines never advance for these rows.
+  2. No fake SUCCESS: empty cpu/memory collection is a section failure;
+     interfaces missing key column groups (state/speed/octets/errors) is a
+     DEGRADED section — samples kept, poll run PARTIAL.
+  3. Whole-cycle idempotency: a replayed (device, cycle) never re-collects
+     and never re-advances the reachability/interface state machines, so a
+     duplicated Down sample cannot falsely confirm DOWN.
+  4. §14/§15.3: sustained-high intervals now span
+     [first ts, last ts + one cycle slot) — 3 consecutive 5-minute samples
+     report 15 minutes, not 10; Wave 3 reads correct durations.
+Evidence: pytest 218 unit + 77 integration PASS on migrated PostgreSQL
+(0007); ruff clean; mypy clean (78 files); alembic upgrade head idempotent
+at 0007 (no migration needed); compose rebuild + smoke: web healthy,
+heartbeat persisted, scheduler starts at the next boundary with no
+backfill, and the unattemptable dev cycle is visible as a FAILED poll run
+(failed_sections=credentials) with device_monitoring_state untouched.
 ```
 
 ## Last checkpoint
 
 ```text
+W02-AUDIT checkpoint: <AUDIT_SHA> (work/wave-02-audit-fix)
 W01-T003 fix checkpoint: 9c4b57bd7b0b6445b8b4b9144f1e9fdb84bc2898 (work/wave-01)
 W01-T004 fix checkpoint: a8c394348206a3e65355a643fd6cef7939f0c8da (work/wave-01)
 W01-T005 fix checkpoint: 56010bf3a7d823f7737de160abe163fcf2518ce0 (work/wave-01)
@@ -156,17 +173,20 @@ Owner decision required: do NOT start Wave 3 without authorization.
 
 ```text
 W02-GATE — Wave 2 Monitoring Pipeline Gate
-Status: PASS (2026-09-05). Engineering gate over W02-T001..T009:
-  pytest 205 unit + 72 integration against migrated PostgreSQL (0007);
+Status: PASS (2026-09-05). Engineering gate over W02-T001..T009,
+revalidated PASS after W02-AUDIT:
+  pytest 218 unit + 77 integration against migrated PostgreSQL (0007);
   ruff clean; mypy clean; alembic upgrade head idempotent at 0007;
   compose rebuild + smoke: web healthy, worker heartbeat + schedulers
-  persistent, no backfill on restart, per-cycle error containment.
+  persistent, no backfill on restart, per-cycle error containment, and
+  unattemptable cycles bookkept FAILED per §8.
 Covers: 5-min scheduling, no same-device overlap, restart semantics,
-SUCCESS/PARTIAL/FAILED persistence, counter reset/rebaseline, device and
-priority-interface Down/Recovery (2-cycle rules, gap resets), sustained
-CPU/memory/utilization (>=80% x3, missing breaks), IRF observation
-(missing/reappearance/reliable role change, SSH-failure records nothing),
-90-day batched retention sparing long-term data.
+SUCCESS/PARTIAL/FAILED persistence (planned-cycle completeness included),
+counter reset/rebaseline, device and priority-interface Down/Recovery
+(2-cycle rules, gap resets), sustained CPU/memory/utilization (>=80% x3
+= 15 minutes, missing breaks), IRF observation (missing/reappearance/
+reliable role change, SSH-failure records nothing), 90-day batched
+retention sparing long-term data.
 Real-device proof is NOT part of this gate: it is carried by
 W01-T007 (BLOCKED — FIELD_VALIDATION_PENDING), which blocks W05-GATE.
 ```
