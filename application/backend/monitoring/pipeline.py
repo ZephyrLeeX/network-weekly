@@ -4,7 +4,10 @@ One call per planned 5-minute cycle per device turns a Wave 1
 :class:`DeviceCollectionOutcome` into the Wave 2 raw-data rows:
 
 - one `device_poll_runs` row — SUCCESS / PARTIAL / FAILED (§8) — whatever
-  the outcome, so Monitoring Coverage counts stay honest (§18);
+  the outcome, so Monitoring Coverage counts stay honest (§18). That
+  includes planned cycles that could not even be attempted (overlap skip,
+  unusable credentials): they land as FAILED with the reason as the failed
+  section, without advancing the §9/§13 state machines;
 - one `device_metrics` row when the cycle produced valid CPU/memory data;
 - one `interface_metrics` row per sampled interface, with delta-based
   utilization against the interface's previous stored sample and the
@@ -20,6 +23,7 @@ secret-bearing material ever reaches these tables.
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import select
@@ -32,6 +36,19 @@ from backend.db.models import Device, DeviceMetric, DevicePollRun, Interface, In
 from backend.monitoring.utilization import PreviousSample, compute_utilization
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PersistedPollRun:
+    """The poll run a cycle landed on, and whether this call created it.
+
+    `newly_persisted` is False when the `(device_id, cycle_started_at)` row
+    already existed: the cycle was fully processed earlier and nothing —
+    metrics, §9 reachability, §13 interface states — may be advanced again.
+    """
+
+    run_id: int
+    newly_persisted: bool
 
 
 def peak_usage_percent(samples: list[EntityLoadSample] | None) -> float | None:
@@ -117,18 +134,32 @@ def _previous_samples(
     return {row.interface_id: row for row in rows}
 
 
+def load_poll_run_status(
+    session: Session, device_id: int, cycle_started_at: datetime
+) -> str | None:
+    """The persisted §8 status of one planned cycle, or None when unprocessed."""
+
+    return session.execute(
+        select(DevicePollRun.status).where(
+            DevicePollRun.device_id == device_id,
+            DevicePollRun.cycle_started_at == cycle_started_at,
+        )
+    ).scalar_one_or_none()
+
+
 def persist_poll_result(
     session: Session,
     device_id: int,
     cycle_started_at: datetime,
     outcome: DeviceCollectionOutcome,
     collected_at: datetime,
-) -> int | None:
-    """Persist one cycle's poll run + raw metric rows; return the run id.
+) -> PersistedPollRun | None:
+    """Persist one cycle's poll run + raw metric rows.
 
     Idempotent per `(device_id, cycle_started_at)`: an already-persisted
-    cycle is left untouched and its run id returned, so a retry can never
-    duplicate a cycle (§8: one poll run per planned cycle per device).
+    cycle is left untouched and reported with ``newly_persisted=False``, so
+    a retry can never duplicate a cycle or re-advance the state machines
+    (§8: one poll run per planned cycle per device).
     Returns None when the device does not exist.
     """
 
@@ -161,7 +192,7 @@ def persist_poll_result(
             device_id,
             cycle_started_at,
         )
-        return existing_run_id
+        return PersistedPollRun(run_id=existing_run_id, newly_persisted=False)
     run_id = existing_id
 
     cpu_percent = peak_usage_percent(outcome.cpu)
@@ -219,4 +250,4 @@ def persist_poll_result(
         cycle_started_at,
         ", ".join(outcome.failed_sections) or "none",
     )
-    return run_id
+    return PersistedPollRun(run_id=run_id, newly_persisted=True)

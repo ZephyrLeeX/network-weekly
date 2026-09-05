@@ -80,8 +80,9 @@ def _seed_cycle(
         device_name="core-1",
         sections=[SectionResult("identity", "SUCCESS")],
     )
-    run_id = persist_poll_result(session, device_id, cycle, outcome, collected)
-    assert run_id is not None
+    persisted = persist_poll_result(session, device_id, cycle, outcome, collected)
+    assert persisted is not None
+    run_id = persisted.run_id
     session.add(
         DeviceMetric(
             poll_run_id=run_id, device_id=device_id, collected_at=collected,
@@ -186,8 +187,9 @@ def test_retention_interface_metrics_deleted_before_runs(
             sections=[SectionResult("interfaces", "SUCCESS")],
         )
         outcome.interfaces = []
-        run_id = persist_poll_result(session, device_id, OLD, outcome, OLD)
-        assert run_id is not None
+        persisted = persist_poll_result(session, device_id, OLD, outcome, OLD)
+        assert persisted is not None
+        run_id = persisted.run_id
         iface = session.execute(
             select(Interface).where(
                 Interface.normalized_name == "ten-gigabitethernet1/0/1"

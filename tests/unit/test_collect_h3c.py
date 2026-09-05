@@ -14,7 +14,9 @@ from backend.collect.dto import normalize_interface_name
 from backend.collect.h3c import oids
 from backend.collect.h3c.collectors import (
     CollectionSectionError,
+    collect_cpu,
     collect_interfaces,
+    collect_memory,
     parse_aggregations,
     parse_entity_usage,
     parse_identity,
@@ -206,9 +208,67 @@ def test_collect_interfaces_empty_result_is_section_error() -> None:
 def test_collect_interfaces_success_with_full_data() -> None:
     data = _load("iftable_s10500x.json")
     client = _FakeSnmpClient({col: _varbinds(items) for col, items in data["columns"].items()})
-    samples = collect_interfaces(client)  # type: ignore[arg-type]
-    assert len(samples) == 6
+    collection = collect_interfaces(client)  # type: ignore[arg-type]
+    assert len(collection.samples) == 6
+    assert collection.missing_groups == ()  # every key group delivered
     assert all(col in client.walked for col in (oids.IF_HIGH_SPEED, oids.DOT3_HC_STATS_FCS_ERRORS))
+
+
+def test_collect_interfaces_degraded_when_state_columns_missing() -> None:
+    """Both ifAdminStatus and ifOperStatus unavailable -> DEGRADED, data kept."""
+
+    data = _load("iftable_s10500x.json")
+    columns: dict[str, list[SnmpVarbind] | Exception] = {
+        col: _varbinds(items) for col, items in data["columns"].items()
+    }
+    columns[oids.IF_ADMIN_STATUS] = SnmpError("walk timeout")
+    columns[oids.IF_OPER_STATUS] = SnmpError("walk timeout")
+    collection = collect_interfaces(_FakeSnmpClient(columns))  # type: ignore[arg-type]
+    assert len(collection.samples) == 6  # the ifDescr-driven rows survive
+    assert collection.missing_groups == ("state",)
+
+
+def test_collect_interfaces_degraded_when_speed_and_counters_missing() -> None:
+    data = _load("iftable_s10500x.json")
+    columns: dict[str, list[SnmpVarbind] | Exception] = {
+        col: _varbinds(items) for col, items in data["columns"].items()
+    }
+    for column in (
+        oids.IF_SPEED,
+        oids.IF_HIGH_SPEED,
+        oids.IF_IN_OCTETS,
+        oids.IF_OUT_OCTETS,
+        oids.IF_HC_IN_OCTETS,
+        oids.IF_HC_OUT_OCTETS,
+    ):
+        columns[column] = []
+    collection = collect_interfaces(_FakeSnmpClient(columns))  # type: ignore[arg-type]
+    assert collection.missing_groups == ("speed", "octets")
+
+
+def test_collect_interfaces_not_degraded_on_32bit_fallback() -> None:
+    """HC columns absent but 32-bit fallbacks present: no degradation."""
+
+    data = _load("iftable_s10500x.json")
+    columns: dict[str, list[SnmpVarbind] | Exception] = {
+        col: _varbinds(items) for col, items in data["columns"].items()
+    }
+    columns[oids.IF_HC_IN_OCTETS] = []
+    columns[oids.IF_HC_OUT_OCTETS] = []
+    columns[oids.DOT3_HC_STATS_FCS_ERRORS] = []
+    collection = collect_interfaces(_FakeSnmpClient(columns))  # type: ignore[arg-type]
+    assert collection.missing_groups == ()
+
+
+def test_collect_cpu_empty_result_is_section_error() -> None:
+    with pytest.raises(CollectionSectionError, match="no cpu usage samples"):
+        collect_cpu(_FakeSnmpClient({oids.HH3C_ENTITY_EXT_CPU_USAGE: []}))  # type: ignore[arg-type]
+
+
+def test_collect_memory_non_numeric_only_is_section_error() -> None:
+    varbinds = [SnmpVarbind(oid=f"{oids.HH3C_ENTITY_EXT_MEM_USAGE}.1", value="n/a")]
+    with pytest.raises(CollectionSectionError, match="no memory usage samples"):
+        collect_memory(_FakeSnmpClient({oids.HH3C_ENTITY_EXT_MEM_USAGE: varbinds}))  # type: ignore[arg-type]
 
 
 def test_parse_aggregations_from_fixture() -> None:

@@ -143,6 +143,7 @@ def test_run_cycle_skips_device_still_in_flight() -> None:
         lambda: devices,
         executor=executor,
         poll=blocking_poll,
+        record_skipped=lambda ctx, cycle: "SKIPPED",
     )
     try:
         scheduler.run_cycle(BASE)
@@ -169,6 +170,82 @@ def test_run_cycle_skips_device_still_in_flight() -> None:
     fast_cycles = [cycle for name, cycle in polls if name == "fast"]
     assert slow_cycles == [BASE, cycle3]  # cycle2 skipped, no overlap
     assert fast_cycles == [BASE, cycle2, cycle3]
+
+
+def test_skipped_cycle_is_recorded_not_dropped() -> None:
+    """§8: a skipped planned cycle still lands its poll-run row."""
+
+    release = threading.Event()
+    first_started = threading.Event()
+    polls: list[tuple[str, datetime]] = []
+    recorded: list[tuple[str, datetime]] = []
+
+    def blocking_poll(ctx: DevicePollContext, cycle: datetime) -> str:
+        polls.append((ctx.device_name, cycle))
+        if ctx.device_name == "slow":
+            first_started.set()
+            release.wait(timeout=5)
+        return "SUCCESS"
+
+    def record_skipped(ctx: DevicePollContext, cycle: datetime) -> str:
+        recorded.append((ctx.device_name, cycle))
+        return "FAILED"
+
+    devices = [_ctx("slow")]
+    executor = ThreadPoolExecutor(max_workers=2)
+    scheduler = DevicePollScheduler(
+        lambda: devices,
+        executor=executor,
+        poll=blocking_poll,
+        record_skipped=record_skipped,
+    )
+    try:
+        scheduler.run_cycle(BASE)
+        assert first_started.wait(timeout=5)
+
+        cycle2 = BASE + timedelta(minutes=5)
+        scheduler.run_cycle(cycle2)
+        skip_future = scheduler._in_flight["slow"]  # noqa: SLF001
+        assert skip_future is not None
+        skip_future.result(timeout=5)
+    finally:
+        release.set()
+        executor.shutdown(wait=True)
+
+    assert polls == [("slow", BASE)]  # never overlapped, never re-run
+    assert recorded == [("slow", cycle2)]  # but the planned cycle was bookkept
+
+
+def test_skip_recording_failure_is_contained() -> None:
+    """A failing recorder must not break the scheduler loop (§27.7)."""
+
+    release = threading.Event()
+    first_started = threading.Event()
+
+    def blocking_poll(ctx: DevicePollContext, cycle: datetime) -> str:
+        if ctx.device_name == "slow":
+            first_started.set()
+            release.wait(timeout=5)
+        return "SUCCESS"
+
+    def failing_record(ctx: DevicePollContext, cycle: datetime) -> str:
+        raise RuntimeError("db down")
+
+    executor = ThreadPoolExecutor(max_workers=2)
+    scheduler = DevicePollScheduler(
+        lambda: [_ctx("slow")],
+        executor=executor,
+        poll=blocking_poll,
+        record_skipped=failing_record,
+    )
+    try:
+        scheduler.run_cycle(BASE)
+        assert first_started.wait(timeout=5)
+        scheduler.run_cycle(BASE + timedelta(minutes=5))
+        scheduler._in_flight["slow"].result(timeout=5)  # noqa: SLF001
+    finally:
+        release.set()
+        executor.shutdown(wait=True)
 
 
 def test_poll_exception_is_contained_per_device() -> None:

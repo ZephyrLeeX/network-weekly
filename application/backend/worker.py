@@ -25,12 +25,16 @@ from backend.config import load_settings
 from backend.db.engine import get_session_factory
 from backend.heartbeat import build_heartbeat_info, record_heartbeat
 from backend.log import setup_logging
-from backend.monitoring.credentials import build_contexts, build_irf_contexts
+from backend.monitoring.credentials import (
+    build_contexts,
+    build_irf_contexts,
+    build_unpollable_contexts,
+)
 from backend.monitoring.irf import IrfDeviceContext, IrfObservationLoop
 from backend.monitoring.poll import DevicePollContext
 from backend.monitoring.retention import run_retention
 from backend.monitoring.scheduler import DevicePollScheduler
-from backend.secrets import load_secrets
+from backend.secrets import SecretsError, load_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -98,13 +102,26 @@ def _load_devices(session_factory: sessionmaker, secrets_file: Path) -> list[Dev
     """Reload enabled devices + credentials for one cycle.
 
     Reloaded every cycle so inventory syncs and credential changes apply
-    without a worker restart. Secrets trouble (missing file, 0600 violations)
-    raises here and is contained per cycle by the scheduler.
+    without a worker restart. When the secrets file itself cannot be loaded
+    (missing, wider than 0600, malformed) the cycle is not lost: every
+    enabled device gets an unattemptable context whose cycle `poll_device`
+    records as a FAILED poll run (§8), with the worker staying alive (§27.9).
     """
 
-    secrets = load_secrets(secrets_file)
+    try:
+        secrets = load_secrets(secrets_file)
+    except SecretsError as exc:
+        logger.error("secrets unavailable for this cycle (%s)", exc)
+        return _unpollable_contexts(session_factory, str(exc))
     with session_factory() as session:
         return build_contexts(session, secrets)
+
+
+def _unpollable_contexts(
+    session_factory: sessionmaker, reason: str
+) -> list[DevicePollContext]:
+    with session_factory() as session:
+        return build_unpollable_contexts(session, reason=reason)
 
 
 def main() -> None:

@@ -6,6 +6,7 @@ here handles configuration changes or business statistics (§7.4).
 """
 
 import logging
+from dataclasses import dataclass
 
 from backend.collect.dto import (
     AggregationMapping,
@@ -84,15 +85,33 @@ def parse_entity_usage(
 
 
 def collect_cpu(client: SnmpClient) -> list[EntityLoadSample]:
-    return parse_entity_usage(
+    """Walk the CPU usage column; an empty result is a section FAILURE (§8).
+
+    A walk that succeeds but reports no usable value means the section did
+    not collect what this cycle needs — reporting SUCCESS would fake a
+    healthy cycle with no CPU data at all (the H3C enterprise OIDs are
+    themselves pending W01-T007 confirmation, so silence is a real risk).
+    """
+
+    samples = parse_entity_usage(
         client.bulk_walk(oids.HH3C_ENTITY_EXT_CPU_USAGE), oids.HH3C_ENTITY_EXT_CPU_USAGE, "cpu"
     )
+    if not samples:
+        raise CollectionSectionError("cpu", "no cpu usage samples collected")
+    return samples
 
 
 def collect_memory(client: SnmpClient) -> list[EntityLoadSample]:
-    return parse_entity_usage(
-        client.bulk_walk(oids.HH3C_ENTITY_EXT_MEM_USAGE), oids.HH3C_ENTITY_EXT_MEM_USAGE, "memory"
+    """Walk the memory usage column; an empty result is a section FAILURE (§8)."""
+
+    samples = parse_entity_usage(
+        client.bulk_walk(oids.HH3C_ENTITY_EXT_MEM_USAGE),
+        oids.HH3C_ENTITY_EXT_MEM_USAGE,
+        "memory",
     )
+    if not samples:
+        raise CollectionSectionError("memory", "no memory usage samples collected")
+    return samples
 
 
 # --- interfaces ------------------------------------------------------------------
@@ -184,12 +203,58 @@ def parse_interfaces(varbinds: dict[str, list[SnmpVarbind]]) -> list[InterfaceSa
     return samples
 
 
-def collect_interfaces(client: SnmpClient) -> list[InterfaceSample]:
+# Key interface column groups (§7.1): a group counts as *collected* when at
+# least one of its columns delivered rows (HC variant OR 32-bit fallback).
+# If every column of a group is unavailable the section is DEGRADED — the
+# collected samples are kept, but the cycle must not count as a full SUCCESS.
+_INTERFACE_KEY_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # admin/oper state drives §13 Down/Recovery.
+    ("state", (oids.IF_ADMIN_STATUS, oids.IF_OPER_STATUS)),
+    # speed drives §15 utilization.
+    ("speed", (oids.IF_HIGH_SPEED, oids.IF_SPEED)),
+    # octet counters drive §15 utilization.
+    (
+        "octets",
+        (oids.IF_HC_IN_OCTETS, oids.IF_IN_OCTETS, oids.IF_HC_OUT_OCTETS, oids.IF_OUT_OCTETS),
+    ),
+    # error/discard counters drive §16 observation (FCS alone may be absent).
+    (
+        "errors",
+        (
+            oids.IF_IN_ERRORS,
+            oids.IF_OUT_ERRORS,
+            oids.IF_IN_DISCARDS,
+            oids.IF_OUT_DISCARDS,
+            oids.DOT3_HC_STATS_FCS_ERRORS,
+            oids.DOT3_STATS_FCS_ERRORS,
+        ),
+    ),
+)
+
+
+@dataclass(frozen=True)
+class InterfaceCollection:
+    """Interfaces-section result: the assembled samples plus any key column
+    group that could not be collected (§8 degraded semantics).
+
+    `samples` is kept whatever the degradation — one missing column never
+    discards the interface data other columns already delivered. The caller
+    turns non-empty `missing_groups` into a DEGRADED section (poll run
+    PARTIAL) so Coverage does not dress the cycle up as a full SUCCESS.
+    """
+
+    samples: list[InterfaceSample]
+    missing_groups: tuple[str, ...] = ()
+
+
+def collect_interfaces(client: SnmpClient) -> InterfaceCollection:
     """Walk the IF-MIB/EtherLike columns for all interfaces.
 
     The ifDescr walk is the section's core: when it fails, or when no
     usable interface row can be assembled from a successful walk, the
-    section FAILED — never a SUCCESS with empty data (§8).
+    section FAILED — never a SUCCESS with empty data (§8). A usable row set
+    with missing key column groups is returned as DEGRADED data instead:
+    partial column failure keeps the samples and degrades the section.
     """
 
     columns = (
@@ -229,7 +294,12 @@ def collect_interfaces(client: SnmpClient) -> list[InterfaceSample]:
     samples = parse_interfaces(varbinds)
     if not samples:
         raise CollectionSectionError("interfaces", "no usable interface data collected")
-    return samples
+    missing = tuple(
+        name
+        for name, group in _INTERFACE_KEY_GROUPS
+        if not any(varbinds.get(column) for column in group)
+    )
+    return InterfaceCollection(samples=samples, missing_groups=missing)
 
 
 # --- aggregation membership ------------------------------------------------------

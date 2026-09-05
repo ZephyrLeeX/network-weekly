@@ -5,7 +5,7 @@ from typing import cast
 
 from sqlalchemy.orm import Session
 
-from backend.monitoring.credentials import build_contexts
+from backend.monitoring.credentials import build_contexts, build_unpollable_contexts
 
 SECRET_VALUES = {
     "SNMP_COMMUNITY_DEFAULT": "c0mmunity",
@@ -52,6 +52,7 @@ def test_context_builds_snmp_and_ssh() -> None:
     assert len(contexts) == 1
     context = contexts[0]
     assert context.device_name == "dev-1"
+    assert context.snmp is not None
     assert context.snmp.host == "192.0.2.1"
     assert context.snmp.community == "c0mmunity"
     assert context.ssh is not None
@@ -62,17 +63,37 @@ def test_context_builds_snmp_and_ssh() -> None:
 def test_device_without_ssh_credentials_polls_snmp_only() -> None:
     secrets = {"SNMP_COMMUNITY_DEFAULT": "c0mmunity"}
     contexts = build_contexts(_session([_device("dev-1")]), secrets)
+    assert contexts[0].snmp is not None
     assert contexts[0].snmp.community == "c0mmunity"
     assert contexts[0].ssh is None  # no §9.1 confirmation available, but pollable
 
 
-def test_device_without_snmp_community_is_skipped() -> None:
+def test_device_without_snmp_community_is_unattemptable_not_dropped() -> None:
+    """§8: the device keeps its planned cycles — recorded FAILED, not lost."""
+
     contexts = build_contexts(_session([_device("dev-1", profile="missing")]), SECRET_VALUES)
-    assert contexts == []
+    assert len(contexts) == 1
+    context = contexts[0]
+    assert context.snmp is None
+    assert context.ssh is None
+    assert context.unavailable_reason is not None
+    assert "SNMP_COMMUNITY_MISSING" in context.unavailable_reason  # key name, never a value
+
+
+def test_unpollable_contexts_cover_every_enabled_device() -> None:
+    """Secrets unusable at all: every enabled device stays attributable (§8)."""
+
+    devices = [_device("a"), _device("b")]
+    contexts = build_unpollable_contexts(_session(devices), reason="secrets file not found: x")
+    assert len(contexts) == 2
+    assert all(context.snmp is None for context in contexts)
+    assert all(context.unavailable_reason == "secrets file not found: x" for context in contexts)
+    assert [context.device_name for context in contexts] == ["a", "b"]
 
 
 def test_profiles_map_to_their_own_secrets() -> None:
     contexts = build_contexts(
         _session([_device("core", profile="s12500")]), SECRET_VALUES
     )
+    assert contexts[0].snmp is not None
     assert contexts[0].snmp.community == "other-community"

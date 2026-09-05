@@ -4,9 +4,16 @@ Each section runs independently: one failing section records its failure
 and never discards data the other sections already collected. The overall
 status follows §8:
 
-- SUCCESS: every attempted section succeeded.
-- PARTIAL: at least one section failed but at least one produced valid data.
+- SUCCESS: every attempted section fully succeeded.
+- PARTIAL: at least one section failed or delivered only degraded data,
+  but at least one produced valid data.
 - FAILED: no section produced usable data.
+
+A section can also be DEGRADED: it returned data, but a key part of the
+section (e.g. the interface state/speed/counter columns) could not be
+collected. Degraded data is kept — a partial column failure never discards
+the samples other columns delivered — but it counts as a non-success
+section, so the cycle lands on PARTIAL instead of faking SUCCESS.
 
 Error strings stored in the report are secret-free: transport errors are
 already normalized, and any unexpected exception is reduced to its class
@@ -28,6 +35,7 @@ from backend.collect.dto import (
 )
 from backend.collect.h3c.collectors import (
     CollectionSectionError,
+    InterfaceCollection,
     collect_aggregations,
     collect_cpu,
     collect_identity,
@@ -48,6 +56,8 @@ logger = logging.getLogger(__name__)
 SUCCESS = "SUCCESS"
 PARTIAL = "PARTIAL"
 FAILED = "FAILED"
+# Data returned, but a key part of the section is missing (§8 degraded).
+DEGRADED = "DEGRADED"
 
 
 @dataclass(frozen=True)
@@ -55,7 +65,8 @@ class SectionResult:
     """Outcome of one collection section (§8)."""
 
     name: str
-    status: str  # SUCCESS or FAILED
+    # SUCCESS, DEGRADED (data kept, cycle is at best PARTIAL) or FAILED.
+    status: str
     error: str | None = None
 
 
@@ -77,6 +88,7 @@ class DeviceCollectionOutcome:
 
     @property
     def failed_sections(self) -> tuple[str, ...]:
+        """Sections that did not fully succeed (FAILED or DEGRADED)."""
         return tuple(s.name for s in self.sections if s.status != SUCCESS)
 
     @property
@@ -87,7 +99,10 @@ class DeviceCollectionOutcome:
         if not failed:
             return SUCCESS
         if len(failed) == len(self.sections):
-            return FAILED
+            # Only when NO section produced usable data can the cycle be
+            # FAILED; a degraded section still delivered samples (§8).
+            if all(s.status == FAILED for s in self.sections):
+                return FAILED
         return PARTIAL
 
     def has_valid_data(self) -> bool:
@@ -139,6 +154,53 @@ def _snmp_channel_failed(outcome: DeviceCollectionOutcome) -> bool:
     return not outcome.has_valid_data()
 
 
+def _run_interfaces_section(outcome: DeviceCollectionOutcome, client: SnmpClient) -> None:
+    """Run the interfaces section with its degraded-data path (§8).
+
+    FAILED (no usable rows) drops nothing that exists — there are no rows.
+    DEGRADED keeps every assembled sample and records which key column
+    groups were missing, so the poll run lands on PARTIAL instead of a
+    fake SUCCESS while the collected interface data still persists.
+    """
+
+    try:
+        result = collect_interfaces(client)
+    except CollectionSectionError as exc:
+        # Our own section-failure signal; message is secret-free by construction.
+        outcome.sections.append(SectionResult(name="interfaces", status=FAILED, error=str(exc)))
+        return
+    except SnmpError as exc:
+        outcome.sections.append(SectionResult(name="interfaces", status=FAILED, error=str(exc)))
+        return
+    except Exception as exc:  # noqa: BLE001  (isolated; class name only — no secrets)
+        outcome.sections.append(
+            SectionResult(name="interfaces", status=FAILED, error=type(exc).__name__)
+        )
+        return
+
+    if isinstance(result, InterfaceCollection):
+        outcome.interfaces = result.samples
+        missing_groups = result.missing_groups
+    else:
+        outcome.interfaces = result
+        missing_groups = ()
+    if missing_groups:
+        outcome.sections.append(
+            SectionResult(
+                name="interfaces",
+                status=DEGRADED,
+                error="missing key columns: " + ", ".join(missing_groups),
+            )
+        )
+        logger.warning(
+            "interfaces section degraded for %s (missing: %s)",
+            outcome.device_name,
+            ", ".join(missing_groups),
+        )
+        return
+    outcome.sections.append(SectionResult(name="interfaces", status=SUCCESS))
+
+
 def run_collection(
     snmp: SnmpConfig, ssh: SshConfig | None, device_name: str
 ) -> DeviceCollectionOutcome:
@@ -159,9 +221,7 @@ def run_collection(
         outcome.identity = _run_section(outcome, "identity", lambda: collect_identity(client))
         outcome.cpu = _run_section(outcome, "cpu", lambda: collect_cpu(client))
         outcome.memory = _run_section(outcome, "memory", lambda: collect_memory(client))
-        outcome.interfaces = _run_section(
-            outcome, "interfaces", lambda: collect_interfaces(client)
-        )
+        _run_interfaces_section(outcome, client)
         outcome.aggregations = _run_section(
             outcome, "aggregations", lambda: collect_aggregations(client)
         )

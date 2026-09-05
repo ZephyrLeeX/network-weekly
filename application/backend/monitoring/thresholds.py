@@ -197,11 +197,13 @@ def detect_device_sustained_high(
             device_metric_series(session, device_id, CPU_FIELD, start, end),
             thresholds[CPU_KEY],
             required_samples=int(thresholds[REQUIRED_SAMPLES_KEY]),
+            sample_interval=POLL_INTERVAL,
         ),
         "memory": find_sustained_high_intervals(
             device_metric_series(session, device_id, MEMORY_FIELD, start, end),
             thresholds[MEMORY_KEY],
             required_samples=int(thresholds[REQUIRED_SAMPLES_KEY]),
+            sample_interval=POLL_INTERVAL,
         ),
     }
 
@@ -220,4 +222,5 @@ def detect_interface_high_utilization(
         interface_utilization_series(session, interface_id, start, end),
         thresholds[INTERFACE_UTIL_KEY],
         required_samples=int(thresholds[REQUIRED_SAMPLES_KEY]),
+        sample_interval=POLL_INTERVAL,
     )

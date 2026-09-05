@@ -84,8 +84,9 @@ def _seed_cycle(
         device_name="core-1",
         sections=[SectionResult("identity", "SUCCESS")],
     )
-    run_id = persist_poll_result(session, device_id, cycle, outcome, cycle)
-    assert run_id is not None
+    persisted = persist_poll_result(session, device_id, cycle, outcome, cycle)
+    assert persisted is not None
+    run_id = persisted.run_id
     if cpu is not None or memory is not None:
         session.add(
             DeviceMetric(
@@ -140,8 +141,10 @@ def test_sustained_high_requires_three_consecutive_valid_cycles(
         assert len(result["cpu"]) == 1
         interval = result["cpu"][0]
         assert interval.start == T0 + 3 * STEP
-        assert interval.end == T0 + 5 * STEP
+        # Exclusive end of the last sample's 5-minute slot: 3 samples = 15 min.
+        assert interval.end == T0 + 6 * STEP
         assert interval.sample_count == 3
+        assert interval.duration_seconds == 900.0
         assert result["memory"] == []
 
 
