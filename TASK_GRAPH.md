@@ -277,10 +277,12 @@ REVIEW_PASSED
 **Tests:** `tests/integration/test_weekly_incidents.py` (7 cases: in-week down+recovery with duration; cross-week started-last-week recovered-in-week; open-at-period-end and recovered-after-period-end both ongoing; boundary exclusions; multi-episode grouping/ordering; interface incidents incl. ongoing cross-week outage and incident-free interfaces absent; empty week).
 
 ## W03-T004 — IRF weekly summary
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W03-T001, W02-T008  
 **Blocks:** W03-T006  
-**Acceptance:** member missing/reappeared/current missing are summarized correctly even when logical device remained reachable.
+**Acceptance:** member missing/reappeared/current missing are summarized correctly even when logical device remained reachable.  
+**Implementation:** `reporting/irf_summary.py` — reads the long-term `irf_member_observations` history (a failed observation records nothing, so any in-week row is device-reported evidence; member absence is visible even when the management IP stayed reachable, §17). Per fabric (`expected_irf_member_count > 1` only): expected count, `observed_member_count` from the latest in-week observation, per-member chronological fold into missing windows `[first missing obs, reappearing obs)` (open when still missing through the in-week data), `missing_at_period_end` from the LATEST in-week observation only (post-period reappearance belongs to the next week), reliable role changes (both roles known, W02-T008 semantics), and `data_missing` for a week with no successful observation — evidence absence is 数据缺失 and never read as member loss (§6.2/§19).  
+**Tests:** `tests/integration/test_weekly_irf.py` (8 cases: all-present week; missing→reappearance window with exact bounds; still-missing-at-period-end with open window; observations outside the period ignored incl. pre-week missing and post-week reappearing; in-week reliable role change; observation-less week = 数据缺失 not member loss; standalone devices excluded; multi-fabric ordering).
 
 ## W03-T005 — CRC/Error/Drop deltas and Monitoring Coverage
 **Status:** TODO  
