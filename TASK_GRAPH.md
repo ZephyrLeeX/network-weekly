@@ -285,10 +285,12 @@ REVIEW_PASSED
 **Tests:** `tests/integration/test_weekly_irf.py` (8 cases: all-present week; missing→reappearance window with exact bounds; still-missing-at-period-end with open window; observations outside the period ignored incl. pre-week missing and post-week reappearing; in-week reliable role change; observation-less week = 数据缺失 not member loss; standalone devices excluded; multi-fabric ordering).
 
 ## W03-T005 — CRC/Error/Drop deltas and Monitoring Coverage
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W03-T001, W02-T001, W02-T003, W02-T006  
 **Blocks:** W03-T006  
-**Acceptance:** reset-safe weekly deltas; Top observations; expected/success/partial/failed correct; Coverage formula correct; <95% produces data-integrity warning.
+**Acceptance:** reset-safe weekly deltas; Top observations; expected/success/partial/failed correct; Coverage formula correct; <95% produces data-integrity warning.  
+**Implementation:** `reporting/counters_coverage.py` — THE single implementation for both statistics. Counter deltas (§16): one CTE with `lag()` per counter column (fcs_errors=CRC, in/out errors, in/out discards) over the planned-cycle window, aggregated with a forward-only `sum(case(...))` — a reset / negative delta / missing side contributes nothing (rebaseline), so fake huge increments are impossible; a column with no valid interval is NULL = 数据缺失, never 0; `total_delta` sums the columns that have data and is None when none do; ranking total-descending with deterministic tie-break (observation-only, §19: never changes overall status). Coverage (§18): `expected` = planned-cycle grid via the W02-T007 `cycle_slots` (2016 for a full week; disabled device → 0 planned cycles → coverage None, not 0%); counts from one grouped status query; any non-SUCCESS/PARTIAL status counts as failed; `coverage=(SUCCESS+PARTIAL)/expected*100`; PARTIAL always separate; `below_target` = overall OR any single device < 95% → 数据完整性不足.  
+**Tests:** `tests/integration/test_weekly_counters_coverage.py` (10 cases: simple accumulation; counter reset mid-week keeps only real increments; never-reported column None-not-zero while constant counter is a genuine 0; no-counter-data interface unranked; Top ranking by total incl. multi-column sums; §18 status counts over a full 2016-cycle week with out-of-week exclusion; single-device <95% trips warning while 99% device does not; exactly-at-target not below; silent week 0% coverage; disabled device no planned cycles).
 
 ## W03-T006 — WeeklyStatisticsService and overall status
 **Status:** TODO  
