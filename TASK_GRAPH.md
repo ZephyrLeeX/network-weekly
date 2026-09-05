@@ -196,13 +196,15 @@ REVIEW_PASSED
 **Tests:** unit `tests/unit/test_monitoring_thresholds.py` (spec defaults, key/range validation incl. required-samples >= 2, cycle-slot alignment + half-open window); integration `tests/integration/test_sustained_high.py` (3-consecutive rule, missing cycle breaks continuity, single spikes rejected, missing memory stays None not 0, operator threshold/required-sample overrides change detection).
 
 ## W02-T008 — IRF periodic observation
-**Status:** IN_PROGRESS  
+**Status:** REVIEW_PASSED  
 **Depends On:** W02-T001, W01-T005  
 **Blocks:** W03-T004  
 **Acceptance:** expected/current members persist; member missing/reappeared is detectable; role change stored when source data is reliable.
+**Implementation:** migration `0007` (`irf_member_observations`, long-term per §24); `monitoring/irf.py` — `apply_irf_observation` persists one row per known member per SUCCESSFUL observation (present w/ reported role, absent as `observed=false`; role changes recorded only when both stored and reported roles are known; reappearance = previous flag false → present; member rows never deleted), `observe_irf_device` (Wave 1 `run_irf_observation` re-used; SSH failure records NOTHING so "missing" always means the device reported it), `IrfObservationLoop` (~15-min aligned single-thread passes, per-device containment), `build_irf_contexts` loader restricted to `expected_irf_member_count > 1` + SSH credentials — standalone devices are never SSH-probed for IRF (§17). Worker runs the loop as a third thread.
+**Tests:** unit `tests/unit/test_monitoring_irf.py` (15-min interval, pass coverage/containment, aligned boundaries); integration `tests/integration/test_irf_observation.py` (present rows, missing-then-reappear, reliable role change w/ previous_role, unknown role never erases, loader skips standalone, loader requires SSH).
 
 ## W02-T009 — Ninety-day retention maintenance
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** W02-T001  
 **Blocks:** W02-GATE  
 **Acceptance:** batched cleanup removes expired raw metrics/poll runs without deleting long-term incident/report data.

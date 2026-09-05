@@ -38,6 +38,10 @@ W02-T007: 683e3d250fdb961a3be498691b4e0ab4400edea1 — REVIEW_PASSED
           (migration 0006 system_settings; 80%/3-sample defaults; validated
           runtime-configurable thresholds; cycle-grid series loaders; missing
           sample breaks threshold continuity per §14)
+W02-T008: c693d53f8c67ad94ab328904a31a8f0193ffd018 — REVIEW_PASSED
+          (migration 0007 irf_member_observations; ~15-min loop; IRF devices
+          only; SSH failure records nothing; missing/reappeared/role change
+          persisted for Wave 3)
 ```
 
 ## User authorization (2026-09-04)

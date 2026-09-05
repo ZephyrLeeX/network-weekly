@@ -28,10 +28,39 @@ from backend.log import setup_logging
 from backend.monitoring.credentials import build_contexts, build_irf_contexts
 from backend.monitoring.irf import IrfDeviceContext, IrfObservationLoop
 from backend.monitoring.poll import DevicePollContext
+from backend.monitoring.retention import run_retention
 from backend.monitoring.scheduler import DevicePollScheduler
 from backend.secrets import load_secrets
 
 logger = logging.getLogger(__name__)
+
+# Retention passes are cheap when nothing is expired; a restart simply
+# re-runs the pass, so the schedule needs no persistence.
+RETENTION_FIRST_DELAY_SECONDS = 60
+RETENTION_PASS_INTERVAL_SECONDS = 6 * 3600
+
+
+def _retention_loop(
+    stop: threading.Event,
+    session_factory: sessionmaker,
+    retention_days: int,
+    first_delay_seconds: int = RETENTION_FIRST_DELAY_SECONDS,
+    interval_seconds: int = RETENTION_PASS_INTERVAL_SECONDS,
+) -> None:
+    """Run the batched §24 cleanup pass periodically until stopped."""
+
+    stop.wait(first_delay_seconds)
+    while not stop.is_set():
+        try:
+            run_retention(
+                session_factory, now=datetime.now(UTC), retention_days=retention_days
+            )
+        except SQLAlchemyError as exc:
+            logger.warning("retention pass failed (%s), retrying next interval", type(exc).__name__)
+        except ValueError as exc:
+            logger.error("retention configuration rejected: %s", exc)
+            return
+        stop.wait(interval_seconds)
 
 
 def _heartbeat_loop(
@@ -125,15 +154,23 @@ def main() -> None:
     irf_observer = threading.Thread(
         target=irf_loop.run_loop, args=(stop,), name="irf-observation", daemon=True
     )
+    retention = threading.Thread(
+        target=_retention_loop,
+        args=(stop, session_factory, settings.retention_days),
+        name="retention",
+        daemon=True,
+    )
 
     heartbeat.start()
     poller.start()
     irf_observer.start()
+    retention.start()
     stop.wait()
     # Give the loops a moment to notice the stop event before exit.
     heartbeat.join(timeout=5)
     poller.join(timeout=5)
     irf_observer.join(timeout=5)
+    retention.join(timeout=5)
     logger.info("worker %s stopped", settings.worker_id)
 
 
