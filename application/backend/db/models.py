@@ -276,6 +276,71 @@ class DeviceMetric(Base):
     poll_run: Mapped[DevicePollRun] = relationship(back_populates="device_metric")
 
 
+class DeviceMonitoringState(Base):
+    """Per-device cycle tracking for the §9 reachability state machine.
+
+    One row per device. Holds the consecutive failed/reachable cycle counts
+    with the timestamps of the first cycle of each run, plus
+    `last_cycle_started_at` as the continuity anchor: a cycle that does not
+    exactly follow the previous planned cycle resets both runs (§9.2/§9.3
+    count *consecutive* cycles; gaps must never confirm a state).
+    """
+
+    __tablename__ = "device_monitoring_state"
+
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True
+    )
+    # "normal" or "down" (SYSTEM_SPEC.md §9.2).
+    state: Mapped[str] = mapped_column(default="normal", nullable=False)
+    last_cycle_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    consecutive_failed_cycles: Mapped[int] = mapped_column(
+        SmallInteger, default=0, nullable=False
+    )
+    consecutive_reachable_cycles: Mapped[int] = mapped_column(
+        SmallInteger, default=0, nullable=False
+    )
+    # First cycle of the current failed/reachable run (the incident anchor).
+    failed_run_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    reachable_run_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+
+
+class DeviceReachabilityIncident(Base):
+    """A confirmed device Down episode (SYSTEM_SPEC.md §9.4, long-term).
+
+    Open incident: `recovered_at` is NULL (device still Down at period end —
+    the §19 异常 condition). Long-term record: retention never touches it.
+    """
+
+    __tablename__ = "device_reachability_incidents"
+    __table_args__ = (
+        Index("ix_device_reachability_incidents_device", "device_id", "recovered_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    # First failed cycle of the confirming run (§9.4 started_at).
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # First reachable cycle of the confirming recovery run; NULL while Down.
+    recovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+
+    device: Mapped[Device] = relationship()
+
+
 class InterfaceMetric(Base):
     """Per-interface sample for one poll cycle (SYSTEM_SPEC.md §10/§15/§16).
 

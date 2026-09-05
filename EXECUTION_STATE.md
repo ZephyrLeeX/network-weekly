@@ -18,6 +18,10 @@ W02-T002: 2700b5942e03de8a80e1f8910740e01a6d90e7c0 — REVIEW_PASSED
           (aligned 5-min scheduler; no same-device overlap; restart continues
           future cycles only; poll pipeline single-transaction persistence;
           worker heartbeat + scheduler threads)
+W02-T003: b39d72d94ce6c3ac27e2b76c061ad796bc505e5a — REVIEW_PASSED
+          (counter delta x actual elapsed x effective speed; rebaseline on
+          reset/negative delta/missing counters/speed invalid or changed/
+          interval invalid/>100%; no fake spikes possible)
 ```
 
 ## User authorization (2026-09-04)

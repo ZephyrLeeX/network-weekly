@@ -20,6 +20,7 @@ from backend.collect.snmp import SnmpConfig
 from backend.collect.ssh import SshConfig
 from backend.db.engine import get_session_factory
 from backend.monitoring.pipeline import persist_poll_result
+from backend.monitoring.reachability import ReachabilityObservation, apply_device_reachability
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,17 @@ def poll_device(
         persist_collection(session, context.device_id, outcome, collected_at)
         run_id = persist_poll_result(
             session, context.device_id, cycle_started_at, outcome, collected_at
+        )
+        # §9: the SNMP channel yielded valid data == reachable; the SSH probe
+        # ran only on a real channel failure (Wave 1 gating).
+        apply_device_reachability(
+            session,
+            context.device_id,
+            ReachabilityObservation(
+                cycle_started_at=cycle_started_at,
+                snmp_ok=outcome.has_valid_data(),
+                ssh_reachable=outcome.ssh_reachable,
+            ),
         )
         session.commit()
 

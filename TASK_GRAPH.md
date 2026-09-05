@@ -155,13 +155,15 @@ REVIEW_PASSED
 **Tests:** unit `tests/unit/test_monitoring_scheduler.py` (alignment, strictly-future cycles, no-overlap skip, restart no-backfill, per-device failure containment, loader-failure survival) + `tests/unit/test_monitoring_credentials.py`; integration `tests/integration/test_poll_device.py` (full cycle persisted end-to-end, FAILED run recorded with §9.1 probe result).
 
 ## W02-T003 — Utilization and counter rebaseline
-**Status:** IN_PROGRESS  
+**Status:** REVIEW_PASSED  
 **Depends On:** W02-T001, W02-T002  
 **Blocks:** W02-T006, W03-T002, W03-T005  
 **Acceptance:** actual elapsed time used; invalid/reset counters rebaseline; ingress/egress utilization stored consistently; no false spikes.
+**Implementation:** `monitoring/utilization.py` — `delta_octets * 8 / (actual elapsed s * effective speed_bps) * 100` per direction against the interface's latest stored sample; rebaseline (no value, baseline re-established) on: no previous sample, missing counters, negative delta (reset/unreliable wrap), speed missing/non-positive/CHANGED mid-interval, interval <= 0 or > 900 s (stale gap), computed > 100% (impossible). Wired into `pipeline.persist_poll_result` with a batched DISTINCT-ON baseline fetch.
+**Tests:** unit `tests/unit/test_monitoring_utilization.py` (12 cases: normal delta vs actual elapsed, reset, per-direction independence, zero/negative/missing/changed speed, zero/negative interval, 900 s boundary, >100% guard); integration `test_utilization_chain_rebaseline_compute_reset` (baseline -> exact 80% delta -> counter reset; reset sample becomes new baseline, never a spike).
 
 ## W02-T004 — Device reachability state machine
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** W02-T002, W01-T005  
 **Blocks:** W03-T003  
 **Acceptance:** SNMP fail triggers one SSH confirmation; two failed cycles confirm Down; two reachable cycles confirm Recovery; SSH-only reachability does not convert missing SNMP samples into success.
