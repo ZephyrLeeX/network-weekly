@@ -151,7 +151,7 @@ REVIEW_PASSED
 **Depends On:** W02-T001, W01-T006  
 **Blocks:** W02-T003, W02-T004, W02-T007  
 **Acceptance:** aligned 5-minute cycles; no overlapping poll for the same device; restart resumes future cycles without mass realtime backfill.
-**Implementation:** `monitoring/scheduler.py` (epoch-aligned 5-minute boundaries; per-device in-flight registry — a poll outliving its cycle is never started twice; since W02-AUDIT the skipped planned cycle is bookkept as a FAILED poll run (`overlap`) without advancing the §9/§13 state machines; loop always targets the next future boundary so restart never backfills §27.12; per-device executor threads contain failures §8); `monitoring/poll.py` (`poll_device`: Wave 1 `run_collection` re-used unchanged + topology sync + poll run + metrics in ONE transaction); `monitoring/credentials.py` (per-cycle device reload from DB + 0600 secrets; SNMP community required, SSH optional — SNMP-only devices simply have no §9.1 probe); worker runs heartbeat + scheduler threads on one stop event.
+**Implementation:** `monitoring/scheduler.py` (epoch-aligned 5-minute boundaries; per-device in-flight registry — a poll outliving its cycle is never started twice; since W02-AUDIT the skipped planned cycle is bookkept as a FAILED poll run (`overlap`) without advancing the §9/§13 state machines; since W02-AUDIT-2 the registry holds only real poll futures — a poll spanning several cycles records one FAILED/overlap row per skipped cycle and is never started twice; loop always targets the next future boundary so restart never backfills §27.12; per-device executor threads contain failures §8); `monitoring/poll.py` (`poll_device`: Wave 1 `run_collection` re-used unchanged + topology sync + poll run + metrics in ONE transaction); `monitoring/credentials.py` (per-cycle device reload from DB + 0600 secrets; SNMP community required, SSH optional — SNMP-only devices simply have no §9.1 probe); worker runs heartbeat + scheduler threads on one stop event.
 **Tests:** unit `tests/unit/test_monitoring_scheduler.py` (alignment, strictly-future cycles, no-overlap skip, restart no-backfill, per-device failure containment, loader-failure survival) + `tests/unit/test_monitoring_credentials.py`; integration `tests/integration/test_poll_device.py` (full cycle persisted end-to-end, FAILED run recorded with §9.1 probe result).
 
 ## W02-T003 — Utilization and counter rebaseline
@@ -212,7 +212,7 @@ REVIEW_PASSED
 **Tests:** integration `tests/integration/test_retention.py` (expired raw data deleted / recent kept, incidents+IRF+settings survive, batching bounds, below-90 rejected, interface metrics cleaned in own batches); unit `tests/unit/test_config.py` extension (default 90, override 180, 89/0/-30/non-numeric refused).
 
 ## W02-GATE — Monitoring Pipeline Gate
-**Status:** PASS (engineering gate, 2026-09-05; revalidated PASS after W02-AUDIT)  
+**Status:** PASS (engineering gate, 2026-09-05; revalidated PASS after W02-AUDIT-2)  
 **Depends On:** W02-T004, W02-T006, W02-T007, W02-T008, W02-T009  
 **Blocks:** Wave 3  
 **Gate:** 5-minute monitoring data, incident semantics, IRF observations and retention behavior are trustworthy for weekly statistics.  
@@ -236,6 +236,17 @@ REVIEW_PASSED
 - Corrected the `DevicePollRun` model docstring and the scheduler/poll/credentials docstrings that described the old "skipped cycle gets NO row" behavior contradicting §8.
 **Tests:** unit — sustained interval end/duration boundaries (exactly 3 samples → 900 s, long run, custom slot, non-positive slot rejected), empty cpu/memory → section error, interfaces degraded groups + 32-bit fallback not degraded, unpollable context coverage, scheduler skip recording + recorder-failure containment, worker secrets-failure loader; integration — duplicate-cycle idempotency (reachability count stays 1 after replay, no false device/interface DOWN, no duplicate metric rows), missing-credential FAILED run without state advance, overlap-skip FAILED run idempotent, sustained interval 900 s over persisted series.
 **Acceptance:** pytest 218 unit + 77 integration PASS on migrated PostgreSQL (0007); ruff clean; mypy clean (78 files); `alembic upgrade head` idempotent at 0007 (no migration needed); compose rebuild + smoke: web healthy, worker records the unattemptable cycle FAILED (`credentials`) per cycle and stays alive; W02-GATE revalidated PASS; Wave 3 not started.
+
+## W02-AUDIT-2 — Wave 2 audit follow-up hotfix
+**Status:** REVIEW_PASSED  
+**Depends On:** W02-GATE  
+**Blocks:** none (audit only; no product capability added, no schema change, no migration)  
+**Scope:** two audit findings — scheduler overlap race (`_in_flight` polluted by skip-recording futures) and interfaces DEGRADED judged per column GROUP instead of per required field.  
+**Implementation:**
+- Scheduler overlap race: `_in_flight` now holds ONLY real poll futures. The W02-AUDIT skip bookkeeping stored the skip-recording future in the registry; that future completes almost instantly, so on the NEXT cycle the device looked free and a second real poll was started overlapping the first. Now the skip recording is submitted but never stored: a poll that keeps running across cycles records one FAILED/overlap row per skipped cycle (`record_skipped_poll`, unchanged contract), the registry keeps the original poll future until it finishes, and only its completion re-opens the device (§27.11 + §8). Unit test covers a poll spanning 2+ cycles (2 skip rows, zero second polls, registry identity held).
+- Interfaces DEGRADED per field: the `_INTERFACE_KEY_GROUPS` check ("any column of the group delivered = complete") let e.g. `in_octets` be missing while out-direction/error columns masked the gap. Replaced by `_INTERFACE_KEY_FIELDS` judging each report-required field on its own columns: `oper_state`, `speed`, `in_octets`, `out_octets`, `in_errors`, `out_errors`, `in_discards`, `out_discards` — HC variant and 32-bit fallback count as the SAME field. Any required field with no data at all → DEGRADED section (poll run PARTIAL) while the collected samples still persist (§8). `ifAdminStatus` stays informational: §13 Down/Recovery reads `oper_state` only.
+**Tests:** unit — scheduler poll-spanning-2+-cycles (per-cycle overlap rows, no second poll, registry identity); interfaces degraded on single missing column (`in_errors` alone), whole in-direction gone, speed+octets gone, oper_state gone; NOT degraded when only ifAdminStatus is missing or HC counters fall back to 32-bit per field; session-level DEGRADED interfaces → PARTIAL with samples kept and no SSH probe triggered.
+**Acceptance:** pytest 223 unit + 77 integration PASS on migrated PostgreSQL (0007); ruff clean; mypy clean (78 files); `alembic upgrade head` idempotent at 0007 (no migration needed); compose rebuild + smoke: web healthy (/health database ok), worker heartbeat persisted, device-poll scheduler + IRF loop + retention alive with no errors; W02-GATE revalidated PASS; Wave 3 not started; W01-T007 still FIELD_VALIDATION_PENDING.
 
 ---
 
