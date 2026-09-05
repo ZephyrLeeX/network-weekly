@@ -2,10 +2,16 @@
 
 The worker reloads enabled devices every cycle, so inventory syncs apply
 without a restart. Secrets come from the 0600 `secrets.env`
-(SYSTEM_SPEC.md §22.2); a device whose SNMP community is missing cannot be
-polled and is reported, never guessed around. SSH is supplementary (§7.2):
-a device without SSH credentials still polls over SNMP but has no §9.1
-reachability confirmation available.
+(SYSTEM_SPEC.md §22.2). SSH is supplementary (§7.2): a device without SSH
+credentials still polls over SNMP but has no §9.1 reachability confirmation
+available.
+
+§8: every enabled device's planned cycle is attributable. A device whose
+SNMP community is missing — or a cycle whose secrets file could not be
+loaded at all — still gets a context (`snmp=None` + secret-free
+`unavailable_reason`), so `poll_device` records the cycle FAILED instead of
+letting it disappear from Coverage. The cycle is not treated as device
+evidence: the §9/§13 state machines are not advanced for it.
 
 IRF observation (W02-T008) needs SSH and only applies to devices *configured*
 as IRF fabrics (`expected_irf_member_count > 1`) — standalone devices are
@@ -33,16 +39,42 @@ SSH_PASSWORD_KIND = "SSH_PASSWORD"
 
 
 def build_contexts(session: Session, secrets: Mapping[str, str]) -> list[DevicePollContext]:
-    """Build poll contexts for every enabled device; skips misconfigured ones."""
+    """Build poll contexts for every enabled device.
 
-    contexts: list[DevicePollContext] = []
-    for device in session.execute(
-        select(Device).where(Device.enabled.is_(True)).order_by(Device.id)
-    ).scalars():
-        context = _build_context(device, secrets)
-        if context is not None:
-            contexts.append(context)
-    return contexts
+    A device without SNMP credentials gets an unattemptable context (`snmp`
+    None) instead of being dropped: its planned cycles must land as FAILED
+    poll runs, never vanish (§8).
+    """
+
+    return [
+        context
+        for device in session.execute(
+            select(Device).where(Device.enabled.is_(True)).order_by(Device.id)
+        ).scalars()
+        if (context := _build_context(device, secrets)) is not None
+    ]
+
+
+def build_unpollable_contexts(session: Session, *, reason: str) -> list[DevicePollContext]:
+    """Unattemptable contexts for every enabled device (secrets unusable).
+
+    Used when the secrets file itself cannot be loaded (missing, permissions,
+    malformed): no device can be polled this cycle, but every enabled
+    device's planned cycle is still recorded FAILED (§8), never silently
+    dropped. `reason` is the secret-free SecretsError text.
+    """
+
+    return [
+        DevicePollContext(
+            device_id=device.id,
+            device_name=device.name,
+            snmp=None,
+            unavailable_reason=reason,
+        )
+        for device in session.execute(
+            select(Device).where(Device.enabled.is_(True)).order_by(Device.id)
+        ).scalars()
+    ]
 
 
 def build_irf_contexts(
@@ -85,10 +117,15 @@ def _build_context(
     try:
         community = lookup_profile_secret(secrets, SNMP_KIND, device.credential_profile)
     except SecretsError as exc:
-        logger.error(
-            "device %s cannot be polled: %s", device.name, exc
+        # §8: keep the device in the cycle as unattemptable — poll_device
+        # records its FAILED run; the reason is secret-free (key/profile only).
+        logger.error("device %s cannot be polled: %s", device.name, exc)
+        return DevicePollContext(
+            device_id=device.id,
+            device_name=device.name,
+            snmp=None,
+            unavailable_reason=str(exc),
         )
-        return None
 
     ssh: SshConfig | None = None
     try:

@@ -130,7 +130,9 @@ def test_success_cycle_persists_run_and_metrics(db_engine: Engine, device_id: in
         ],
     )
     with Session(db_engine) as session:
-        run_id = persist_poll_result(session, device_id, CYCLE, outcome, COLLECTED)
+        persisted = persist_poll_result(session, device_id, CYCLE, outcome, COLLECTED)
+        assert persisted is not None
+        run_id = persisted.run_id
         session.commit()
         assert run_id is not None
 
@@ -182,7 +184,9 @@ def test_partial_cycle_keeps_valid_memory_and_null_cpu(
         ],
     )
     with Session(db_engine) as session:
-        run_id = persist_poll_result(session, device_id, CYCLE, outcome, COLLECTED)
+        persisted = persist_poll_result(session, device_id, CYCLE, outcome, COLLECTED)
+        assert persisted is not None
+        run_id = persisted.run_id
         session.commit()
 
         run = session.get(DevicePollRun, run_id)
@@ -202,7 +206,9 @@ def test_failed_cycle_persists_run_only(db_engine: Engine, device_id: int) -> No
     )
     outcome.ssh_reachable = False
     with Session(db_engine) as session:
-        run_id = persist_poll_result(session, device_id, CYCLE, outcome, COLLECTED)
+        persisted = persist_poll_result(session, device_id, CYCLE, outcome, COLLECTED)
+        assert persisted is not None
+        run_id = persisted.run_id
         session.commit()
 
         run = session.get(DevicePollRun, run_id)
@@ -221,7 +227,9 @@ def test_interface_sample_without_interface_row_is_skipped(
         sections=[SectionResult("interfaces", "SUCCESS")],
     )
     with Session(db_engine) as session:
-        run_id = persist_poll_result(session, device_id, CYCLE, outcome, COLLECTED)
+        persisted = persist_poll_result(session, device_id, CYCLE, outcome, COLLECTED)
+        assert persisted is not None
+        run_id = persisted.run_id
         session.commit()
         assert run_id is not None
         assert session.scalar(select(func.count()).select_from(InterfaceMetric)) == 0
@@ -238,7 +246,10 @@ def test_same_cycle_is_idempotent(db_engine: Engine, device_id: int) -> None:
         first = persist_poll_result(session, device_id, CYCLE, outcome, COLLECTED)
         second = persist_poll_result(session, device_id, CYCLE, outcome, COLLECTED)
         session.commit()
-        assert first == second
+        assert first is not None and second is not None
+        assert first.run_id == second.run_id
+        assert first.newly_persisted is True
+        assert second.newly_persisted is False  # replay touches nothing
         assert session.scalar(select(func.count()).select_from(DevicePollRun)) == 1
         assert session.scalar(select(func.count()).select_from(DeviceMetric)) == 1
         assert session.scalar(select(func.count()).select_from(InterfaceMetric)) == 1
@@ -264,7 +275,9 @@ def test_same_cycle_for_different_devices_is_two_runs(db_engine: Engine) -> None
         r1 = persist_poll_result(session, ids[0], CYCLE, outcome, COLLECTED)
         r2 = persist_poll_result(session, ids[1], CYCLE, outcome, COLLECTED)
         session.commit()
-        assert r1 is not None and r2 is not None and r1 != r2
+        assert r1 is not None and r2 is not None
+        assert r1.run_id != r2.run_id
+        assert r1.newly_persisted and r2.newly_persisted
         assert session.scalar(select(func.count()).select_from(DevicePollRun)) == 2
 
 

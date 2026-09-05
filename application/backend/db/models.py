@@ -203,15 +203,20 @@ class DevicePollRun(Base):
     """One planned 5-minute DEVICE_POLL of one logical device (SYSTEM_SPEC.md §7.1/§8).
 
     Exactly one row per `(device_id, cycle_started_at)` — the planned cycle
-    start, aligned to the 5-minute boundary — whatever the outcome. A cycle
-    the scheduler could not run (e.g. the previous poll of that device was
-    still in flight) gets NO row: a missing planned cycle must stay missing,
-    never be fabricated as a result (§13.3/§18.2 honesty).
+    start, aligned to the 5-minute boundary — whatever the outcome, so
+    Coverage counts stay honest (§18): every planned cycle lands a row. A
+    cycle that could not even be attempted is bookkept as FAILED with the
+    reason as its failed section (`overlap` = the device's previous poll was
+    still in flight, `credentials` = no usable SNMP secret); it is NOT
+    treated as device evidence — the §9 reachability and §13 interface state
+    machines never advance for such a row, and the §9 continuity anchor
+    treats the cycle as a gap.
 
     `status` is SUCCESS / PARTIAL / FAILED (§8). `ssh_reachable` is the §9.1
-    probe result — NULL when the probe did not run (SNMP channel healthy).
-    `failed_sections` holds the comma-joined section *names* only; section
-    error strings are deliberately not persisted here.
+    probe result — NULL when the probe did not run (SNMP channel healthy or
+    the cycle was never attempted). `failed_sections` holds the comma-joined
+    section *names* only; section error strings are deliberately not
+    persisted here.
     """
 
     __tablename__ = "device_poll_runs"

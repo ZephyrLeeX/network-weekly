@@ -11,6 +11,13 @@ run of consecutive *valid* samples all at or above the threshold, with
 - the default requirement of 3 consecutive 5-minute samples (>= 80% for
   15 minutes); thresholds and sample counts are configurable (W02-T007).
 
+Interval semantics (§14: 开始时间、结束时间和持续时间): each sample
+represents its own 5-minute cycle slot `[t, t + 5 min)`, so an interval is
+the half-open window `[first sample ts, last sample ts + 5 min)`. Three
+consecutive samples therefore last 15 minutes — `duration_seconds` is
+`sample_count * 5 min` on the planned grid, never `(last - first)` (which
+would under-report 3 samples as 10 minutes).
+
 The detection is a pure function over `(timestamp, value | None)` points, so
 weekly statistics (Wave 3) reuse exactly this implementation for report
 values and for pages — one statistical implementation everywhere (§15.4).
@@ -18,12 +25,19 @@ values and for pages — one statistical implementation everywhere (§15.4).
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+
+FIVE_MINUTES = timedelta(seconds=300)
 
 
 @dataclass(frozen=True)
 class SustainedHighInterval:
-    """One confirmed sustained-high run (§14: start, end, duration, count)."""
+    """One confirmed sustained-high run (§14: start, end, duration, count).
+
+    `start` is the first sample's cycle timestamp; `end` is EXCLUSIVE — the
+    end of the last sample's own cycle slot — so `[start, end)` covers the
+    whole time the condition held (§3 half-open convention).
+    """
 
     start: datetime
     end: datetime
@@ -39,13 +53,18 @@ def find_sustained_high_intervals(
     threshold_percent: float,
     *,
     required_samples: int = 3,
+    sample_interval: timedelta = FIVE_MINUTES,
 ) -> list[SustainedHighInterval]:
     """Detect runs of `required_samples`+ consecutive valid samples >= threshold.
 
     `points` must be in chronological order (the series loaders guarantee
     it). Missing (None) values break the run; values exactly AT the threshold
-    count (§14/§15.3: ">= 80%").
+    count (§14/§15.3: ">= 80%"). `sample_interval` is the cycle slot one
+    sample covers; the reported window extends past the last sample by it.
     """
+
+    if sample_interval <= timedelta(0):
+        raise ValueError("sample_interval must be positive")
 
     intervals: list[SustainedHighInterval] = []
     run_start: datetime | None = None
@@ -62,14 +81,18 @@ def find_sustained_high_intervals(
                 assert run_start is not None and run_end is not None
                 intervals.append(
                     SustainedHighInterval(
-                        start=run_start, end=run_end, sample_count=run_length
+                        start=run_start,
+                        end=run_end + sample_interval,
+                        sample_count=run_length,
                     )
                 )
             elif run_length > required_samples:
                 # Extend the just-emitted interval instead of emitting anew.
                 previous = intervals[-1]
                 intervals[-1] = SustainedHighInterval(
-                    start=previous.start, end=run_end, sample_count=run_length
+                    start=previous.start,
+                    end=run_end + sample_interval,
+                    sample_count=run_length,
                 )
         else:
             run_length = 0

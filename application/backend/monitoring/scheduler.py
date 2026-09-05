@@ -5,8 +5,10 @@ Invariants:
 - Cycles are planned on wall-clock 5-minute boundaries; every device gets at
   most one planned poll per boundary, and a poll that outlives its cycle is
   never started twice (`_in_flight` per device). A device whose previous poll
-  is still running is skipped for the new cycle — that cycle stays missing
-  (no poll-run row) instead of overlapping or being faked (§27.11).
+  is still running is skipped for the new cycle — the cycle is never
+  overlapped or re-run (§27.11), and it still gets its §8 poll-run row
+  (`record_skipped_poll`): a planned cycle is bookkept as FAILED, never
+  silently missing, and never treated as device evidence.
 - Restart never backfills (§27.12): the loop always targets the *next future*
   boundary. Missed cycles stay missed; weekly Coverage honestly reflects them
   (§18.1 counts planned cycles, not executed ones).
@@ -24,7 +26,7 @@ from collections.abc import Callable
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
-from backend.monitoring.poll import DevicePollContext, poll_device
+from backend.monitoring.poll import DevicePollContext, poll_device, record_skipped_poll
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,7 @@ class DevicePollScheduler:
         sleep_until: Callable[[datetime], bool] | None = None,
         executor: Executor | None = None,
         poll: Callable[[DevicePollContext, datetime], str] = poll_device,
+        record_skipped: Callable[[DevicePollContext, datetime], str] = record_skipped_poll,
     ) -> None:
         self._load_devices = load_devices
         self._interval = interval
@@ -64,6 +67,7 @@ class DevicePollScheduler:
         # one belongs to its caller.
         self._owns_executor = executor is None
         self._poll = poll
+        self._record_skipped = record_skipped
         self._in_flight: dict[str, Future[str]] = {}
         self._last_cycle: datetime | None = None
 
@@ -105,6 +109,11 @@ class DevicePollScheduler:
             previous = self._in_flight.get(context.device_name)
             if previous is not None and not previous.done():
                 skipped.append(context.device_name)
+                # §8: the skipped planned cycle still gets its poll-run row
+                # (FAILED), recorded like a poll — contained and never blocking.
+                self._in_flight[context.device_name] = executor.submit(
+                    self._record_skip, context, cycle
+                )
                 continue
             self._in_flight[context.device_name] = executor.submit(
                 self._run_poll, context, cycle
@@ -123,6 +132,18 @@ class DevicePollScheduler:
         except Exception as exc:  # noqa: BLE001  (isolated per device; class name only)
             logger.error(
                 "device poll for %s cycle %s failed (%s)",
+                context.device_name,
+                cycle,
+                type(exc).__name__,
+            )
+            return "ERROR"
+
+    def _record_skip(self, context: DevicePollContext, cycle: datetime) -> str:
+        try:
+            return self._record_skipped(context, cycle)
+        except Exception as exc:  # noqa: BLE001  (isolated per device; class name only)
+            logger.error(
+                "recording skipped cycle for %s at %s failed (%s)",
                 context.device_name,
                 cycle,
                 type(exc).__name__,
