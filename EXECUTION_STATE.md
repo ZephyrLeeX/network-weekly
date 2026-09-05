@@ -30,6 +30,10 @@ W02-T005: 50b34287c97a0afbec3d72549c1a9882d8fa2953 — REVIEW_PASSED
           (set_monitored single write path, no aggregation cascade;
           interface_overview read model; rediscovery/ifIndex change
           preserves monitored — no schema change needed)
+W02-T006: 4c76fcd9e76a4b052054ee11418a3de1a4db0b87 — REVIEW_PASSED
+          (migration 0005; 2-valid-sample interface Down/Recovery; missing
+          does not count nor break (§13.3 reading); sustained-high detection
+          core shared with W02-T007)
 ```
 
 ## User authorization (2026-09-04)

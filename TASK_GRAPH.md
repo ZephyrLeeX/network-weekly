@@ -180,13 +180,15 @@ REVIEW_PASSED
 **Tests:** integration `tests/integration/test_interface_config.py` (aggregate select does not touch members; member independently selectable; toggle off; unknown id rejected; overview relationships; rediscovery with changed ifIndex preserves monitored; new interfaces default unmonitored).
 
 ## W02-T006 — Priority interface Down and high-utilization semantics
-**Status:** IN_PROGRESS  
+**Status:** REVIEW_PASSED  
 **Depends On:** W02-T003, W02-T005  
 **Blocks:** W03-T003, W03-T005  
 **Acceptance:** two valid Down cycles confirm; two valid Up cycles recover; missing samples do not count; >=80% for three consecutive valid samples marks sustained high utilization.
+**Implementation:** migration `0005` (`interface_state_incidents` long-term + `interface_monitoring_state`); `monitoring/interface_state.py` — only `monitored` interfaces participate; a sample is valid only when oper is exactly "up"/"down"; 2 consecutive valid Down samples → DOWN (started_at = first), 2 consecutive valid Up samples → RECOVERED; per §13.3 a missing/undetermined sample neither counts nor breaks the valid-sample run (interface reading of §13 — deliberately unlike the §14 continuity-breaking rule for thresholds); wired into `poll_device` after metric persistence. `monitoring/sustained.py` — pure sustained-high detection (>= threshold for N consecutive valid samples, missing breaks, default 3) + the §15.4 per-sample max(in, out) value; thresholds configurable in W02-T007.
+**Tests:** unit `tests/unit/test_monitoring_interface_state.py` (transition cases + all RFC 2863 non-up/down states ignored + sustained-high runs incl. exactly-3, missing-breaks, two runs, custom N, max-direction); integration `tests/integration/test_interface_state.py` (incident open/close persisted, non-monitored ignored, undetermined not counted, full pipeline feeds the machine over two cycles).
 
 ## W02-T007 — CPU and memory sustained-high detection
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** W02-T002  
 **Blocks:** W03-T002  
 **Acceptance:** default >=80% for 15 minutes; thresholds configurable; missing samples break continuity.

@@ -456,3 +456,19 @@ class InterfaceStateIncident(Base):
     )
 
     interface: Mapped[Interface] = relationship()
+
+
+class SystemSetting(Base):
+    """One configurable system value (SYSTEM_SPEC.md §23, W02-T007).
+
+    Values are stored as text; key validity and numeric ranges are enforced
+    by :mod:`backend.monitoring.thresholds` (e.g. the §14 thresholds).
+    """
+
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
