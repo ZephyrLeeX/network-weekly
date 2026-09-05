@@ -472,3 +472,39 @@ class SystemSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"
     )
+
+
+class IrfMemberObservation(Base):
+    """One member of one ~15-minute IRF observation (SYSTEM_SPEC.md §17).
+
+    Only SUCCESSFUL observations produce rows: an SSH failure records
+    nothing, so "missing" always means "the device itself reported the
+    member absent" — never "we could not look". `role` is the role exactly
+    as reported; `role_changed` with `previous_role` marks a reliably
+    identified change (both sides non-NULL). Long-term record (§24).
+    """
+
+    __tablename__ = "irf_member_observations"
+    __table_args__ = (
+        Index(
+            "ix_irf_member_observations_device_member_time",
+            "device_id",
+            "member_id",
+            "observed_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    member_id: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    # False = the (successful) observation did not see this member.
+    observed: Mapped[bool] = mapped_column(nullable=False)
+    role: Mapped[str | None] = mapped_column(Text, nullable=True)
+    previous_role: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role_changed: Mapped[bool] = mapped_column(default=False, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )

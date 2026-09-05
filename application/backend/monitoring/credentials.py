@@ -6,6 +6,10 @@ without a restart. Secrets come from the 0600 `secrets.env`
 polled and is reported, never guessed around. SSH is supplementary (§7.2):
 a device without SSH credentials still polls over SNMP but has no §9.1
 reachability confirmation available.
+
+IRF observation (W02-T008) needs SSH and only applies to devices *configured*
+as IRF fabrics (`expected_irf_member_count > 1`) — standalone devices are
+never SSH-probed for IRF (§17).
 """
 
 import logging
@@ -17,6 +21,7 @@ from sqlalchemy.orm import Session
 from backend.collect.snmp import SnmpConfig
 from backend.collect.ssh import SshConfig
 from backend.db.models import Device
+from backend.monitoring.irf import IrfDeviceContext
 from backend.monitoring.poll import DevicePollContext
 from backend.secrets import SecretsError, lookup_profile_secret
 
@@ -37,6 +42,40 @@ def build_contexts(session: Session, secrets: Mapping[str, str]) -> list[DeviceP
         context = _build_context(device, secrets)
         if context is not None:
             contexts.append(context)
+    return contexts
+
+
+def build_irf_contexts(
+    session: Session, secrets: Mapping[str, str]
+) -> list[IrfDeviceContext]:
+    """Observation contexts for enabled IRF fabrics with SSH credentials.
+
+    A device without SSH credentials is reported and skipped: IRF observation
+    is an SSH flow (§7.3) and guessing is not an option.
+    """
+
+    contexts: list[IrfDeviceContext] = []
+    for device in session.execute(
+        select(Device)
+        .where(Device.enabled.is_(True), Device.expected_irf_member_count > 1)
+        .order_by(Device.id)
+    ).scalars():
+        try:
+            ssh = SshConfig(
+                host=device.management_ip,
+                username=lookup_profile_secret(
+                    secrets, SSH_USERNAME_KIND, device.credential_profile
+                ),
+                password=lookup_profile_secret(
+                    secrets, SSH_PASSWORD_KIND, device.credential_profile
+                ),
+            )
+        except SecretsError as exc:
+            logger.warning("irf observation unavailable for %s: %s", device.name, exc)
+            continue
+        contexts.append(
+            IrfDeviceContext(device_id=device.id, device_name=device.name, ssh=ssh)
+        )
     return contexts
 
 

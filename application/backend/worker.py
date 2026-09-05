@@ -25,7 +25,8 @@ from backend.config import load_settings
 from backend.db.engine import get_session_factory
 from backend.heartbeat import build_heartbeat_info, record_heartbeat
 from backend.log import setup_logging
-from backend.monitoring.credentials import build_contexts
+from backend.monitoring.credentials import build_contexts, build_irf_contexts
+from backend.monitoring.irf import IrfDeviceContext, IrfObservationLoop
 from backend.monitoring.poll import DevicePollContext
 from backend.monitoring.scheduler import DevicePollScheduler
 from backend.secrets import load_secrets
@@ -115,12 +116,24 @@ def main() -> None:
         target=scheduler.run_loop, args=(stop,), name="device-poll", daemon=True
     )
 
+    def _load_irf_devices() -> list[IrfDeviceContext]:
+        secrets = load_secrets(settings.secrets_file)
+        with session_factory() as session:
+            return build_irf_contexts(session, secrets)
+
+    irf_loop = IrfObservationLoop(load_devices=_load_irf_devices)
+    irf_observer = threading.Thread(
+        target=irf_loop.run_loop, args=(stop,), name="irf-observation", daemon=True
+    )
+
     heartbeat.start()
     poller.start()
+    irf_observer.start()
     stop.wait()
     # Give the loops a moment to notice the stop event before exit.
     heartbeat.join(timeout=5)
     poller.join(timeout=5)
+    irf_observer.join(timeout=5)
     logger.info("worker %s stopped", settings.worker_id)
 
 

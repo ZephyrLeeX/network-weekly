@@ -188,13 +188,15 @@ REVIEW_PASSED
 **Tests:** unit `tests/unit/test_monitoring_interface_state.py` (transition cases + all RFC 2863 non-up/down states ignored + sustained-high runs incl. exactly-3, missing-breaks, two runs, custom N, max-direction); integration `tests/integration/test_interface_state.py` (incident open/close persisted, non-monitored ignored, undetermined not counted, full pipeline feeds the machine over two cycles).
 
 ## W02-T007 — CPU and memory sustained-high detection
-**Status:** IN_PROGRESS  
+**Status:** REVIEW_PASSED  
 **Depends On:** W02-T002  
 **Blocks:** W03-T002  
 **Acceptance:** default >=80% for 15 minutes; thresholds configurable; missing samples break continuity.
+**Implementation:** migration `0006` (`system_settings` KV table, §23); `monitoring/thresholds.py` — defaults CPU/memory/utilization 80% + 3 required samples (§14/§15.3), validated overrides (`set_threshold`/`load_thresholds`, corrupt rows fall back to default with a warning), series loaders over the planned 5-minute cycle grid via poll-run joins (`device_metric_series`, `interface_utilization_series`) so a cycle without a row is an explicit None point, and `detect_device_sustained_high` / `detect_interface_high_utilization` binding the W02-T006 pure detection core to the configured thresholds.
+**Tests:** unit `tests/unit/test_monitoring_thresholds.py` (spec defaults, key/range validation incl. required-samples >= 2, cycle-slot alignment + half-open window); integration `tests/integration/test_sustained_high.py` (3-consecutive rule, missing cycle breaks continuity, single spikes rejected, missing memory stays None not 0, operator threshold/required-sample overrides change detection).
 
 ## W02-T008 — IRF periodic observation
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** W02-T001, W01-T005  
 **Blocks:** W03-T004  
 **Acceptance:** expected/current members persist; member missing/reappeared is detectable; role change stored when source data is reliable.

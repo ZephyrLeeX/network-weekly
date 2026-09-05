@@ -34,6 +34,10 @@ W02-T006: 4c76fcd9e76a4b052054ee11418a3de1a4db0b87 — REVIEW_PASSED
           (migration 0005; 2-valid-sample interface Down/Recovery; missing
           does not count nor break (§13.3 reading); sustained-high detection
           core shared with W02-T007)
+W02-T007: 683e3d250fdb961a3be498691b4e0ab4400edea1 — REVIEW_PASSED
+          (migration 0006 system_settings; 80%/3-sample defaults; validated
+          runtime-configurable thresholds; cycle-grid series loaders; missing
+          sample breaks threshold continuity per §14)
 ```
 
 ## User authorization (2026-09-04)
