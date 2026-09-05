@@ -171,14 +171,16 @@ REVIEW_PASSED
 **Tests:** unit `tests/unit/test_monitoring_reachability.py` (9 transition cases incl. no-duplicate-incident, recovery interruption, gap resets); integration `tests/integration/test_reachability.py` (incident open/close persisted, second episode, SSH-only, gap, defaults).
 
 ## W02-T005 — Priority interface configuration service
-**Status:** IN_PROGRESS  
+**Status:** REVIEW_PASSED  
 **Depends On:** W01-T004  
 **Blocks:** W02-T006, W04-T005  
 **Scope:** `monitored` flag and aggregation-aware persistence.  
 **Acceptance:** aggregation interface can be monitored independently; member interfaces remain separately selectable; rediscovery preserves monitored state.
+**Implementation:** `monitoring/interface_config.py` — `set_monitored` (single write path, never cascades to aggregation members per §11) and `interface_overview` (read model for the Wave 4 page: names, description, admin/oper, aggregation flag, member/member-of relationships, monitored). No schema change: the flag exists since migration 0002 and discovery never writes it (W01-T004), so rediscovery/ifIndex changes cannot lose the selection.
+**Tests:** integration `tests/integration/test_interface_config.py` (aggregate select does not touch members; member independently selectable; toggle off; unknown id rejected; overview relationships; rediscovery with changed ifIndex preserves monitored; new interfaces default unmonitored).
 
 ## W02-T006 — Priority interface Down and high-utilization semantics
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** W02-T003, W02-T005  
 **Blocks:** W03-T003, W03-T005  
 **Acceptance:** two valid Down cycles confirm; two valid Up cycles recover; missing samples do not count; >=80% for three consecutive valid samples marks sustained high utilization.

@@ -19,6 +19,7 @@ from backend.collect.session import run_collection
 from backend.collect.snmp import SnmpConfig
 from backend.collect.ssh import SshConfig
 from backend.db.engine import get_session_factory
+from backend.monitoring.interface_state import record_interface_states
 from backend.monitoring.pipeline import persist_poll_result
 from backend.monitoring.reachability import ReachabilityObservation, apply_device_reachability
 
@@ -69,6 +70,12 @@ def poll_device(
                 ssh_reachable=outcome.ssh_reachable,
             ),
         )
+        # §13: monitored interface Down/Recovery (only when the interfaces
+        # section delivered samples; a failed section is a missing sample).
+        if outcome.interfaces is not None:
+            record_interface_states(
+                session, context.device_id, outcome.interfaces, collected_at
+            )
         session.commit()
 
     logger.info(

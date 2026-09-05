@@ -395,3 +395,64 @@ class InterfaceMetric(Base):
 
     poll_run: Mapped[DevicePollRun] = relationship(back_populates="interface_metrics")
     interface: Mapped[Interface] = relationship()
+
+
+class InterfaceMonitoringState(Base):
+    """Per-interface valid-sample tracking for the §13 state machine.
+
+    One row per interface (created lazily for monitored interfaces). Counts
+    only *valid* samples — oper state exactly "up" or "down" (§13.1/§13.2);
+    missing or undetermined samples do not participate (§13.3) and do not
+    break a valid-sample run.
+    """
+
+    __tablename__ = "interface_monitoring_state"
+
+    interface_id: Mapped[int] = mapped_column(
+        ForeignKey("interfaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    # "normal" or "down" (SYSTEM_SPEC.md §13.1).
+    state: Mapped[str] = mapped_column(default="normal", nullable=False)
+    consecutive_down_samples: Mapped[int] = mapped_column(
+        SmallInteger, default=0, nullable=False
+    )
+    consecutive_up_samples: Mapped[int] = mapped_column(
+        SmallInteger, default=0, nullable=False
+    )
+    # First valid sample of the current down/up run (the incident anchor).
+    down_run_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    up_run_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+
+
+class InterfaceStateIncident(Base):
+    """A confirmed monitored-interface Down episode (§13, long-term).
+
+    Only monitored interfaces ever get incidents. Open incident:
+    `recovered_at` is NULL (the §19 异常 condition at period end).
+    """
+
+    __tablename__ = "interface_state_incidents"
+    __table_args__ = (
+        Index("ix_interface_state_incidents_interface", "interface_id", "recovered_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    interface_id: Mapped[int] = mapped_column(
+        ForeignKey("interfaces.id", ondelete="CASCADE"), nullable=False
+    )
+    # First valid Down sample of the confirming run.
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # First valid Up sample of the confirming recovery run; NULL while Down.
+    recovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+
+    interface: Mapped[Interface] = relationship()

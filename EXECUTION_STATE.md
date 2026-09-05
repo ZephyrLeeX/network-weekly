@@ -26,6 +26,10 @@ W02-T004: 7a38ee93f270dcd21fd1913c23a776b972242c49 — REVIEW_PASSED
           (migration 0004; 2-cycle Down/Recovery semantics with gap reset;
           SSH-only reachability never converts missing SNMP into success;
           long-term reachability incidents per §9.4)
+W02-T005: 50b34287c97a0afbec3d72549c1a9882d8fa2953 — REVIEW_PASSED
+          (set_monitored single write path, no aggregation cascade;
+          interface_overview read model; rediscovery/ifIndex change
+          preserves monitored — no schema change needed)
 ```
 
 ## User authorization (2026-09-04)
