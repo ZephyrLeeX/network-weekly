@@ -5,7 +5,7 @@
 ```text
 Current Wave: W02 — CLOSED (engineering gate PASS revalidated after W02-AUDIT-2, merged to main)
 Current Task: none ready — Wave 3 not started (owner decision required)
-Branch: work/wave-02-audit-fix-2 merged into main (MERGE_SHA_PLACEHOLDER)
+Branch: work/wave-02-audit-fix-2 merged into main (952db0a2d330e87a64da04882a9b129bc80edb45)
 ```
 
 ## Wave 2 checkpoint ledger
@@ -65,7 +65,7 @@ W02-AUDIT-2: de40bbf0e2f3e8ccd38ec5d8970e6d042f1acf0b — REVIEW_PASSED
   (oper_state/speed/in/out_octets/in/out_errors/in/out_discards, HC/32-bit
   same-field fallback) instead of per column group; no schema change, no
   migration)
-W02-AUDIT-2 merge commit into main: MERGE_SHA_PLACEHOLDER
+W02-AUDIT-2 merge commit into main: 952db0a2d330e87a64da04882a9b129bc80edb45
   (post-merge re-check on main: 223 unit + 77 integration PASS, ruff/mypy
   clean, alembic at 0007)
 ```
