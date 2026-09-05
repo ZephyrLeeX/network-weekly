@@ -64,8 +64,10 @@ W03-T009: 23819aa406bfce97a54588fb10f790d91a304742 — REVIEW_PASSED
           10-minute retry with sanitized last_error; worker-restart
           recovery; reporting/schedule.py WeeklyReportLoop as worker
           thread; 13 integration tests)
-W03-T010: see gate-verification commit — engineering acceptance
+W03-T010: 557165cee396361984a7b9c63e597d43cea60be8 — engineering acceptance
           REVIEW_PASSED, real-report acceptance BLOCKED (below)
+W03-GATE: 557165cee396361984a7b9c63e597d43cea60be8 — BLOCKED/STOPPED evidence
+          (engineering verification green; NOT PASS; no merge)
 ```
 
 ## W03-T010 / W03-GATE BLOCKED item (2026-09-05)
