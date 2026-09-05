@@ -22,6 +22,9 @@ DEFAULT_DATA_DIR = "./data"
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_WORKER_ID = "worker"
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30
+# §24: raw metrics/poll runs are kept at least 90 days.
+DEFAULT_RETENTION_DAYS = 90
+MIN_RETENTION_DAYS = 90
 # Production locations (SYSTEM_SPEC.md §22/§26.1); overridable for tests/dev.
 DEFAULT_DEVICES_FILE = "/etc/network-report/devices.toml"
 DEFAULT_SECRETS_FILE = "/etc/network-report/secrets.env"
@@ -42,6 +45,8 @@ class Settings:
     log_level: str = DEFAULT_LOG_LEVEL
     worker_id: str = DEFAULT_WORKER_ID
     heartbeat_interval_seconds: int = DEFAULT_HEARTBEAT_INTERVAL_SECONDS
+    # Raw metrics/poll-run retention in days (§24: at least 90).
+    retention_days: int = DEFAULT_RETENTION_DAYS
     devices_file: Path = Path(DEFAULT_DEVICES_FILE)
     secrets_file: Path = Path(DEFAULT_SECRETS_FILE)
 
@@ -103,6 +108,23 @@ def load_settings() -> Settings:
             f"got {heartbeat_interval}"
         )
 
+    raw_retention = os.environ.get("NETWORK_REPORT_RETENTION_DAYS", "").strip()
+    if not raw_retention:
+        retention_days = DEFAULT_RETENTION_DAYS
+    else:
+        try:
+            retention_days = int(raw_retention)
+        except ValueError as exc:
+            raise ConfigError(
+                "NETWORK_REPORT_RETENTION_DAYS must be an integer number of days; "
+                f"got {raw_retention!r}"
+            ) from exc
+    if retention_days < MIN_RETENTION_DAYS:
+        raise ConfigError(
+            f"NETWORK_REPORT_RETENTION_DAYS must be >= {MIN_RETENTION_DAYS} "
+            f"(SYSTEM_SPEC.md §24 keeps raw data at least 90 days); got {retention_days}"
+        )
+
     return Settings(
         environment=environment,
         database_url=database_url,
@@ -111,6 +133,7 @@ def load_settings() -> Settings:
         log_level=log_level,
         worker_id=worker_id,
         heartbeat_interval_seconds=heartbeat_interval,
+        retention_days=retention_days,
         devices_file=devices_file,
         secrets_file=secrets_file,
     )

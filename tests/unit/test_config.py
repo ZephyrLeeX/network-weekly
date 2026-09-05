@@ -17,6 +17,7 @@ def test_defaults_are_foundation_values(monkeypatch: pytest.MonkeyPatch) -> None
         "NETWORK_REPORT_LOG_LEVEL",
         "NETWORK_REPORT_WORKER_ID",
         "NETWORK_REPORT_HEARTBEAT_INTERVAL_SECONDS",
+        "NETWORK_REPORT_RETENTION_DAYS",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -31,6 +32,8 @@ def test_defaults_are_foundation_values(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.log_level == "INFO"
     assert settings.worker_id == "worker"
     assert settings.heartbeat_interval_seconds == 30
+    # §24: raw data is kept 90 days by default.
+    assert settings.retention_days == 90
 
 
 def test_timezone_is_explicit_not_inherited_from_host(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,3 +93,21 @@ def test_blank_database_url_falls_back_to_default(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("DATABASE_URL", "   ")
 
     assert load_settings().database_url == DEFAULT_DATABASE_URL
+
+
+def test_retention_days_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NETWORK_REPORT_RETENTION_DAYS", "180")
+
+    assert load_settings().retention_days == 180
+
+
+@pytest.mark.parametrize("raw", ["89", "0", "-30", "not-a-number"])
+def test_retention_days_below_90_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    """§24: raw data is kept at least 90 days; smaller values are refused."""
+
+    monkeypatch.setenv("NETWORK_REPORT_RETENTION_DAYS", raw)
+
+    with pytest.raises(ConfigError, match="NETWORK_REPORT_RETENTION_DAYS"):
+        load_settings()
