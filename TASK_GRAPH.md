@@ -204,13 +204,15 @@ REVIEW_PASSED
 **Tests:** unit `tests/unit/test_monitoring_irf.py` (15-min interval, pass coverage/containment, aligned boundaries); integration `tests/integration/test_irf_observation.py` (present rows, missing-then-reappear, reliable role change w/ previous_role, unknown role never erases, loader skips standalone, loader requires SSH).
 
 ## W02-T009 — Ninety-day retention maintenance
-**Status:** IN_PROGRESS  
+**Status:** REVIEW_PASSED  
 **Depends On:** W02-T001  
 **Blocks:** W02-GATE  
 **Acceptance:** batched cleanup removes expired raw metrics/poll runs without deleting long-term incident/report data.
+**Implementation:** `monitoring/retention.py` — `run_retention` deletes interface metrics, device metrics then poll runs (children before runs, no big cascades) in configurable batches, each batch its own short transaction (§24); `max_batches_per_table` bounds a pass (backlog rate-limiting). Only the three raw tables are ever referenced — incidents, IRF observation history, report metadata/DOCX are long-term by construction. `NETWORK_REPORT_RETENTION_DAYS` (default 90) validated at load: values < 90 are refused (§24 "at least 90 days"). Worker runs the pass ~6 h after startup then every 6 h; a restart simply re-runs it (idempotent, needs no persistence).
+**Tests:** integration `tests/integration/test_retention.py` (expired raw data deleted / recent kept, incidents+IRF+settings survive, batching bounds, below-90 rejected, interface metrics cleaned in own batches); unit `tests/unit/test_config.py` extension (default 90, override 180, 89/0/-30/non-numeric refused).
 
 ## W02-GATE — Monitoring Pipeline Gate
-**Status:** TODO  
+**Status:** IN_PROGRESS (verification running 2026-09-05)  
 **Depends On:** W02-T004, W02-T006, W02-T007, W02-T008, W02-T009  
 **Blocks:** Wave 3  
 **Gate:** 5-minute monitoring data, incident semantics, IRF observations and retention behavior are trustworthy for weekly statistics.

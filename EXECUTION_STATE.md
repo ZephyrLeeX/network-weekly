@@ -42,6 +42,9 @@ W02-T008: c693d53f8c67ad94ab328904a31a8f0193ffd018 — REVIEW_PASSED
           (migration 0007 irf_member_observations; ~15-min loop; IRF devices
           only; SSH failure records nothing; missing/reappeared/role change
           persisted for Wave 3)
+W02-T009: 382e7131d84b00d4c358ded984a4da2b6ebc8138 — REVIEW_PASSED
+          (batched §24 cleanup of raw metrics/poll runs; long-term data
+          untouched by construction; retention_days >= 90 enforced)
 ```
 
 ## User authorization (2026-09-04)

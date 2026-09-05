@@ -243,9 +243,17 @@ class IrfObservationLoop:
         self._running = threading.Lock()
 
     def run_pass(self) -> int:
-        """Observe every configured IRF device once; returns devices seen."""
+        """Observe every configured IRF device once; returns devices seen.
 
-        devices = self._load_devices()
+        Loader and per-device failures are contained: the loop must survive
+        secrets/database trouble and keep cycling (§27.9).
+        """
+
+        try:
+            devices = self._load_devices()
+        except Exception as exc:  # noqa: BLE001  (loader failure contained)
+            logger.error("irf observation pass aborted (%s)", type(exc).__name__)
+            return 0
         for context in devices:
             try:
                 self._observe(context)

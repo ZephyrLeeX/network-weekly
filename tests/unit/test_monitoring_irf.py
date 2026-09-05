@@ -71,6 +71,42 @@ def test_pass_is_contained_when_observation_raises() -> None:
     assert observed == ["broken", "healthy"]
 
 
+def test_pass_survives_loader_failure() -> None:
+    """Secrets/DB trouble must not kill the IRF loop (§27.9)."""
+
+    def broken_loader() -> list[IrfDeviceContext]:
+        raise RuntimeError("secrets unavailable")
+
+    assert IrfObservationLoop(broken_loader, observe=lambda ctx: _report()).run_pass() == 0
+
+
+def test_run_loop_survives_pass_exceptions() -> None:
+    """A pass raising out of the loop thread must not stop the cadence."""
+
+    clock = FakeClock(BASE + timedelta(seconds=60))
+    stop = threading.Event()
+    passes = 0
+    waits = 0
+
+    def sleep_until(_target: datetime) -> bool:
+        nonlocal waits
+        waits += 1
+        clock.now = BASE + timedelta(minutes=15 * waits)
+        return waits < 3
+
+    def observe(ctx: IrfDeviceContext) -> IrfObservationReport | None:
+        nonlocal passes
+        passes += 1
+        raise RuntimeError("boom")
+
+    loop = IrfObservationLoop(
+        lambda: [_context()], clock=clock, sleep_until=sleep_until, observe=observe
+    )
+    loop.run_loop(stop)
+    # The loop kept cycling despite every pass raising.
+    assert passes == 2
+
+
 def test_run_loop_executes_passes_at_boundaries_until_stop() -> None:
     clock = FakeClock(BASE + timedelta(seconds=60))
     stop = threading.Event()
