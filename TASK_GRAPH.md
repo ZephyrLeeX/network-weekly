@@ -293,10 +293,12 @@ REVIEW_PASSED
 **Tests:** `tests/integration/test_weekly_counters_coverage.py` (10 cases: simple accumulation; counter reset mid-week keeps only real increments; never-reported column None-not-zero while constant counter is a genuine 0; no-counter-data interface unranked; Top ranking by total incl. multi-column sums; §18 status counts over a full 2016-cycle week with out-of-week exclusion; single-device <95% trips warning while 99% device does not; exactly-at-target not below; silent week 0% coverage; disabled device no planned cycles).
 
 ## W03-T006 — WeeklyStatisticsService and overall status
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W03-T002, W03-T003, W03-T004, W03-T005  
 **Blocks:** W03-T007  
-**Acceptance:** one service produces all report-ready values; Normal/Attention/Abnormal rules deterministic; missing data remains explicit.
+**Acceptance:** one service produces all report-ready values; Normal/Attention/Abnormal rules deterministic; missing data remains explicit.  
+**Implementation:** `reporting/service.py` — `build_weekly_report_data(session, period)` composes ONE `WeeklyReportData` from the W03-T002..T005 implementations only (no recomputation): per-device CPU/memory stats, sustained-high via the W02-T007 `detect_*` functions, interface Top 10, device/interface incident summaries, IRF summaries, counter Top 10, Coverage, plus priority-interface sustained high-utilization entries (`detect_interface_high_utilization`) and the overall status + deterministic Chinese summary text. §19 rules fixed and ordered: 异常 = ongoing device/interface Down or IRF member missing at period end; else 关注 = recovered device/interface Down, IRF missing window in week, CPU/memory sustained high, priority-interface high utilization, Coverage <95% (device or overall); else 正常. CRC/Error/Drop values never enter the rules (§19). Missing data stays None (§6.2); summary template is deterministic (byte-identical on rebuild).  
+**Tests:** `tests/integration/test_weekly_service.py` (11 cases: empty week = 关注 + 数据完整性不足; full healthy week = 正常; open device incident 异常; recovery after period end 异常; recovered incident 关注; open interface incident 异常; CPU sustained high 关注; interface high utilization 关注 with interval pinned; 30M CRC delta does NOT change status; 异常-over-关注 precedence; summary text contains week code/status/coverage and is byte-deterministic).
 
 ## W03-T007 — Weekly statistics golden tests
 **Status:** TODO  
