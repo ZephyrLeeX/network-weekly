@@ -5,7 +5,7 @@
 ```text
 Current Wave: W02 — CLOSED (engineering gate PASS, merged to main)
 Current Task: none ready — Wave 3 not started (owner decision required)
-Branch: work/wave-02 merged into main (see merge SHA below)
+Branch: work/wave-02 merged into main (1709676adf17214d24cfdf30ba14f8c8d2255c33)
 ```
 
 ## Wave 2 checkpoint ledger
@@ -48,6 +48,9 @@ W02-T009: 382e7131d84b00d4c358ded984a4da2b6ebc8138 — REVIEW_PASSED
 W02-GATE: PASS (engineering gate, 2026-09-05)
   Gate verification checkpoint: 45ed77811911df414d2e4b020fcfb4a6b690b3c3
   (work/wave-02)
+W02 merge commit into main: 1709676adf17214d24cfdf30ba14f8c8d2255c33
+  (post-merge re-check on main: 205 unit + 72 integration PASS, ruff/mypy
+  clean, alembic at 0007)
 ```
 
 ## User authorization (2026-09-04)
