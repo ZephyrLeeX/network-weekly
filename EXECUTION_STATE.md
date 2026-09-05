@@ -22,6 +22,10 @@ W02-T003: b39d72d94ce6c3ac27e2b76c061ad796bc505e5a — REVIEW_PASSED
           (counter delta x actual elapsed x effective speed; rebaseline on
           reset/negative delta/missing counters/speed invalid or changed/
           interval invalid/>100%; no fake spikes possible)
+W02-T004: 7a38ee93f270dcd21fd1913c23a776b972242c49 — REVIEW_PASSED
+          (migration 0004; 2-cycle Down/Recovery semantics with gap reset;
+          SSH-only reachability never converts missing SNMP into success;
+          long-term reachability incidents per §9.4)
 ```
 
 ## User authorization (2026-09-04)

@@ -163,13 +163,15 @@ REVIEW_PASSED
 **Tests:** unit `tests/unit/test_monitoring_utilization.py` (12 cases: normal delta vs actual elapsed, reset, per-direction independence, zero/negative/missing/changed speed, zero/negative interval, 900 s boundary, >100% guard); integration `test_utilization_chain_rebaseline_compute_reset` (baseline -> exact 80% delta -> counter reset; reset sample becomes new baseline, never a spike).
 
 ## W02-T004 — Device reachability state machine
-**Status:** IN_PROGRESS  
+**Status:** REVIEW_PASSED  
 **Depends On:** W02-T002, W01-T005  
 **Blocks:** W03-T003  
 **Acceptance:** SNMP fail triggers one SSH confirmation; two failed cycles confirm Down; two reachable cycles confirm Recovery; SSH-only reachability does not convert missing SNMP samples into success.
+**Implementation:** migration `0004` (`device_reachability_incidents` long-term per §9.4 + `device_monitoring_state` cycle tracking); `monitoring/reachability.py` — pure `advance_cycle_state` core + `apply_device_reachability` persistence. Failed cycle = SNMP channel yielded nothing AND the §9.1 SSH confirmation also failed/unavailable; 2 consecutive failed cycles → DOWN (`started_at` = first failed cycle); 2 consecutive reachable cycles → RECOVERED (`recovered_at` = first reachable cycle, SSH-only recovery included per §9.3); `last_cycle_started_at` continuity anchor — any skipped cycle resets both runs so gaps can never confirm a state. Wired into `poll_device` in the same transaction.
+**Tests:** unit `tests/unit/test_monitoring_reachability.py` (9 transition cases incl. no-duplicate-incident, recovery interruption, gap resets); integration `tests/integration/test_reachability.py` (incident open/close persisted, second episode, SSH-only, gap, defaults).
 
 ## W02-T005 — Priority interface configuration service
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** W01-T004  
 **Blocks:** W02-T006, W04-T005  
 **Scope:** `monitored` flag and aggregation-aware persistence.  
