@@ -269,10 +269,12 @@ REVIEW_PASSED
 **Tests:** `tests/integration/test_weekly_resources.py` (8 cases: percentile_cont linear-interpolation P95 pinned on 20 known samples; missing cycles + NULL fields excluded, not zeroed; period-boundary exclusion; whole-week-no-data → None = 数据缺失; unknown-field rejection; Top 10 ordering by unified-sample P95 incl. NULL-direction handling and SQL↔Python max-direction equivalence; both-directions-NULL excluded; limit + deterministic tie-break).
 
 ## W03-T003 — Weekly device and priority-interface incident summary
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W03-T001, W02-T004, W02-T006  
 **Blocks:** W03-T006  
-**Acceptance:** weekly Down/Recovery/ongoing presentation handles cross-week intervals correctly.
+**Acceptance:** weekly Down/Recovery/ongoing presentation handles cross-week intervals correctly.  
+**Implementation:** `reporting/incidents.py` — reads ONLY the long-term §9.4/§13 incident records (§24). Membership: an episode belongs to the week when `[started_at, recovered_at)` intersects the half-open period (recovery exactly at `start` = previous week; start exactly at `end` = next week). `IncidentEpisode` carries `started_at`, `recovered_at` (None = open), full observed duration (cross-week episodes report their whole length), `started_before_period` (跨周), `recovered_after_period_end` and `ongoing_at_period_end` (None recovery or recovery >= period.end) — the §19 异常/关注 evidence. `weekly_device_incidents` groups per logical device; `weekly_interface_incidents` per monitored interface with device/name/description context. Devices/interfaces with no in-week incident are omitted (absence of rows = no incidents, not missing data).  
+**Tests:** `tests/integration/test_weekly_incidents.py` (7 cases: in-week down+recovery with duration; cross-week started-last-week recovered-in-week; open-at-period-end and recovered-after-period-end both ongoing; boundary exclusions; multi-episode grouping/ordering; interface incidents incl. ongoing cross-week outage and incident-free interfaces absent; empty week).
 
 ## W03-T004 — IRF weekly summary
 **Status:** TODO  
