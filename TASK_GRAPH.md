@@ -253,10 +253,12 @@ REVIEW_PASSED
 # Wave 3 — Weekly Statistics and DOCX
 
 ## W03-T001 — Report period and ISO week code
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W02-GATE  
 **Blocks:** W03-T002, W03-T003, W03-T004, W03-T005  
-**Acceptance:** exact `[Monday 00:00, next Monday 00:00)` Asia/Shanghai periods including ISO year-boundary tests.
+**Acceptance:** exact `[Monday 00:00, next Monday 00:00)` Asia/Shanghai periods including ISO year-boundary tests.  
+**Implementation:** `reporting/period.py` — `ReportPeriod` (frozen, half-open `[start, end)`, tz-aware only), `week_containing` (local Monday 00:00 grid in the fixed Asia/Shanghai business timezone), `previous_period` (last complete week — the §4.1 report target), `period_for_iso_week` (ISO week-year construction; 53-week years and New-Year spans handled by the ISO calendar), `week_code` (`2026-W36`), `overlaps_interval` (cross-week incident membership with exclusive recovery), `report_file_name` (§5). No statistics here — pure period identity.  
+**Tests:** `tests/unit/test_reporting_period.py` (15 cases: local-Monday bounds, half-open membership, UTC→local week mapping, Monday 00:00 ownership, previous-complete-week at Mon 00:10 and Sunday, ISO 2026-W01 New-Year boundary, 52/53-week years, week-code round trip, invalid ISO week rejection, naive-datetime rejection, cross-week overlap semantics, file name).
 
 ## W03-T002 — CPU/Memory/P95 and interface Top 10
 **Status:** TODO  
