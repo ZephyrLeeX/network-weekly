@@ -166,9 +166,9 @@ def test_success_cycle_persists_run_and_metrics(db_engine: Engine, device_id: in
         assert rows[uplink.id].fcs_errors == 0
         assert rows[uplink.id].oper_state == "up"
         assert rows[uplink.id].speed_bps == 10_000_000_000
-        # Utilization computation arrives with W02-T003.
+        # First-ever sample: baseline established, no utilization value (§15.2).
         assert rows[uplink.id].in_utilization_percent is None
-        assert rows[uplink.id].utilization_rebaselined is False
+        assert rows[uplink.id].utilization_rebaselined is True
 
 
 def test_partial_cycle_keeps_valid_memory_and_null_cpu(
@@ -272,3 +272,85 @@ def test_unknown_device_returns_none(db_engine: Engine) -> None:
     outcome = _outcome(sections=[SectionResult("identity", "SUCCESS")])
     with Session(db_engine) as session:
         assert persist_poll_result(session, 99999, CYCLE, outcome, COLLECTED) is None
+
+
+def test_utilization_chain_rebaseline_compute_reset(
+    db_engine: Engine, device_id: int
+) -> None:
+    """§15/§15.2 across three cycles: baseline -> valid delta -> counter reset.
+
+    No cycle may ever produce a fake utilization spike.
+    """
+
+    def _octets_sample(in_octets: int, out_octets: int) -> InterfaceSample:
+        return InterfaceSample(
+            if_index=49,
+            name="Ten-GigabitEthernet1/0/49",
+            normalized_name=normalize_interface_name("Ten-GigabitEthernet1/0/49"),
+            description=None,
+            admin_state="up",
+            oper_state="up",
+            speed_bps=10_000_000_000,
+            in_octets=in_octets,
+            out_octets=out_octets,
+            in_errors=0,
+            out_errors=0,
+            in_discards=0,
+            out_discards=0,
+            fcs_errors=0,
+        )
+
+    def cycle_outcome(in_octets: int, out_octets: int) -> DeviceCollectionOutcome:
+        return _outcome(
+            interfaces=[_octets_sample(in_octets, out_octets)],
+            sections=[SectionResult("interfaces", "SUCCESS")],
+        )
+
+    def uplink_id(session: Session) -> int:
+        return session.execute(
+            select(Interface.id).where(
+                Interface.normalized_name == "ten-gigabitethernet1/0/49"
+            )
+        ).scalar_one()
+
+    def row_at(session: Session, interface_id: int, at: datetime) -> InterfaceMetric:
+        return session.execute(
+            select(InterfaceMetric).where(
+                InterfaceMetric.interface_id == interface_id,
+                InterfaceMetric.collected_at == at,
+            )
+        ).scalar_one()
+
+    t0 = datetime(2026, 9, 5, 8, 0, 0, tzinfo=UTC)
+    t1 = datetime(2026, 9, 5, 8, 5, 0, tzinfo=UTC)
+    t2 = datetime(2026, 9, 5, 8, 10, 0, tzinfo=UTC)
+
+    with Session(db_engine) as session:
+        iid = uplink_id(session)
+
+        # Cycle 0: first sample — establishes the baseline, no utilization.
+        persist_poll_result(session, device_id, t0, cycle_outcome(1_000, 1_000), t0)
+        session.commit()
+        row0 = row_at(session, iid, t0)
+        assert row0.utilization_rebaselined is True
+        assert row0.in_utilization_percent is None
+
+        # Cycle 1: valid delta over the actual 300 s interval.
+        # 3e11 octets * 8 / (300 s * 10 Gb/s) * 100 = exactly 80%.
+        delta = 300_000_000_000
+        persist_poll_result(
+            session, device_id, t1, cycle_outcome(1_000 + delta, 1_000), t1
+        )
+        session.commit()
+        row1 = row_at(session, iid, t1)
+        assert row1.utilization_rebaselined is False
+        assert row1.utilization_elapsed_seconds == 300.0
+        assert row1.in_utilization_percent == pytest.approx(80.0)
+
+        # Cycle 2: counter reset (lower than before) — rebaseline, no spike.
+        persist_poll_result(session, device_id, t2, cycle_outcome(17, 17), t2)
+        session.commit()
+        row2 = row_at(session, iid, t2)
+        assert row2.utilization_rebaselined is True
+        assert row2.in_utilization_percent is None
+        assert row2.in_octets == 17  # reset sample still becomes the new baseline

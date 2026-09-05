@@ -1,4 +1,4 @@
-"""Per-cycle monitoring pipeline (W02-T001+).
+"""Per-cycle monitoring pipeline (W02-T001/T003).
 
 One call per planned 5-minute cycle per device turns a Wave 1
 :class:`DeviceCollectionOutcome` into the Wave 2 raw-data rows:
@@ -6,15 +6,17 @@ One call per planned 5-minute cycle per device turns a Wave 1
 - one `device_poll_runs` row — SUCCESS / PARTIAL / FAILED (§8) — whatever
   the outcome, so Monitoring Coverage counts stay honest (§18);
 - one `device_metrics` row when the cycle produced valid CPU/memory data;
-- one `interface_metrics` row per sampled interface.
+- one `interface_metrics` row per sampled interface, with delta-based
+  utilization against the interface's previous stored sample and the
+  rebaseline semantics of §15.2 (W02-T003).
 
 Persisted in ONE transaction together with the Wave 1 topology sync, so a
 crash never leaves a poll run without its metric rows or vice versa.
 
-Utilization (W02-T003), the reachability state machine (W02-T004) and the
-priority-interface state machine (W02-T006) are added to this pipeline by
-their own tasks. Only section *names* are persisted on the poll run; no
-error text and no secret-bearing material ever reaches these tables.
+The device reachability state machine (W02-T004) and the priority-interface
+state machine (W02-T006) join this pipeline with their own tasks. Only
+section *names* are persisted on the poll run; no error text and no
+secret-bearing material ever reaches these tables.
 """
 
 import logging
@@ -27,6 +29,7 @@ from sqlalchemy.orm import Session
 from backend.collect.dto import EntityLoadSample, InterfaceSample
 from backend.collect.session import DeviceCollectionOutcome
 from backend.db.models import Device, DeviceMetric, DevicePollRun, Interface, InterfaceMetric
+from backend.monitoring.utilization import PreviousSample, compute_utilization
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +64,13 @@ def _interface_metric(
     interface_id: int,
     collected_at: datetime,
     sample: InterfaceSample,
+    previous: PreviousSample | None,
 ) -> InterfaceMetric:
-    """Build one interface metric row from a sample (utilization: W02-T003)."""
+    """Build one interface metric row, with §15 utilization / rebaseline."""
 
+    result = compute_utilization(
+        previous, collected_at, sample.in_octets, sample.out_octets, sample.speed_bps
+    )
     return InterfaceMetric(
         poll_run_id=poll_run_id,
         device_id=device_id,
@@ -79,7 +86,35 @@ def _interface_metric(
         in_discards=sample.in_discards,
         out_discards=sample.out_discards,
         fcs_errors=sample.fcs_errors,
+        in_utilization_percent=result.in_utilization_percent,
+        out_utilization_percent=result.out_utilization_percent,
+        utilization_elapsed_seconds=result.elapsed_seconds,
+        utilization_rebaselined=result.rebaselined,
     )
+
+
+def _previous_samples(
+    session: Session, interface_ids: set[int]
+) -> dict[int, InterfaceMetric]:
+    """Latest stored sample per interface (the §15 counter baseline)."""
+
+    if not interface_ids:
+        return {}
+    rows = (
+        session.execute(
+            select(InterfaceMetric)
+            .where(InterfaceMetric.interface_id.in_(interface_ids))
+            .distinct(InterfaceMetric.interface_id)
+            .order_by(
+                InterfaceMetric.interface_id,
+                InterfaceMetric.collected_at.desc(),
+                InterfaceMetric.id.desc(),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {row.interface_id: row for row in rows}
 
 
 def persist_poll_result(
@@ -144,6 +179,7 @@ def persist_poll_result(
 
     if outcome.interfaces is not None:
         ids_by_name = _interface_ids_by_name(session, device_id)
+        baselines = _previous_samples(session, set(ids_by_name.values()))
         skipped: list[str] = []
         for sample in outcome.interfaces:
             interface_id = ids_by_name.get(sample.normalized_name)
@@ -152,8 +188,21 @@ def persist_poll_result(
                 # a sample without one cannot be referenced and is never guessed.
                 skipped.append(sample.normalized_name)
                 continue
+            previous_row = baselines.get(interface_id)
+            previous = (
+                PreviousSample(
+                    collected_at=previous_row.collected_at,
+                    in_octets=previous_row.in_octets,
+                    out_octets=previous_row.out_octets,
+                    speed_bps=previous_row.speed_bps,
+                )
+                if previous_row is not None
+                else None
+            )
             session.add(
-                _interface_metric(run_id, device_id, interface_id, collected_at, sample)
+                _interface_metric(
+                    run_id, device_id, interface_id, collected_at, sample, previous
+                )
             )
         if skipped:
             logger.warning(

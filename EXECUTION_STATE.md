@@ -14,6 +14,10 @@ Branch: work/wave-02 (from main a80e0c1)
 W02-T001: 9e1601de5e691f903810abe837935cc616649d2f — REVIEW_PASSED
           (migration 0003; poll runs + device/interface metrics; idempotent
           per-cycle persistence; SUCCESS/PARTIAL/FAILED + missing-stays-missing)
+W02-T002: 2700b5942e03de8a80e1f8910740e01a6d90e7c0 — REVIEW_PASSED
+          (aligned 5-min scheduler; no same-device overlap; restart continues
+          future cycles only; poll pipeline single-transaction persistence;
+          worker heartbeat + scheduler threads)
 ```
 
 ## User authorization (2026-09-04)

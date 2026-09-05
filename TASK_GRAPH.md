@@ -155,7 +155,7 @@ REVIEW_PASSED
 **Tests:** unit `tests/unit/test_monitoring_scheduler.py` (alignment, strictly-future cycles, no-overlap skip, restart no-backfill, per-device failure containment, loader-failure survival) + `tests/unit/test_monitoring_credentials.py`; integration `tests/integration/test_poll_device.py` (full cycle persisted end-to-end, FAILED run recorded with §9.1 probe result).
 
 ## W02-T003 — Utilization and counter rebaseline
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** W02-T001, W02-T002  
 **Blocks:** W02-T006, W03-T002, W03-T005  
 **Acceptance:** actual elapsed time used; invalid/reset counters rebaseline; ingress/egress utilization stored consistently; no false spikes.
