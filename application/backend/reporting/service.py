@@ -60,8 +60,8 @@ from backend.reporting.incidents import (
 from backend.reporting.irf_summary import IrfDeviceWeeklySummary, weekly_irf_summaries
 from backend.reporting.period import ReportPeriod
 from backend.reporting.resources import (
-    DeviceResourceStats,
     InterfaceTopEntry,
+    MetricStats,
     device_resource_statistics,
     interface_top_entries,
 )
@@ -87,6 +87,23 @@ class HighUtilizationEntry:
 
 
 @dataclass(frozen=True)
+class DeviceResourceReport:
+    """§14 report row for one logical device: stats + sustained intervals.
+
+    `cpu`/`memory` are None when the week has no valid sample (数据缺失);
+    the sustained-high intervals carry start/end/duration from the shared
+    W02-T006/T007 implementation (§14: 区间数量、开始时间、结束时间、持续时间).
+    """
+
+    device_id: int
+    device_name: str
+    cpu: MetricStats | None
+    memory: MetricStats | None
+    cpu_sustained_high: tuple[SustainedHighInterval, ...]
+    memory_sustained_high: tuple[SustainedHighInterval, ...]
+
+
+@dataclass(frozen=True)
 class WeeklyReportData:
     """Everything the DOCX renderer needs, all values report-ready (§6)."""
 
@@ -96,7 +113,7 @@ class WeeklyReportData:
     overall_status: str
     summary_text: str
     coverage: CoverageSummary
-    device_resources: tuple[DeviceResourceStats, ...]
+    device_resources: tuple[DeviceResourceReport, ...]
     interface_top10: tuple[InterfaceTopEntry, ...]
     device_incidents: tuple[DeviceIncidentSummary, ...]
     interface_incidents: tuple[InterfaceIncidentSummary, ...]
@@ -126,16 +143,14 @@ def build_weekly_report_data(
     counter_top10 = counter_delta_top_entries(session, period)
     interface_top10 = interface_top_entries(session, period)
 
-    device_resources: list[DeviceResourceStats] = []
+    device_resources: list[DeviceResourceReport] = []
     cpu_sustained = 0
     memory_sustained = 0
     thresholds = load_thresholds(session)
     for device_id, device_name in session.execute(
         select(Device.id, Device.name).order_by(Device.name.asc())
     ).all():
-        device_resources.append(
-            device_resource_statistics(session, device_id, device_name, period)
-        )
+        stats = device_resource_statistics(session, device_id, device_name, period)
         sustained = detect_device_sustained_high(
             session, device_id, period.start, period.end, thresholds=thresholds
         )
@@ -143,6 +158,16 @@ def build_weekly_report_data(
             cpu_sustained += 1
         if sustained["memory"]:
             memory_sustained += 1
+        device_resources.append(
+            DeviceResourceReport(
+                device_id=device_id,
+                device_name=device_name,
+                cpu=stats.cpu,
+                memory=stats.memory,
+                cpu_sustained_high=tuple(sustained["cpu"]),
+                memory_sustained_high=tuple(sustained["memory"]),
+            )
+        )
 
     high_utilization = _high_utilization_entries(session, period, thresholds)
 

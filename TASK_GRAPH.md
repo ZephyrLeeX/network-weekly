@@ -301,10 +301,12 @@ REVIEW_PASSED
 **Tests:** `tests/integration/test_weekly_service.py` (11 cases: empty week = 关注 + 数据完整性不足; full healthy week = 正常; open device incident 异常; recovery after period end 异常; recovered incident 关注; open interface incident 异常; CPU sustained high 关注; interface high utilization 关注 with interval pinned; 30M CRC delta does NOT change status; 异常-over-关注 precedence; summary text contains week code/status/coverage and is byte-deterministic).
 
 ## W03-T007 — Weekly statistics golden tests
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W03-T006  
 **Blocks:** W03-T008  
-**Acceptance:** period, cross-week, missing sample, threshold continuity, P95, Top 10, reset, PARTIAL and Coverage cases pass.
+**Acceptance:** period, cross-week, missing sample, threshold continuity, P95, Top 10, reset, PARTIAL and Coverage cases pass.  
+**Implementation:** service-side addition completing §14 for the report: `WeeklyReportData.device_resources` now carries the per-device sustained-high intervals (start/end/duration from the shared W02 implementation) next to avg/max/P95 — `DeviceResourceReport`.  
+**Tests:** `tests/integration/test_w03_golden_scenarios.py` — 12 golden scenarios, one per IMPLEMENTATION_PLAN case: `[Mon 00:00, next Mon 00:00)` half-open boundary (start slot in, end cycle out, 2016-slot grid); ISO year boundary week 2026-W01 spanning 2025-12-29..2026-01-05; 跨周设备 Down (started previous week, recovered in week, full duration, ongoing flags); 周内 Down+Recovery; 重点接口 Down+Recovery; missing sample breaking sustained-high continuity (85,85,MISSING,85,85,85 → one trailing interval, 900 s); CPU/Memory P95 pinned on percentile_cont interpolation (19.05); interface Top 10 algorithm (per-sample max-direction, per-interface P95, descending); CRC counter reset mid-week (550 real increments, never a fake spike); PARTIAL poll counted in coverage AND shown separately, its kept CPU sample present and the lost cycle missing-not-zero; Coverage <95% → 数据完整性不足 while the report still builds; 整周设备无数据 → 数据缺失 everywhere, coverage 0%, 关注; threshold override flowing into report sustained-high counts.
 
 ## W03-T008 — DOCX renderer
 **Status:** TODO  
