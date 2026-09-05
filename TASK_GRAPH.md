@@ -147,10 +147,12 @@ REVIEW_PASSED
 **Tests:** unit (table registration, cycle identity, retention columns, utilization columns) + integration (`tests/integration/test_monitoring_pipeline.py`: SUCCESS/PARTIAL/FAILED persistence, missing-stays-missing, unknown interface skipped, same-cycle idempotency, two devices one cycle).
 
 ## W02-T002 — Five-minute DEVICE_POLL scheduler
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W02-T001, W01-T006  
 **Blocks:** W02-T003, W02-T004, W02-T007  
 **Acceptance:** aligned 5-minute cycles; no overlapping poll for the same device; restart resumes future cycles without mass realtime backfill.
+**Implementation:** `monitoring/scheduler.py` (epoch-aligned 5-minute boundaries; per-device in-flight registry — a poll outliving its cycle is skipped, that cycle stays missing with no run row, never overlapped; loop always targets the next future boundary so restart never backfills §27.12; per-device executor threads contain failures §8); `monitoring/poll.py` (`poll_device`: Wave 1 `run_collection` re-used unchanged + topology sync + poll run + metrics in ONE transaction); `monitoring/credentials.py` (per-cycle device reload from DB + 0600 secrets; SNMP community required, SSH optional — SNMP-only devices simply have no §9.1 probe); worker runs heartbeat + scheduler threads on one stop event.
+**Tests:** unit `tests/unit/test_monitoring_scheduler.py` (alignment, strictly-future cycles, no-overlap skip, restart no-backfill, per-device failure containment, loader-failure survival) + `tests/unit/test_monitoring_credentials.py`; integration `tests/integration/test_poll_device.py` (full cycle persisted end-to-end, FAILED run recorded with §9.1 probe result).
 
 ## W02-T003 — Utilization and counter rebaseline
 **Status:** TODO  

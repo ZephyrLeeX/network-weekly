@@ -3,9 +3,17 @@
 ## Current execution
 
 ```text
-Current Wave: W01 — CLOSED (engineering gate PASS, merged to main)
-Current Task: none ready — Wave 2 not started (owner decision)
-Branch: work/wave-01 merged into main (d3b27515fc977e221c401e5ef23e4ed53d2917fd)
+Current Wave: W02 — Monitoring Pipeline (IN PROGRESS, branch work/wave-02)
+Current Task: W02-T002 (W02-T001 REVIEW_PASSED)
+Branch: work/wave-02 (from main a80e0c1)
+```
+
+## Wave 2 checkpoint ledger
+
+```text
+W02-T001: 9e1601de5e691f903810abe837935cc616649d2f — REVIEW_PASSED
+          (migration 0003; poll runs + device/interface metrics; idempotent
+          per-cycle persistence; SUCCESS/PARTIAL/FAILED + missing-stays-missing)
 ```
 
 ## User authorization (2026-09-04)
