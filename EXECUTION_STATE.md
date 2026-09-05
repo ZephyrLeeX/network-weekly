@@ -3,9 +3,9 @@
 ## Current execution
 
 ```text
-Current Wave: W02 — Monitoring Pipeline (IN PROGRESS, branch work/wave-02)
-Current Task: W02-T002 (W02-T001 REVIEW_PASSED)
-Branch: work/wave-02 (from main a80e0c1)
+Current Wave: W02 — CLOSED (engineering gate PASS, merged to main)
+Current Task: none ready — Wave 3 not started (owner decision required)
+Branch: work/wave-02 merged into main (see merge SHA below)
 ```
 
 ## Wave 2 checkpoint ledger
@@ -45,6 +45,9 @@ W02-T008: c693d53f8c67ad94ab328904a31a8f0193ffd018 — REVIEW_PASSED
 W02-T009: 382e7131d84b00d4c358ded984a4da2b6ebc8138 — REVIEW_PASSED
           (batched §24 cleanup of raw metrics/poll runs; long-term data
           untouched by construction; retention_days >= 90 enforced)
+W02-GATE: PASS (engineering gate, 2026-09-05)
+  Gate verification checkpoint: 45ed77811911df414d2e4b020fcfb4a6b690b3c3
+  (work/wave-02)
 ```
 
 ## User authorization (2026-09-04)
@@ -74,15 +77,16 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
-W01-T003/T004/T005/T006 correctness-fix wave (user-reported findings):
-  ifHighSpeed preference, separate admin/oper maps (oper 1-7), EtherLike
-  HC FCS counters, LAG .12/.13 OID correction, collect_interfaces failure
-  semantics, stale aggregation cleanup, display version parser fix, SSH
-  static collectors wired (version/IRF), SSH probe gated on real SNMP
-  channel failure, software_version + IRF member persistence.
-W01-GATE revalidated PASS (engineering): pytest 114 unit + 29 integration,
-ruff clean, mypy clean, alembic upgrade head idempotent at 0002, compose
-smoke healthy; work/wave-01 merged to main.
+W02-GATE (Wave 2 — Monitoring Pipeline) PASS (engineering):
+  pytest 205 unit + 72 integration PASS on migrated PostgreSQL (0007);
+  ruff clean; mypy clean; alembic upgrade head idempotent at 0007;
+  compose rebuild + smoke: web healthy, worker runs heartbeat + 5-min
+  DEVICE_POLL scheduler + 15-min IRF observation loop + retention, heartbeat
+  persisted, restart semantics verified live (next-boundary start, no
+  backfill), missing dev secrets contained per cycle.
+Gate scenario test walks one device end-to-end: utilization over actual
+elapsed, counter-reset rebaseline, FAILED×2 -> DOWN, reachable×2 ->
+RECOVERED, sustained-high semantics, retention vs long-term incidents.
 ```
 
 ## Last checkpoint
@@ -130,25 +134,36 @@ W01-T007: BLOCKED — FIELD_VALIDATION_PENDING. No reachable real
 ## Open design gaps
 
 ```text
-None
+None.
+Documented §13 interpretation (W02-T006): for priority interfaces, a
+missing/undetermined sample neither counts as Up/Down NOR breaks the
+run of valid samples (§13.3 wording; contrast with §14 thresholds where
+a missing sample explicitly breaks continuity). Recorded in
+backend/monitoring/interface_state.py and TASK_GRAPH W02-T006.
 ```
 
 ## Next ready candidates
 
 ```text
-Wave 2 (W02-T001 …) — all dependencies satisfied (W01-GATE PASS).
-Owner decision recorded 2026-09-04: do NOT start Wave 2 yet.
+Wave 3 (W03-T001 …) — all dependencies satisfied (W02-GATE PASS).
+Owner decision required: do NOT start Wave 3 without authorization.
 ```
 
 ## Current Wave Gate
 
 ```text
-W01-GATE — Wave 1 Engineering Gate
-Status: PASS (2026-09-04). Engineering gate over W01-T001..T006:
-  pytest 133 pass (114 unit + 19 non-integration markers) + 29
-  integration against migrated PostgreSQL; ruff clean; mypy clean;
-  alembic upgrade head idempotent at 0002; compose rebuild + smoke:
-  web healthy, worker heartbeat persistent.
+W02-GATE — Wave 2 Monitoring Pipeline Gate
+Status: PASS (2026-09-05). Engineering gate over W02-T001..T009:
+  pytest 205 unit + 72 integration against migrated PostgreSQL (0007);
+  ruff clean; mypy clean; alembic upgrade head idempotent at 0007;
+  compose rebuild + smoke: web healthy, worker heartbeat + schedulers
+  persistent, no backfill on restart, per-cycle error containment.
+Covers: 5-min scheduling, no same-device overlap, restart semantics,
+SUCCESS/PARTIAL/FAILED persistence, counter reset/rebaseline, device and
+priority-interface Down/Recovery (2-cycle rules, gap resets), sustained
+CPU/memory/utilization (>=80% x3, missing breaks), IRF observation
+(missing/reappearance/reliable role change, SSH-failure records nothing),
+90-day batched retention sparing long-term data.
 Real-device proof is NOT part of this gate: it is carried by
 W01-T007 (BLOCKED — FIELD_VALIDATION_PENDING), which blocks W05-GATE.
 ```

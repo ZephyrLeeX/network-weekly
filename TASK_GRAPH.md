@@ -212,10 +212,16 @@ REVIEW_PASSED
 **Tests:** integration `tests/integration/test_retention.py` (expired raw data deleted / recent kept, incidents+IRF+settings survive, batching bounds, below-90 rejected, interface metrics cleaned in own batches); unit `tests/unit/test_config.py` extension (default 90, override 180, 89/0/-30/non-numeric refused).
 
 ## W02-GATE — Monitoring Pipeline Gate
-**Status:** IN_PROGRESS (verification running 2026-09-05)  
+**Status:** PASS (engineering gate, 2026-09-05)  
 **Depends On:** W02-T004, W02-T006, W02-T007, W02-T008, W02-T009  
 **Blocks:** Wave 3  
-**Gate:** 5-minute monitoring data, incident semantics, IRF observations and retention behavior are trustworthy for weekly statistics.
+**Gate:** 5-minute monitoring data, incident semantics, IRF observations and retention behavior are trustworthy for weekly statistics.  
+**Verification evidence (all on migrated PostgreSQL, 0001→0007):**
+- pytest 205 unit + 72 integration PASS; ruff clean; mypy clean (77 files); alembic upgrade head idempotent at 0007.
+- compose rebuild + smoke: web healthy (/health), postgres healthy, worker runs heartbeat + 5-min scheduler + 15-min IRF loop + retention threads; heartbeat persisted; scheduler started at the next boundary with NO backfill; missing dev secrets contained per cycle (§27.9), worker alive.
+- `tests/integration/test_w02_gate_scenarios.py`: one device across 7 consecutive cycles — SUCCESS runs, utilization 80% over actual elapsed, counter-reset rebaseline (no spike), FAILED×2 → device DOWN (started_at = first failed cycle), reachable×2 → RECOVERED (recovered_at = first reachable cycle), sustained-high needs 3 consecutive valid samples, retention deletes old raw rows and spares the incident.
+- Gate checklist: 5-minute scheduling ✓; no same-device overlap ✓; restart-continues-future ✓; SUCCESS/PARTIAL/FAILED persistence ✓; counter reset/rebaseline ✓; device Down/Recovery ✓; priority-interface Down/Recovery ✓; sustained CPU/memory/utilization ✓; IRF missing/reappearance/role change ✓; 90-day retention ✓.
+- Real-device proof remains carried by W01-T007 (BLOCKED — FIELD_VALIDATION_PENDING), which blocks W05-GATE only; this gate does not affect it.
 
 ---
 
