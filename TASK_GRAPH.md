@@ -261,10 +261,12 @@ REVIEW_PASSED
 **Tests:** `tests/unit/test_reporting_period.py` (15 cases: local-Monday bounds, half-open membership, UTC→local week mapping, Monday 00:00 ownership, previous-complete-week at Mon 00:10 and Sunday, ISO 2026-W01 New-Year boundary, 52/53-week years, week-code round trip, invalid ISO week rejection, naive-datetime rejection, cross-week overlap semantics, file name).
 
 ## W03-T002 — CPU/Memory/P95 and interface Top 10
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W03-T001, W02-T003, W02-T007  
 **Blocks:** W03-T006  
-**Acceptance:** average/max/P95 correct; PostgreSQL `percentile_cont(0.95)` used; Top 10 algorithm matches `SYSTEM_SPEC.md` and golden tests.
+**Acceptance:** average/max/P95 correct; PostgreSQL `percentile_cont(0.95)` used; Top 10 algorithm matches `SYSTEM_SPEC.md` and golden tests.  
+**Implementation:** `reporting/resources.py` — THE single weekly-statistics implementation for these values (§15.4); `metric_statistics` (avg/max/P95/sample_count per device+field over the planned-cycle window; P95 is PostgreSQL `percentile_cont(0.95).within_group`, never Python; no valid samples → None = 数据缺失, never 0), `device_resource_statistics` (CPU+memory for one logical device, §14), `interface_top_entries` (§15.4: candidates have valid weekly utilization samples; per-sample value `max(in, out)` via a SQL expression mirrored 1:1 from `monitoring.sustained.max_direction_utilization`; per-interface P95 of that value ranks descending with deterministic tie-break device→interface name; `limit` for Top 10). Sustained-high intervals stay bound to the W02-T007 implementation — not reimplemented here.  
+**Tests:** `tests/integration/test_weekly_resources.py` (8 cases: percentile_cont linear-interpolation P95 pinned on 20 known samples; missing cycles + NULL fields excluded, not zeroed; period-boundary exclusion; whole-week-no-data → None = 数据缺失; unknown-field rejection; Top 10 ordering by unified-sample P95 incl. NULL-direction handling and SQL↔Python max-direction equivalence; both-directions-NULL excluded; limit + deterministic tie-break).
 
 ## W03-T003 — Weekly device and priority-interface incident summary
 **Status:** TODO  
