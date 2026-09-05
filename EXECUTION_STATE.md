@@ -5,7 +5,7 @@
 ```text
 Current Wave: W02 — CLOSED (engineering gate PASS revalidated after W02-AUDIT, merged to main)
 Current Task: none ready — Wave 3 not started (owner decision required)
-Branch: work/wave-02-audit-fix merged into main (<MERGE_SHA>)
+Branch: work/wave-02-audit-fix merged into main (17ee3b9104742d6b5ad31822b571a794846aa59d)
 ```
 
 ## Wave 2 checkpoint ledger
@@ -51,11 +51,13 @@ W02-GATE: PASS (engineering gate, 2026-09-05)
 W02 merge commit into main: 1709676adf17214d24cfdf30ba14f8c8d2255c33
   (post-merge re-check on main: 205 unit + 72 integration PASS, ruff/mypy
   clean, alembic at 0007)
-W02-AUDIT: <AUDIT_SHA> — REVIEW_PASSED
+W02-AUDIT: 3a135350ca77d4a72effee3aafc21ac6c6fe67b6 — REVIEW_PASSED
   (§8 planned-cycle completeness, no-fake-SUCCESS collection semantics,
   whole-cycle poll idempotency, sustained-high interval duration §14/§15.3;
   no schema change, no migration; no product capability added)
-W02-AUDIT merge commit into main: <MERGE_SHA>
+W02-AUDIT merge commit into main: 17ee3b9104742d6b5ad31822b571a794846aa59d
+  (post-merge re-check on main: 218 unit + 77 integration PASS, ruff/mypy
+  clean, alembic at 0007)
 ```
 
 ## User authorization (2026-09-04)
@@ -111,7 +113,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
-W02-AUDIT checkpoint: <AUDIT_SHA> (work/wave-02-audit-fix)
+W02-AUDIT checkpoint: 3a135350ca77d4a72effee3aafc21ac6c6fe67b6 (work/wave-02-audit-fix)
 W01-T003 fix checkpoint: 9c4b57bd7b0b6445b8b4b9144f1e9fdb84bc2898 (work/wave-01)
 W01-T004 fix checkpoint: a8c394348206a3e65355a643fd6cef7939f0c8da (work/wave-01)
 W01-T005 fix checkpoint: 56010bf3a7d823f7737de160abe163fcf2518ce0 (work/wave-01)
