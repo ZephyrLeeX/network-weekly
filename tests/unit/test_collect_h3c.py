@@ -210,22 +210,63 @@ def test_collect_interfaces_success_with_full_data() -> None:
     client = _FakeSnmpClient({col: _varbinds(items) for col, items in data["columns"].items()})
     collection = collect_interfaces(client)  # type: ignore[arg-type]
     assert len(collection.samples) == 6
-    assert collection.missing_groups == ()  # every key group delivered
+    assert collection.missing_fields == ()  # every key field delivered
     assert all(col in client.walked for col in (oids.IF_HIGH_SPEED, oids.DOT3_HC_STATS_FCS_ERRORS))
 
 
-def test_collect_interfaces_degraded_when_state_columns_missing() -> None:
-    """Both ifAdminStatus and ifOperStatus unavailable -> DEGRADED, data kept."""
+def test_collect_interfaces_degraded_when_oper_state_missing() -> None:
+    """No ifOperStatus rows -> DEGRADED, data kept (§13 has no samples)."""
+
+    data = _load("iftable_s10500x.json")
+    columns: dict[str, list[SnmpVarbind] | Exception] = {
+        col: _varbinds(items) for col, items in data["columns"].items()
+    }
+    columns[oids.IF_OPER_STATUS] = SnmpError("walk timeout")
+    collection = collect_interfaces(_FakeSnmpClient(columns))  # type: ignore[arg-type]
+    assert len(collection.samples) == 6  # the ifDescr-driven rows survive
+    assert collection.missing_fields == ("oper_state",)
+
+
+def test_collect_interfaces_not_degraded_when_only_admin_missing() -> None:
+    """ifAdminStatus is informational: its loss alone does not degrade."""
 
     data = _load("iftable_s10500x.json")
     columns: dict[str, list[SnmpVarbind] | Exception] = {
         col: _varbinds(items) for col, items in data["columns"].items()
     }
     columns[oids.IF_ADMIN_STATUS] = SnmpError("walk timeout")
-    columns[oids.IF_OPER_STATUS] = SnmpError("walk timeout")
     collection = collect_interfaces(_FakeSnmpClient(columns))  # type: ignore[arg-type]
-    assert len(collection.samples) == 6  # the ifDescr-driven rows survive
-    assert collection.missing_groups == ("state",)
+    assert collection.missing_fields == ()
+
+
+def test_collect_interfaces_degraded_when_single_column_missing() -> None:
+    """One required column (in_errors) gone while its group delivered — DEGRADED.
+
+    The old group logic called this complete because other error/discard
+    columns had data; each report-required field is now judged on its own.
+    """
+
+    data = _load("iftable_s10500x.json")
+    columns: dict[str, list[SnmpVarbind] | Exception] = {
+        col: _varbinds(items) for col, items in data["columns"].items()
+    }
+    columns[oids.IF_IN_ERRORS] = SnmpError("walk timeout")
+    collection = collect_interfaces(_FakeSnmpClient(columns))  # type: ignore[arg-type]
+    assert len(collection.samples) == 6  # collected samples are kept
+    assert collection.missing_fields == ("in_errors",)
+
+
+def test_collect_interfaces_degraded_when_in_direction_missing() -> None:
+    """Every inbound column gone (outbound fine) -> all in_* fields missing."""
+
+    data = _load("iftable_s10500x.json")
+    columns: dict[str, list[SnmpVarbind] | Exception] = {
+        col: _varbinds(items) for col, items in data["columns"].items()
+    }
+    for column in (oids.IF_HC_IN_OCTETS, oids.IF_IN_OCTETS, oids.IF_IN_ERRORS, oids.IF_IN_DISCARDS):
+        columns[column] = []
+    collection = collect_interfaces(_FakeSnmpClient(columns))  # type: ignore[arg-type]
+    assert collection.missing_fields == ("in_octets", "in_errors", "in_discards")
 
 
 def test_collect_interfaces_degraded_when_speed_and_counters_missing() -> None:
@@ -243,11 +284,16 @@ def test_collect_interfaces_degraded_when_speed_and_counters_missing() -> None:
     ):
         columns[column] = []
     collection = collect_interfaces(_FakeSnmpClient(columns))  # type: ignore[arg-type]
-    assert collection.missing_groups == ("speed", "octets")
+    assert collection.missing_fields == ("speed", "in_octets", "out_octets")
 
 
 def test_collect_interfaces_not_degraded_on_32bit_fallback() -> None:
-    """HC columns absent but 32-bit fallbacks present: no degradation."""
+    """HC octet counters absent but 32-bit fallbacks present: no degradation.
+
+    The fallback must deliver the same field (per direction) — with the HC
+    walks gone, the 32-bit in/out octets keep `in_octets`/`out_octets`
+    collected.
+    """
 
     data = _load("iftable_s10500x.json")
     columns: dict[str, list[SnmpVarbind] | Exception] = {
@@ -256,8 +302,12 @@ def test_collect_interfaces_not_degraded_on_32bit_fallback() -> None:
     columns[oids.IF_HC_IN_OCTETS] = []
     columns[oids.IF_HC_OUT_OCTETS] = []
     columns[oids.DOT3_HC_STATS_FCS_ERRORS] = []
+    columns[oids.IF_IN_OCTETS] = [SnmpVarbind(oid=f"{oids.IF_IN_OCTETS}.1", value=100)]
+    columns[oids.IF_OUT_OCTETS] = [SnmpVarbind(oid=f"{oids.IF_OUT_OCTETS}.1", value=200)]
     collection = collect_interfaces(_FakeSnmpClient(columns))  # type: ignore[arg-type]
-    assert collection.missing_groups == ()
+    assert collection.missing_fields == ()
+    assert collection.samples[0].in_octets == 100  # 32-bit fallback, per field
+    assert collection.samples[0].out_octets == 200
 
 
 def test_collect_cpu_empty_result_is_section_error() -> None:

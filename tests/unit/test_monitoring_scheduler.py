@@ -177,8 +177,9 @@ def test_skipped_cycle_is_recorded_not_dropped() -> None:
 
     release = threading.Event()
     first_started = threading.Event()
+    recorded = threading.Event()
     polls: list[tuple[str, datetime]] = []
-    recorded: list[tuple[str, datetime]] = []
+    cycles: list[tuple[str, datetime]] = []
 
     def blocking_poll(ctx: DevicePollContext, cycle: datetime) -> str:
         polls.append((ctx.device_name, cycle))
@@ -188,7 +189,8 @@ def test_skipped_cycle_is_recorded_not_dropped() -> None:
         return "SUCCESS"
 
     def record_skipped(ctx: DevicePollContext, cycle: datetime) -> str:
-        recorded.append((ctx.device_name, cycle))
+        cycles.append((ctx.device_name, cycle))
+        recorded.set()
         return "FAILED"
 
     devices = [_ctx("slow")]
@@ -202,18 +204,85 @@ def test_skipped_cycle_is_recorded_not_dropped() -> None:
     try:
         scheduler.run_cycle(BASE)
         assert first_started.wait(timeout=5)
+        poll_future = scheduler._in_flight["slow"]  # noqa: SLF001
 
         cycle2 = BASE + timedelta(minutes=5)
         scheduler.run_cycle(cycle2)
-        skip_future = scheduler._in_flight["slow"]  # noqa: SLF001
-        assert skip_future is not None
-        skip_future.result(timeout=5)
+        assert recorded.wait(timeout=5)
+        # The in-flight slot still holds the real poll future, not the
+        # (already finished) skip recording — otherwise cycle 3 would
+        # overlap the running poll.
+        assert scheduler._in_flight["slow"] is poll_future  # noqa: SLF001
     finally:
         release.set()
         executor.shutdown(wait=True)
 
     assert polls == [("slow", BASE)]  # never overlapped, never re-run
-    assert recorded == [("slow", cycle2)]  # but the planned cycle was bookkept
+    assert cycles == [("slow", cycle2)]  # but the planned cycle was bookkept
+
+
+def test_poll_spanning_cycles_records_overlap_every_cycle() -> None:
+    """A poll outliving several cycles: FAILED/overlap per cycle, no 2nd poll.
+
+    The device stays busy the whole time — every skipped cycle gets its own
+    bookkeeping row, `_in_flight` keeps holding the one real poll future,
+    and no cycle ever starts a second overlapping poll (§27.11 + §8).
+    """
+
+    release = threading.Event()
+    first_started = threading.Event()
+    polls: list[tuple[str, datetime]] = []
+    recorded: list[tuple[str, datetime]] = []
+    recorded_seen = threading.Event()
+
+    def blocking_poll(ctx: DevicePollContext, cycle: datetime) -> str:
+        polls.append((ctx.device_name, cycle))
+        if ctx.device_name == "slow":
+            first_started.set()
+            release.wait(timeout=5)
+        return "SUCCESS"
+
+    def record_skipped(ctx: DevicePollContext, cycle: datetime) -> str:
+        recorded.append((ctx.device_name, cycle))
+        recorded_seen.set()
+        return "FAILED"
+
+    executor = ThreadPoolExecutor(max_workers=2)
+    scheduler = DevicePollScheduler(
+        lambda: [_ctx("slow")],
+        executor=executor,
+        poll=blocking_poll,
+        record_skipped=record_skipped,
+    )
+    try:
+        scheduler.run_cycle(BASE)
+        assert first_started.wait(timeout=5)
+        poll_future = scheduler._in_flight["slow"]  # noqa: SLF001
+
+        cycle2 = BASE + timedelta(minutes=5)
+        cycle3 = BASE + timedelta(minutes=10)
+        scheduler.run_cycle(cycle2)
+        assert recorded_seen.wait(timeout=5)
+        recorded_seen.clear()
+        scheduler.run_cycle(cycle3)
+        assert recorded_seen.wait(timeout=5)
+
+        # Still the one original poll future after two skipped cycles.
+        assert scheduler._in_flight["slow"] is poll_future  # noqa: SLF001
+
+        release.set()
+        poll_future.result(timeout=5)
+
+        # Only once the poll finished is the device polled again.
+        cycle4 = BASE + timedelta(minutes=15)
+        scheduler.run_cycle(cycle4)
+        scheduler._in_flight["slow"].result(timeout=5)  # noqa: SLF001
+    finally:
+        release.set()
+        executor.shutdown(wait=True)
+
+    assert polls == [("slow", BASE), ("slow", cycle4)]  # never a second poll
+    assert recorded == [("slow", cycle2), ("slow", cycle3)]  # every cycle bookkept
 
 
 def test_skip_recording_failure_is_contained() -> None:

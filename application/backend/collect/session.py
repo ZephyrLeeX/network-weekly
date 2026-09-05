@@ -158,9 +158,10 @@ def _run_interfaces_section(outcome: DeviceCollectionOutcome, client: SnmpClient
     """Run the interfaces section with its degraded-data path (§8).
 
     FAILED (no usable rows) drops nothing that exists — there are no rows.
-    DEGRADED keeps every assembled sample and records which key column
-    groups were missing, so the poll run lands on PARTIAL instead of a
-    fake SUCCESS while the collected interface data still persists.
+    DEGRADED keeps every assembled sample and records which key fields were
+    missing (each judged on its own columns: a field no column delivered),
+    so the poll run lands on PARTIAL instead of a fake SUCCESS while the
+    collected interface data still persists.
     """
 
     try:
@@ -180,22 +181,22 @@ def _run_interfaces_section(outcome: DeviceCollectionOutcome, client: SnmpClient
 
     if isinstance(result, InterfaceCollection):
         outcome.interfaces = result.samples
-        missing_groups = result.missing_groups
+        missing_fields = result.missing_fields
     else:
         outcome.interfaces = result
-        missing_groups = ()
-    if missing_groups:
+        missing_fields = ()
+    if missing_fields:
         outcome.sections.append(
             SectionResult(
                 name="interfaces",
                 status=DEGRADED,
-                error="missing key columns: " + ", ".join(missing_groups),
+                error="missing key fields: " + ", ".join(missing_fields),
             )
         )
         logger.warning(
             "interfaces section degraded for %s (missing: %s)",
             outcome.device_name,
-            ", ".join(missing_groups),
+            ", ".join(missing_fields),
         )
         return
     outcome.sections.append(SectionResult(name="interfaces", status=SUCCESS))
