@@ -9,6 +9,12 @@ Invariants:
   overlapped or re-run (§27.11), and it still gets its §8 poll-run row
   (`record_skipped_poll`): a planned cycle is bookkept as FAILED, never
   silently missing, and never treated as device evidence.
+- `_in_flight` holds ONLY real poll futures. A skip recording is submitted
+  like a poll but never stored: it finishes almost immediately, so storing
+  it would make the next cycle believe the device is free and start a
+  second overlapping poll. While one poll keeps running across cycles,
+  every new cycle records another FAILED/overlap row — and only its own
+  future's completion re-opens the device.
 - Restart never backfills (§27.12): the loop always targets the *next future*
   boundary. Missed cycles stay missed; weekly Coverage honestly reflects them
   (§18.1 counts planned cycles, not executed ones).
@@ -111,9 +117,13 @@ class DevicePollScheduler:
                 skipped.append(context.device_name)
                 # §8: the skipped planned cycle still gets its poll-run row
                 # (FAILED), recorded like a poll — contained and never blocking.
-                self._in_flight[context.device_name] = executor.submit(
-                    self._record_skip, context, cycle
-                )
+                # Deliberately NOT stored in `_in_flight`: that slot must keep
+                # the real poll future. Storing the (instantly done) skip
+                # future would free the device on the next cycle and start a
+                # second poll overlapping the first one. A poll that spans
+                # several cycles therefore records one FAILED/overlap row per
+                # skipped cycle and is never run twice.
+                executor.submit(self._record_skip, context, cycle)
                 continue
             self._in_flight[context.device_name] = executor.submit(
                 self._run_poll, context, cycle

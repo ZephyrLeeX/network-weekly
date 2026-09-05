@@ -13,8 +13,9 @@ from backend.collect.dto import (
     IrfMemberSample,
     normalize_interface_name,
 )
-from backend.collect.h3c.collectors import CollectionSectionError
+from backend.collect.h3c.collectors import CollectionSectionError, InterfaceCollection
 from backend.collect.session import (
+    DEGRADED,
     FAILED,
     PARTIAL,
     SUCCESS,
@@ -105,6 +106,35 @@ def test_single_section_failure_is_partial_and_keeps_valid_data(
     memory_section = next(s for s in outcome.sections if s.name == "memory")
     assert memory_section.status == FAILED
     assert "timeout" in (memory_section.error or "")
+
+
+def test_degraded_interfaces_section_is_partial_and_keeps_samples(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing key field degrades the section: samples kept, cycle PARTIAL.
+
+    One required field no column delivered must not let the cycle pass as
+    SUCCESS — but the interface data other columns already delivered still
+    persists (§8 degraded semantics).
+    """
+
+    sample = _interface_sample()
+
+    def degraded_interfaces(client: object) -> object:
+        return InterfaceCollection(samples=[sample], missing_fields=("out_discards",))
+
+    _stub_collect(monkeypatch, failures={})
+    monkeypatch.setattr("backend.collect.session.collect_interfaces", degraded_interfaces)
+    outcome = run_collection(SNMP, None, "core-s10500x-01")
+
+    interfaces_section = next(s for s in outcome.sections if s.name == "interfaces")
+    assert interfaces_section.status == DEGRADED
+    assert "out_discards" in (interfaces_section.error or "")
+    assert outcome.interfaces == [sample]  # collected data survives
+    assert outcome.overall_status == PARTIAL  # never dressed up as SUCCESS
+    assert outcome.failed_sections == ("interfaces",)
+    # No SNMP channel failure: valid interface data proves the channel worked.
+    assert outcome.ssh_reachable is None
 
 
 def test_all_sections_failed_is_failed_and_probes_ssh(

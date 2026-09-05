@@ -203,48 +203,44 @@ def parse_interfaces(varbinds: dict[str, list[SnmpVarbind]]) -> list[InterfaceSa
     return samples
 
 
-# Key interface column groups (§7.1): a group counts as *collected* when at
-# least one of its columns delivered rows (HC variant OR 32-bit fallback).
-# If every column of a group is unavailable the section is DEGRADED — the
-# collected samples are kept, but the cycle must not count as a full SUCCESS.
-_INTERFACE_KEY_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    # admin/oper state drives §13 Down/Recovery.
-    ("state", (oids.IF_ADMIN_STATUS, oids.IF_OPER_STATUS)),
-    # speed drives §15 utilization.
+# Key interface fields (§7.1, §13–§16): one entry per field the weekly
+# reports need, listing the columns that can deliver it (the HC variant OR
+# the 32-bit fallback of the SAME field). A field counts as collected only
+# when at least one of its own columns delivered rows; if ANY required
+# field's columns are all unavailable, the section is DEGRADED — the
+# collected samples are kept, but the cycle must not count as a full
+# SUCCESS. Fields are judged independently: "the errors columns delivered
+# something" no longer stands in for a missing octets or state column.
+# (ifAdminStatus is deliberately absent — §13 Down/Recovery is decided from
+# ifOperStatus alone, and admin state is informational.)
+_INTERFACE_KEY_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # §13 Down/Recovery is decided from oper state.
+    ("oper_state", (oids.IF_OPER_STATUS,)),
+    # §15 utilization needs speed and both octet directions.
     ("speed", (oids.IF_HIGH_SPEED, oids.IF_SPEED)),
-    # octet counters drive §15 utilization.
-    (
-        "octets",
-        (oids.IF_HC_IN_OCTETS, oids.IF_IN_OCTETS, oids.IF_HC_OUT_OCTETS, oids.IF_OUT_OCTETS),
-    ),
-    # error/discard counters drive §16 observation (FCS alone may be absent).
-    (
-        "errors",
-        (
-            oids.IF_IN_ERRORS,
-            oids.IF_OUT_ERRORS,
-            oids.IF_IN_DISCARDS,
-            oids.IF_OUT_DISCARDS,
-            oids.DOT3_HC_STATS_FCS_ERRORS,
-            oids.DOT3_STATS_FCS_ERRORS,
-        ),
-    ),
+    ("in_octets", (oids.IF_HC_IN_OCTETS, oids.IF_IN_OCTETS)),
+    ("out_octets", (oids.IF_HC_OUT_OCTETS, oids.IF_OUT_OCTETS)),
+    # §16 error/discard observation, judged per direction.
+    ("in_errors", (oids.IF_IN_ERRORS,)),
+    ("out_errors", (oids.IF_OUT_ERRORS,)),
+    ("in_discards", (oids.IF_IN_DISCARDS,)),
+    ("out_discards", (oids.IF_OUT_DISCARDS,)),
 )
 
 
 @dataclass(frozen=True)
 class InterfaceCollection:
-    """Interfaces-section result: the assembled samples plus any key column
-    group that could not be collected (§8 degraded semantics).
+    """Interfaces-section result: the assembled samples plus any key field
+    that could not be collected (§8 degraded semantics).
 
     `samples` is kept whatever the degradation — one missing column never
     discards the interface data other columns already delivered. The caller
-    turns non-empty `missing_groups` into a DEGRADED section (poll run
+    turns non-empty `missing_fields` into a DEGRADED section (poll run
     PARTIAL) so Coverage does not dress the cycle up as a full SUCCESS.
     """
 
     samples: list[InterfaceSample]
-    missing_groups: tuple[str, ...] = ()
+    missing_fields: tuple[str, ...] = ()
 
 
 def collect_interfaces(client: SnmpClient) -> InterfaceCollection:
@@ -253,7 +249,7 @@ def collect_interfaces(client: SnmpClient) -> InterfaceCollection:
     The ifDescr walk is the section's core: when it fails, or when no
     usable interface row can be assembled from a successful walk, the
     section FAILED — never a SUCCESS with empty data (§8). A usable row set
-    with missing key column groups is returned as DEGRADED data instead:
+    with missing key fields is returned as DEGRADED data instead:
     partial column failure keeps the samples and degrades the section.
     """
 
@@ -296,10 +292,10 @@ def collect_interfaces(client: SnmpClient) -> InterfaceCollection:
         raise CollectionSectionError("interfaces", "no usable interface data collected")
     missing = tuple(
         name
-        for name, group in _INTERFACE_KEY_GROUPS
-        if not any(varbinds.get(column) for column in group)
+        for name, columns in _INTERFACE_KEY_FIELDS
+        if not any(varbinds.get(column) for column in columns)
     )
-    return InterfaceCollection(samples=samples, missing_groups=missing)
+    return InterfaceCollection(samples=samples, missing_fields=missing)
 
 
 # --- aggregation membership ------------------------------------------------------

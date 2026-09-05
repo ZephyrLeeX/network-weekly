@@ -3,9 +3,9 @@
 ## Current execution
 
 ```text
-Current Wave: W02 — CLOSED (engineering gate PASS revalidated after W02-AUDIT, merged to main)
+Current Wave: W02 — CLOSED (engineering gate PASS revalidated after W02-AUDIT-2, merged to main)
 Current Task: none ready — Wave 3 not started (owner decision required)
-Branch: work/wave-02-audit-fix merged into main (17ee3b9104742d6b5ad31822b571a794846aa59d)
+Branch: work/wave-02-audit-fix-2 merged into main (MERGE_SHA_PLACEHOLDER)
 ```
 
 ## Wave 2 checkpoint ledger
@@ -58,6 +58,16 @@ W02-AUDIT: 3a135350ca77d4a72effee3aafc21ac6c6fe67b6 — REVIEW_PASSED
 W02-AUDIT merge commit into main: 17ee3b9104742d6b5ad31822b571a794846aa59d
   (post-merge re-check on main: 218 unit + 77 integration PASS, ruff/mypy
   clean, alembic at 0007)
+W02-AUDIT-2: de40bbf0e2f3e8ccd38ec5d8970e6d042f1acf0b — REVIEW_PASSED
+  (audit follow-up: scheduler overlap race — _in_flight keeps only real
+  poll futures, per-cycle FAILED/overlap rows for a poll spanning cycles,
+  never a second real poll; interfaces DEGRADED judged per required field
+  (oper_state/speed/in/out_octets/in/out_errors/in/out_discards, HC/32-bit
+  same-field fallback) instead of per column group; no schema change, no
+  migration)
+W02-AUDIT-2 merge commit into main: MERGE_SHA_PLACEHOLDER
+  (post-merge re-check on main: 223 unit + 77 integration PASS, ruff/mypy
+  clean, alembic at 0007)
 ```
 
 ## User authorization (2026-09-04)
@@ -87,6 +97,33 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W02-AUDIT-2 (Wave 2 audit follow-up hotfix) — REVIEW_PASSED:
+  1. Scheduler overlap race fixed: `_in_flight` holds ONLY real poll
+     futures. Previously the skip-recording future replaced the poll
+     future and finished instantly, so the NEXT cycle saw the device as
+     free and started a second poll overlapping the first. Now the skip
+     recording is submitted but never stored: a poll spanning consecutive
+     5-minute cycles records one FAILED/overlap row per skipped cycle and
+     is never started twice (§27.11 + §8). Unit test covers a poll
+     spanning 2+ cycles.
+  2. Interfaces DEGRADED strictened: the group check ('any column of the
+     group delivered = complete') is replaced by per-field checks over
+     oper_state, speed, in_octets, out_octets, in_errors, out_errors,
+     in_discards, out_discards — HC variant and 32-bit fallback count as
+     the same field. Any required field with no data at all degrades the
+     section (poll run PARTIAL) while collected samples still persist.
+     ifAdminStatus stays informational (§13 reads oper_state only). Unit
+     tests pin single-column and single-direction failures.
+Evidence: pytest 223 unit + 77 integration PASS on migrated PostgreSQL
+(0007); ruff clean; mypy clean (78 files); alembic upgrade head idempotent
+at 0007 (no migration needed); compose rebuild + smoke: web healthy
+(/health database ok), worker heartbeat persisted, device-poll scheduler +
+IRF loop + retention alive, no errors.
+```
+
+## Previous completed task
+
+```text
 W02-AUDIT (Wave 2 audit hotfix) — REVIEW_PASSED:
   1. §8 completeness: every planned cycle lands one device_poll_run —
      overlap skips recorded FAILED ('overlap') by the scheduler;
@@ -113,6 +150,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W02-AUDIT-2 checkpoint: de40bbf0e2f3e8ccd38ec5d8970e6d042f1acf0b (work/wave-02-audit-fix-2)
 W02-AUDIT checkpoint: 3a135350ca77d4a72effee3aafc21ac6c6fe67b6 (work/wave-02-audit-fix)
 W01-T003 fix checkpoint: 9c4b57bd7b0b6445b8b4b9144f1e9fdb84bc2898 (work/wave-01)
 W01-T004 fix checkpoint: a8c394348206a3e65355a643fd6cef7939f0c8da (work/wave-01)
@@ -176,12 +214,13 @@ Owner decision required: do NOT start Wave 3 without authorization.
 ```text
 W02-GATE — Wave 2 Monitoring Pipeline Gate
 Status: PASS (2026-09-05). Engineering gate over W02-T001..T009,
-revalidated PASS after W02-AUDIT:
-  pytest 218 unit + 77 integration against migrated PostgreSQL (0007);
+revalidated PASS after W02-AUDIT-2:
+  pytest 223 unit + 77 integration against migrated PostgreSQL (0007);
   ruff clean; mypy clean; alembic upgrade head idempotent at 0007;
   compose rebuild + smoke: web healthy, worker heartbeat + schedulers
   persistent, no backfill on restart, per-cycle error containment, and
-  unattemptable cycles bookkept FAILED per §8.
+  unattemptable cycles bookkept FAILED per §8 (overlap-proof _in_flight;
+  per-field interface DEGRADED).
 Covers: 5-min scheduling, no same-device overlap, restart semantics,
 SUCCESS/PARTIAL/FAILED persistence (planned-cycle completeness included),
 counter reset/rebaseline, device and priority-interface Down/Recovery
