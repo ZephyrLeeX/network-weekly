@@ -1,9 +1,12 @@
-"""Wave 0/1 ORM models.
+"""Wave 0/1/2 ORM models.
 
 Wave 0: the foundation-required `worker_heartbeat` table (SYSTEM_SPEC.md §23).
 Wave 1: `devices`, `device_members`, `interfaces` and `aggregation_members`
-(SYSTEM_SPEC.md §2.2/§10/§11/§23). Metric/poll-run tables arrive with the
-Wave 2 migrations. All business timestamps use TIMESTAMPTZ (§3/§23).
+(SYSTEM_SPEC.md §2.2/§10/§11/§23).
+Wave 2: `device_poll_runs`, `device_metrics` and `interface_metrics`
+(W02-T001, SYSTEM_SPEC.md §7.1/§8/§15/§23). Reachability/interface incident
+and IRF observation tables arrive with their own Wave 2 tasks. All business
+timestamps use TIMESTAMPTZ (§3/§23).
 """
 
 from datetime import datetime
@@ -12,6 +15,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     Text,
@@ -190,3 +194,139 @@ class AggregationMember(Base):
     member_interface: Mapped[Interface] = relationship(
         foreign_keys=[member_interface_id], back_populates="aggregation_memberships"
     )
+
+
+# --- Wave 2: monitoring pipeline (W02-T001) -------------------------------------
+
+
+class DevicePollRun(Base):
+    """One planned 5-minute DEVICE_POLL of one logical device (SYSTEM_SPEC.md §7.1/§8).
+
+    Exactly one row per `(device_id, cycle_started_at)` — the planned cycle
+    start, aligned to the 5-minute boundary — whatever the outcome. A cycle
+    the scheduler could not run (e.g. the previous poll of that device was
+    still in flight) gets NO row: a missing planned cycle must stay missing,
+    never be fabricated as a result (§13.3/§18.2 honesty).
+
+    `status` is SUCCESS / PARTIAL / FAILED (§8). `ssh_reachable` is the §9.1
+    probe result — NULL when the probe did not run (SNMP channel healthy).
+    `failed_sections` holds the comma-joined section *names* only; section
+    error strings are deliberately not persisted here.
+    """
+
+    __tablename__ = "device_poll_runs"
+    __table_args__ = (
+        UniqueConstraint("device_id", "cycle_started_at", name="uq_device_poll_run_cycle"),
+        Index("ix_device_poll_runs_cycle_started_at", "cycle_started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    cycle_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    ssh_reachable: Mapped[bool | None] = mapped_column(nullable=True)
+    failed_sections: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+
+    device: Mapped[Device] = relationship()
+    device_metric: Mapped[DeviceMetric | None] = relationship(
+        back_populates="poll_run", cascade="all, delete-orphan", uselist=False
+    )
+    interface_metrics: Mapped[list[InterfaceMetric]] = relationship(
+        back_populates="poll_run", cascade="all, delete-orphan"
+    )
+
+
+class DeviceMetric(Base):
+    """Device-level CPU/memory sample for one poll cycle (SYSTEM_SPEC.md §14).
+
+    Weekly statistics are per *logical device* (§14); a device (an IRF fabric
+    included) therefore gets one row per cycle with the peak usage across the
+    entities the collector reported. NULL means the section produced no valid
+    data this cycle — a missing sample must stay missing (§14: missing
+    samples break continuity and are never backfilled).
+    """
+
+    __tablename__ = "device_metrics"
+    __table_args__ = (
+        UniqueConstraint("poll_run_id", name="uq_device_metric_poll_run"),
+        Index("ix_device_metrics_device_collected", "device_id", "collected_at"),
+        Index("ix_device_metrics_collected_at", "collected_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    poll_run_id: Mapped[int] = mapped_column(
+        ForeignKey("device_poll_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    # Denormalized from poll_run so weekly statistics never need a join to
+    # filter by device/time; always equal to poll_run.device_id.
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    # Actual sample time (end of the collection), NOT the planned cycle time:
+    # utilization-style interval math and weekly windows use real timestamps.
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    cpu_usage_percent: Mapped[float | None] = mapped_column(nullable=True)
+    memory_usage_percent: Mapped[float | None] = mapped_column(nullable=True)
+
+    poll_run: Mapped[DevicePollRun] = relationship(back_populates="device_metric")
+
+
+class InterfaceMetric(Base):
+    """Per-interface sample for one poll cycle (SYSTEM_SPEC.md §10/§15/§16).
+
+    Counters are the cumulative values read this cycle; utilization columns
+    are the delta-based percentages computed against the previous valid
+    sample (W02-T003). NULL utilization with `utilization_rebaselined` set
+    marks a baseline (re)establishment — never a fake 0% or a fake spike.
+    """
+
+    __tablename__ = "interface_metrics"
+    __table_args__ = (
+        UniqueConstraint("poll_run_id", "interface_id", name="uq_interface_metric_sample"),
+        Index("ix_interface_metrics_interface_collected", "interface_id", "collected_at"),
+        Index("ix_interface_metrics_collected_at", "collected_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    poll_run_id: Mapped[int] = mapped_column(
+        ForeignKey("device_poll_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    interface_id: Mapped[int] = mapped_column(
+        ForeignKey("interfaces.id", ondelete="CASCADE"), nullable=False
+    )
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    admin_state: Mapped[str | None] = mapped_column(Text, nullable=True)
+    oper_state: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Speed metadata snapshot for this cycle (§15.1: utilization needs the
+    # effective speed of the sample interval, not of "now").
+    speed_bps: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Cumulative counters (§7.1/§16); None when the device reports none.
+    in_octets: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    out_octets: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    in_errors: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    out_errors: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    in_discards: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    out_discards: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    fcs_errors: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Delta-based utilization vs the previous valid sample (W02-T003).
+    in_utilization_percent: Mapped[float | None] = mapped_column(nullable=True)
+    out_utilization_percent: Mapped[float | None] = mapped_column(nullable=True)
+    # Actual interval (seconds) the utilization was computed over.
+    utilization_elapsed_seconds: Mapped[float | None] = mapped_column(nullable=True)
+    # True when this sample (re)established the counter baseline instead of
+    # producing utilization (first sample, reset, invalid speed/interval).
+    utilization_rebaselined: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    poll_run: Mapped[DevicePollRun] = relationship(back_populates="interface_metrics")
+    interface: Mapped[Interface] = relationship()

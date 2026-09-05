@@ -138,11 +138,13 @@ REVIEW_PASSED
 # Wave 2 — Monitoring Pipeline
 
 ## W02-T001 — Poll-run and metric schema
-**Status:** TODO  
-**Depends On:** W01-GATE  
+**Status:** REVIEW_PASSED
+**Depends On:** W01-GATE (PASS — READY granted 2026-09-05, owner authorized Wave 2)  
 **Blocks:** W02-T002, W02-T003, W02-T008  
 **Scope:** device_poll_runs, device_metrics, interface_metrics, timestamps and indexes.  
 **Acceptance:** all data required for 90-day retention and weekly statistics is persistable.
+**Implementation:** migration `0003`; one `device_poll_runs` row per `(device_id, cycle_started_at)` (unique, idempotent persistence via ON CONFLICT — a skipped/already-run cycle is never fabricated twice); `device_metrics` holds the device-level peak CPU/memory per cycle (NULL stays missing); `interface_metrics` holds per-interface states, speed snapshot, cumulative counters (ifXTable semantics reused) plus utilization columns filled from W02-T003. Retention/weekly-statistics time indexes on all three tables.
+**Tests:** unit (table registration, cycle identity, retention columns, utilization columns) + integration (`tests/integration/test_monitoring_pipeline.py`: SUCCESS/PARTIAL/FAILED persistence, missing-stays-missing, unknown interface skipped, same-cycle idempotency, two devices one cycle).
 
 ## W02-T002 — Five-minute DEVICE_POLL scheduler
 **Status:** TODO  
