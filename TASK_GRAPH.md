@@ -421,10 +421,13 @@ REVIEW_PASSED
 **Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-T004 — Manual regenerate Web action
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W04-T002, W03-T010 regenerate service implementation（REVIEW_PASSED — `reporting/jobs.py::request_regenerate`；真实数据 acceptance 已按 Owner Decision 2026-09-06 移至 W05-GATE，不阻塞本任务）  
 **Blocks:** W04-GATE  
-**Acceptance:** CSRF-protected; duplicate submissions do not create concurrent duplicate report jobs; status becomes visible to user.
+**Acceptance:** CSRF-protected; duplicate submissions do not create concurrent duplicate report jobs; status becomes visible to user.  
+**Implementation:** `POST /reports/{week_code}/regenerate`（`web/reports.py`）— a thin adapter onto the Wave 3 `request_regenerate` service; NO job logic in the web layer. CSRF double-submit checked FIRST (403 without touching state); week code validated (regex + real ISO construction, invalid → 404); an incomplete week is refused by the service and rendered as one fixed note (`该统计周尚未结束` — the exception text is never rendered); success redirects back to the list. The report list now carries a 重新生成 column (per-row POST form with the hidden CSRF field, §20.4) and renders each week's ACTIVE job state next to the report status (`重新生成排队中/进行中/失败，等待自动重试`) — the action's effect is visible while the previous success stays downloadable (§4.4). Duplicate submissions are impossible to duplicate: service idempotency + the `uq_report_jobs_active_week` partial unique index (W03-T009) — the web route adds nothing that could bypass them.  
+**Tests:** integration `tests/integration/test_web_regenerate.py` (9: regenerate creates exactly one manual pending job; 3 duplicate submissions still yield exactly one job row; missing/forged CSRF → 403 with no job; unauthenticated POST 303 with no job; incomplete week refused with the fixed note and no job; malformed weeks denied; active job status visible on the list while the old DOCX stays downloadable; regenerate form rendered with CSRF field). pytest 278 unit + 224 integration PASS; ruff clean; mypy clean (120 files).  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-T005 — Priority interface Web page
 **Status:** TODO  

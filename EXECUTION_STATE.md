@@ -5,7 +5,7 @@
 ```text
 Current Wave: W04 — Login and Operations Web (started per Owner Decision
   2026-09-06)
-Current Task: W04-T004 (manual regenerate Web action)
+Current Task: W04-T005 (priority interface Web page)
 Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
   Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
   to the Release Gate (W05-GATE):
@@ -46,6 +46,14 @@ W04-T003: 83faeaa1bbefeeece955eb4d64b215dbf5cc4dea — REVIEW_PASSED
           ISO week code, canonical file name inside resolved report dir,
           symlink + traversal refusal, failed/missing 404;
           15 unit + 12 integration tests)
+W04-T004: 9c535b486ec047d5257503b33808333d4d26f9c3 — REVIEW_PASSED
+          (POST /reports/{week}/regenerate — thin CSRF-protected adapter
+          onto the Wave 3 request_regenerate service (no duplicated job
+          logic); duplicates yield exactly one active job (service +
+          uq_report_jobs_active_week); regenerate column + per-row CSRF
+          form on the list; active job state (排队中/进行中/等待重试)
+          rendered next to the report status; incomplete week refused
+          with one fixed note; 9 integration tests)
 ```
 
 ## Wave 3 checkpoint ledger
@@ -537,6 +545,19 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W04-T004 (manual regenerate Web action) — REVIEW_PASSED:
+  the report list's 重新生成 form POSTs to /reports/{week}/regenerate
+  behind require_admin + CSRF; the route adapts onto request_regenerate
+  with no job logic of its own — duplicate submissions return the same
+  active job, incomplete weeks are refused with a fixed note, and the
+  active job state renders on the list while the old DOCX stays
+  downloadable.
+See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
+```
+
+## Previous completed task (W04-T003)
+
+```text
 W04-T003 (report list + DOCX download) — REVIEW_PASSED:
   /reports lists the weekly registry newest-first with week, 周一至周日
   period, generated_at (+0800), status, last_error and download; the
@@ -547,7 +568,7 @@ W04-T003 (report list + DOCX download) — REVIEW_PASSED:
 See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
 ```
 
-## Previous completed task (W04-T002)
+## Older completed task (W04-T002)
 
 ```text
 W04-T002 (server-side session + login/logout) — REVIEW_PASSED:
@@ -679,6 +700,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W04-T004 checkpoint: 9c535b486ec047d5257503b33808333d4d26f9c3 (work/wave-04)
 W04-T003 checkpoint: 83faeaa1bbefeeece955eb4d64b215dbf5cc4dea (work/wave-04)
 W04-T002 checkpoint: 7ed12d02fd2ac5bd3579b25c0bf632a289cb683d (work/wave-04)
 W04-T001 checkpoint: 620d2af3323f3b97c7349652bd138bf24dd90336 (work/wave-04)
