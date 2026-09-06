@@ -475,7 +475,7 @@ REVIEW_PASSED
 # Wave 5 — Deployment and Stability
 
 ## W05-T001 — Production directory and configuration layout
-**Status:** TODO  
+**Status:** IN_PROGRESS (2026-09-06, branch work/wave-05)  
 **Depends On:** W04-GATE, W00-T005  
 **Blocks:** W05-T002  
 **Acceptance:** `/opt`, `/data`, `/etc` layout documented; secrets permission checked; DB and DOCX files survive application-container replacement.

@@ -3,40 +3,29 @@
 ## Current execution
 
 ```text
-Current Wave: W04 — Login and Operations Web — COMPLETE, W04-GATE PASS
-  (engineering gate, 2026-09-06; revalidated PASS after W04-AUDIT)
-Current Task: W04-AUDIT — REVIEW_PASSED (2026-09-06, branch
-  work/wave-04-audit; NOT merged into main — awaiting audit review)
-  1. Stored XSS fixed: aggregation/member names esc()ed item by item in
-     the relationship cell (web/pages.py).
-  2. Report job / install-pending Web observability fixed: the list joins
-     each week's MOST RECENT ReportJob of any status — pending/running/
-     failed + ReportJob.last_error, succeeded + install-pending note
-     新报告已提交，但文件切换待恢复；当前下载仍可能是上一份成功报告 +
-     diagnostic (web/reports.py + web/pages.py, read-model only).
-  3. Single-admin DB invariant fixed: migration 0011 CHECK (singleton IS
-     TRUE) + kept UNIQUE(singleton); ORM mirrors it; pre-existing admin
-     still logs in (verified live).
-  W04-GATE revalidated PASS; Wave 5 NOT started.
-  W03-T010 = BLOCKED — REAL_WEEK_DATA_PENDING (blocks W05-GATE only).
-  W01-T007 = BLOCKED — FIELD_VALIDATION_PENDING (blocks W05-GATE only).
-Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
-  Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
-  to the Release Gate (W05-GATE):
-  - W03-T010 stays BLOCKED — REAL_WEEK_DATA_PENDING, but now blocks
-    W05-GATE only (no longer Wave 4 / W03-GATE).
-  - W03-GATE = PASS — engineering gate (real-report manual check
-    deferred to W05-GATE; acceptance must not be fabricated).
-  - W01-T007 stays BLOCKED — FIELD_VALIDATION_PENDING, still blocking
-    W05-GATE.
-  - W04-T004 depends on the REVIEW_PASSED regenerate service
-    implementation (reporting/jobs.py::request_regenerate), NOT on the
-    W03-T010 real-data acceptance.
+Current Wave: W05 — Deployment and Stability — IN PROGRESS (branch
+  work/wave-05, created 2026-09-06)
+Current Task: W05-T001 — Production directory and configuration layout
+  (IN_PROGRESS)
+W04-AUDIT merge into main: 872b1631f64ad83d02bff7088679cc5d6accf2e9
+  (post-merge re-check on main: 278 unit + 241 integration PASS, ruff
+  clean, mypy clean in 122 files, alembic upgrade head idempotent at
+  0011 = head)
 W03 merge into main: 131844461ade75c1517b1da91bd7d49bc1090521
 W04 merge into main: 398204eb265091a211644ad772bc29a2ba878fa8
-  (post-merge re-check on main: 278 unit PASS, ruff/mypy clean, alembic
-  at 0010)
-Branch: work/wave-04-audit (pushed, unmerged); main carries Wave 4
+Wave 5 discipline (Owner instruction 2026-09-06):
+  - W05-T001..T004 are engineering scope and may complete with
+    REVIEW_PASSED after tests + smokes (fresh install, update, container
+    replacement, health/heartbeat).
+  - W05-T005 needs REAL environment evidence (Debian 13 amd64 install,
+    offline runtime, 10 logical devices, standalone S10500X, S10500X IRF,
+    S12500 IRF, aggregation/priority interfaces, >= 2 complete report
+    weeks, 2 consecutive Mondays, DOCX failure 10-min retry, worker
+    restart recovery, regenerate one-current, 90d retention, update.sh
+    flow). No REVIEW_PASSED and no fabricated evidence without it.
+  - W05-GATE stays BLOCKED until W05-T005 + W01-T007 + W03-T010 close.
+W03-T010 = BLOCKED — REAL_WEEK_DATA_PENDING (blocks W05-GATE only).
+W01-T007 = BLOCKED — FIELD_VALIDATION_PENDING (blocks W05-GATE only).
 ```
 
 ## Wave 4 checkpoint ledger
