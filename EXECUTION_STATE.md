@@ -4,12 +4,13 @@
 
 ```text
 Current Wave: W03 — implementation COMPLETE, GATE BLOCKED (real week data)
-Current Task: W03-AUDIT (audit hotfix) REVIEW_PASSED on work/wave-03.
+Current Task: W03-AUDIT-2 (audit follow-up: regenerate file/DB consistency)
+  REVIEW_PASSED on work/wave-03.
   W03-GATE stays BLOCKED — REAL_WEEK_DATA_PENDING per owner instruction
   2026-09-05 — W03-T010's real-report verification has no real weekly data
   in this environment, so the gate is NOT judged PASS and work/wave-03 is
   NOT merged into main.
-Branch: work/wave-03 (engineering verification all green after W03-AUDIT;
+Branch: work/wave-03 (engineering verification all green after W03-AUDIT-2;
   merge deferred until the W03-T010 real-data acceptance closes)
 ```
 
@@ -81,6 +82,15 @@ W03-AUDIT: 936b1583f46376cf043d28286910952e711a49d7 — REVIEW_PASSED
           while a genuine 0 total stays eligible; 4) an IRF week without a
           successful observation states IRF 成员状态数据缺失, never 无缺失,
           status still §19+Coverage; 12 new tests)
+W03-AUDIT-2: 5bdc22e138950940146de87d84c65184bacaa75c — REVIEW_PASSED
+          (audit follow-up, no schema change / no migration: a regenerate
+          attempt renders a separate validated candidate DOCX and never
+          touches the current report; the weekly_reports success commit
+          precedes the atomic switch, so any DB failure leaves the old
+          bytes untouched; a lost-update commit installs its candidate,
+          and interrupted installs / abandoned candidates are resolved by
+          reconcile_report_files on every loop pass; 6 new integration
+          tests + 2 new unit tests)
 ```
 
 ## W03-T010 / W03-GATE BLOCKED item (2026-09-05)
@@ -148,6 +158,68 @@ per §27.9 as designed); live manual regenerate of 2026-W35 through the
 DOCX with the empty deployment honestly rendered (当前总体状态 关注,
 Monitoring Coverage 摘要 = 未配置设备/数据缺失…数据完整性不足, no
 数据完整性满足要求, no 正常).
+W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
+started; W01-T007 still FIELD_VALIDATION_PENDING.
+```
+
+## W03-AUDIT-2 follow-up hotfix (2026-09-06)
+
+```text
+W03-AUDIT-2 — REVIEW_PASSED (checkpoint 5bdc22e138950940146de87d84c65184bacaa75c,
+work/wave-03). One audit item fixed; no schema change, no migration:
+
+Regenerate 文件/数据库一致性 (§4.4/§5): the old flow replaced the current
+DOCX via os.replace BEFORE the success update; a database failure there
+left the DB describing report A while the disk already held report B.
+The flow is now two-phase and DB-first:
+  1. render_report_candidate renders + validates (reopen + 8-heading
+     check) a candidate DOCX under the deterministic side name
+     network-weekly-report-<week>.docx.candidate in the same directory —
+     the current report of the week is never touched by rendering;
+  2. the weekly_reports success upsert (file_path = the current-report
+     path) and the report_jobs terminal success commit;
+  3. install_report atomically switches the candidate onto the current
+     path (same-filesystem os.replace, §5) — only after a committed
+     success, so ANY database failure happens while the previous bytes
+     are still intact.
+Failure handling:
+  - success-update failure: the candidate is discarded (no failed
+    attempt leaves files behind) — unless the row already carries this
+    attempt's generated_at, i.e. the commit landed but its confirmation
+    was lost to the same outage; then the candidate is the only copy of
+    the succeeded report and is installed. When the database is still
+    unreachable the candidate is left for reconciliation.
+  - switch failure after the commit: the success stays terminal, the
+    candidate survives, and reconcile_report_files (run at EVERY
+    WeeklyReportLoop pass, before scheduling) completes the switch from
+    the DB row — or discards candidates that have no success row.
+  - ordinary render failure: no candidate ever exists; the old report
+    and its success row are untouched (unchanged behavior, now pinned).
+First generation (no old report), 10-minute retry cadence, one current
+DOCX per week, atomic replace and one-active-job-per-week semantics are
+unchanged.
+Tests: tests/integration/test_report_file_consistency.py (+6): the
+required end-to-end scenario (A success → regenerate → candidate B →
+simulated success-update DB failure → job FAILED, weekly_reports still
+A, current bytes == A, no candidate/temp residue → retry → bytes become
+B only after the retry succeeds); lost success-reply commit still
+installs its committed report; interrupted switch completed by the next
+loop pass without duplicate scheduling; first-generation DB failure
+leaves no files and retry creates the first DOCX; render failure keeps
+the old report without a candidate; reconcile completes success rows
+and discards/ignores non-report files. tests/unit/test_reporting_docx.py
+(+2): candidate→install two-phase layout and candidate_week_code round
+trip.
+Evidence: pytest 252 unit + 166 integration PASS on migrated PostgreSQL
+(0001→0008); ruff clean; mypy clean (100 files); `alembic upgrade head`
+idempotent at 0008 (no migration); image rebuilt + compose smoke: web
+healthy (/health database ok), worker heartbeat persisted and fresh,
+IRF + weekly-report loops alive with zero errors; live manual regenerate
+of 2026-W35 through the §4.4 service inside the worker container on the
+new candidate flow: succeeded, 8 validated sections, exactly one current
+DOCX in the reports volume (no candidate/temp residue), registry row
+success pointing at it, empty deployment still rendered honestly (当前
+总体状态 关注, 未配置设备/数据缺失, 数据完整性不足, no 数据完整性满足要求).
 W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
 started; W01-T007 still FIELD_VALIDATION_PENDING.
 ```
@@ -241,6 +313,19 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W03-AUDIT-2 (audit follow-up: regenerate file/DB consistency) —
+REVIEW_PASSED:
+  A regenerate attempt now renders a separate validated candidate DOCX
+  and the current file is switched only after the weekly_reports success
+  commit — any database failure leaves the previous bytes untouched; a
+  lost-update commit installs its candidate; interrupted installs and
+  abandoned candidates are resolved by per-pass reconciliation.
+See "W03-AUDIT-2 follow-up hotfix (2026-09-06)" above for full evidence.
+```
+
+## Previous completed task
+
+```text
 W03-AUDIT (Wave 3 audit hotfix) — REVIEW_PASSED:
   1. Report job running 卡死: per-pass recovery retry + requeue on a lost
      terminal success/failure update; no permanent `running` stall without
@@ -253,7 +338,7 @@ W03-AUDIT (Wave 3 audit hotfix) — REVIEW_PASSED:
 See "W03-AUDIT hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Previous completed task
+## Earlier completed task
 
 ```text
 W03-T010 (engineering scope) — regenerate service REVIEW_PASSED:
@@ -269,7 +354,7 @@ W03-T010 (engineering scope) — regenerate service REVIEW_PASSED:
   W03-GATE BLOCKED item above.
 ```
 
-## Earlier completed task
+## Earlier completed task (Wave 2)
 
 ```text
 W02-AUDIT (Wave 2 audit hotfix) — REVIEW_PASSED:
@@ -298,6 +383,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W03-AUDIT-2 checkpoint: 5bdc22e138950940146de87d84c65184bacaa75c (work/wave-03)
 W03-AUDIT checkpoint: 936b1583f46376cf043d28286910952e711a49d7 (work/wave-03)
 W03-T010 checkpoint: 557165cee396361984a7b9c63e597d43cea60be8 (work/wave-03)
 W03-T009 checkpoint: 23819aa406bfce97a54588fb10f790d91a304742 (work/wave-03)
