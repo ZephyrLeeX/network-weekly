@@ -18,6 +18,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -615,18 +616,23 @@ class User(Base):
     plaintext password never enters this column, a log line or an error
     message (§21/§22.2).
 
-    The system has exactly one administrator; every row carries
-    `singleton = true`, so the unique index below makes "at most one
-    account" a database guarantee instead of a service-level convention.
+    The system has exactly one administrator. Every row must carry
+    `singleton = true` (`ck_users_singleton_true`, W04-AUDIT: a bare
+    UNIQUE over a BOOLEAN would still admit one `true` AND one `false`
+    row), so the unique index below makes "at most one account" a real
+    database guarantee instead of a service-level convention.
     """
 
     __tablename__ = "users"
-    __table_args__ = (Index("uq_users_single_admin", "singleton", unique=True),)
+    __table_args__ = (
+        CheckConstraint("singleton IS TRUE", name="ck_users_singleton_true"),
+        Index("uq_users_single_admin", "singleton", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    # Always true — see the unique index above (§21: 单管理员).
+    # Always true — enforced by the CHECK constraint above (§21: 单管理员).
     singleton: Mapped[bool] = mapped_column(default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"

@@ -68,10 +68,13 @@ class ReportListEntry:
     status_text: str
     last_error: str | None
     downloadable: bool
-    # Present when an ACTIVE report job (W04-T004 manual regenerate) owns
-    # the week — rendered next to the report status so the administrator
-    # sees that a regeneration is queued/running/retrying.
+    # Present when the week's most recent report job (W04-T004 manual
+    # regenerate) has something to say — queued/running/retrying, or the
+    # install-pending diagnosis of an otherwise-succeeded regeneration.
     job_status_text: str | None = None
+    # Sanitized `ReportJob.last_error` of that job (failed attempt or
+    # install-pending switch). Rendered HTML-escaped like every other text.
+    job_error: str | None = None
 
 
 def reports_page(
@@ -107,8 +110,11 @@ def _report_row(entry: ReportListEntry, csrf_token: str) -> str:
     error_cell = esc(entry.last_error) if entry.last_error else '<span class="muted">—</span>'
     status_cell = esc(entry.status_text)
     if entry.job_status_text:
-        note_html = f'<br><span class="muted">{esc(entry.job_status_text)}</span>'
-        status_cell += note_html
+        status_cell += f'<br><span class="muted">{esc(entry.job_status_text)}</span>'
+    if entry.job_error:
+        # The job's sanitized error (failed attempt or install-pending) is
+        # device/DB-derived text — escaped like everything else.
+        status_cell += f'<br><span class="muted">{esc(entry.job_error)}</span>'
     action = f"/reports/{esc(entry.week_code)}/regenerate"
     regenerate_cell = f"""<form class="inline" method="post" action="{action}">
 {hidden_csrf(csrf_token)}
@@ -209,12 +215,19 @@ def _interface_row(entry: InterfaceListEntry, csrf_token: str) -> str:
     admin_state = entry.admin_state if entry.admin_state else "数据缺失"
     oper_state = entry.oper_state if entry.oper_state else "数据缺失"
 
+    # Device-reported names are untrusted text: every aggregation member /
+    # member-of display name is escaped item by item BEFORE it may enter the
+    # relationship cell — the only markup here is the trusted <br> separator.
     relationship_parts = []
     if entry.is_aggregation:
-        members = ", ".join(entry.aggregation_members) if entry.aggregation_members else "无成员"
+        members = (
+            ", ".join(esc(name) for name in entry.aggregation_members)
+            if entry.aggregation_members
+            else "无成员"
+        )
         relationship_parts.append(f"聚合接口（成员：{members}）")
     if entry.member_of:
-        relationship_parts.append("属于聚合：" + ", ".join(entry.member_of))
+        relationship_parts.append("属于聚合：" + ", ".join(esc(name) for name in entry.member_of))
     relationship = "<br>".join(relationship_parts) if relationship_parts else "—"
 
     if entry.monitored:

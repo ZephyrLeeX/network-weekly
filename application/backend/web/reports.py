@@ -19,8 +19,10 @@ with the CSRF field; the route is a thin adapter onto the Wave 3
 `request_regenerate` service — NO job logic is duplicated here. Repeated
 submissions return the same active job (service idempotency + the
 `uq_report_jobs_active_week` DB guarantee), so duplicates can never create
-concurrent duplicate jobs; the active job's state is rendered in the list
-so the action's effect is visible.
+concurrent duplicate jobs. The list renders each week's MOST RECENT job
+(any status, not just ACTIVE): queued/running/retrying progress, the
+sanitized failure error, and the install-pending diagnosis of an otherwise
+succeeded regeneration (§4.3/§4.4, W04-AUDIT).
 """
 
 import re
@@ -37,9 +39,10 @@ from backend.config import Settings, load_settings
 from backend.db.engine import get_session_factory
 from backend.db.models import ReportJob, WeeklyReport
 from backend.reporting.jobs import (
-    ACTIVE_STATUSES,
     REPORT_STATUS_SUCCESS,
+    STATUS_SUCCEEDED,
     ReportJobError,
+    is_install_pending,
     load_weekly_reports,
     report_period_for,
     request_regenerate,
@@ -65,6 +68,12 @@ _JOB_STATUS_TEXT = {
     "running": "重新生成进行中",
     "failed": "重新生成失败，等待自动重试",
 }
+
+# Fixed note while a committed success still owes its current-DOCX switch
+# (§4.4 install-pending, W03-AUDIT-3): the week reads 成功, but the
+# downloadable file may still be the PREVIOUS successful report until
+# reconciliation completes the switch.
+_INSTALL_PENDING_NOTE = "新报告已提交，但文件切换待恢复；当前下载仍可能是上一份成功报告"
 
 
 def is_valid_week_code(week_code: str) -> bool:
@@ -94,34 +103,54 @@ def _status_text(status: str) -> str:
     return {"success": "成功", "failed": "失败"}.get(status, status)
 
 
-def _active_job_status_text(db: DbSession) -> dict[str, str]:
-    """week_code -> readable note for weeks with an ACTIVE report job."""
+def _latest_job_by_week(db: DbSession) -> dict[str, ReportJob]:
+    """week_code -> the week's MOST RECENT report job (any status).
+
+    The list must not look at ACTIVE jobs only (§20.2): a succeeded job can
+    still carry the install-pending diagnosis (§4.4), and a week's newest
+    job — not an older one — describes its current generation state.
+    """
 
     jobs = (
         db.execute(
-            select(ReportJob).where(ReportJob.status.in_(ACTIVE_STATUSES))
+            select(ReportJob).order_by(ReportJob.created_at.asc(), ReportJob.id.asc())
         )
         .scalars()
         .all()
     )
-    notes: dict[str, str] = {}
+    latest: dict[str, ReportJob] = {}
     for job in jobs:
-        note = _JOB_STATUS_TEXT.get(job.status, job.status)
-        existing = notes.get(job.week_code)
-        notes[job.week_code] = f"{existing}；{note}" if existing else note
-    return notes
+        latest[job.week_code] = job
+    return latest
+
+
+def _job_note_and_error(job: ReportJob) -> tuple[str | None, str | None]:
+    """(status note, job error) a week's latest job contributes to its row.
+
+    pending/running show the progress note; failed additionally surfaces the
+    sanitized `ReportJob.last_error` (§4.3 — a failure must be visible); a
+    succeeded job is silent EXCEPT when its file switch is still pending,
+    where the fixed install-pending note plus the diagnostic are shown.
+    """
+
+    if is_install_pending(job):
+        return _INSTALL_PENDING_NOTE, job.last_error
+    error = job.last_error if job.status != STATUS_SUCCEEDED else None
+    return _JOB_STATUS_TEXT.get(job.status), error
 
 
 def _list_entries() -> list[ReportListEntry]:
     with get_session_factory()() as db:
         rows = load_weekly_reports(db)
-        job_notes = _active_job_status_text(db)
+        latest_jobs = _latest_job_by_week(db)
     entries: list[ReportListEntry] = []
     for row in rows:
         try:
             period_text = _period_text(row.week_code)
         except (ValueError, KeyError):
             period_text = "数据缺失"
+        job = latest_jobs.get(row.week_code)
+        job_status_text, job_error = _job_note_and_error(job) if job else (None, None)
         entries.append(
             ReportListEntry(
                 week_code=row.week_code,
@@ -132,7 +161,8 @@ def _list_entries() -> list[ReportListEntry]:
                 downloadable=(
                     row.status == REPORT_STATUS_SUCCESS and row.file_path is not None
                 ),
-                job_status_text=job_notes.get(row.week_code),
+                job_status_text=job_status_text,
+                job_error=job_error,
             )
         )
     return entries

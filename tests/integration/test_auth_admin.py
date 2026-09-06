@@ -1,6 +1,6 @@
 """Integration tests for the single administrator service (W04-T001, §21).
 
-Runs against the migrated PostgreSQL (0001→0009) — the singleton constraint
+Runs against the migrated PostgreSQL (0001→0011) — the singleton constraint
 and the persisted-hash behavior are database facts.
 """
 
@@ -17,6 +17,7 @@ from backend.auth.admin import (
     set_admin_password,
     verify_admin_login,
 )
+from backend.auth.passwords import hash_password
 from backend.db.models import User
 
 pytestmark = pytest.mark.integration
@@ -118,6 +119,85 @@ def test_database_rejects_a_second_admin_row(db_engine: Engine) -> None:
         else:
             raise AssertionError("second admin row must violate uq_users_single_admin")
         assert session.execute(select(func.count()).select_from(User)).scalar_one() == 1
+
+
+def test_users_table_admits_at_most_one_row(db_engine: Engine) -> None:
+    """W04-AUDIT: the DB invariant holds for the FULL row space.
+
+    A bare UNIQUE over the BOOLEAN `singleton` admitted one `true` AND one
+    `false` row. With `ck_users_singleton_true` every row must claim the
+    single singleton slot, so: row 1 `singleton=true` succeeds, a second
+    `singleton=true` row violates the unique index, and a `singleton=false`
+    row violates the CHECK constraint — the table can then only ever hold
+    one user, whatever writes reach the database.
+    """
+
+    with Session(db_engine) as session:
+        # Row 1, singleton=true: the normal administrator — succeeds.
+        session.add(User(username="admin", password_hash=hash_password("pw"), singleton=True))
+        session.commit()
+        assert session.execute(select(func.count()).select_from(User)).scalar_one() == 1
+
+        # Row 2, singleton=true: refused by uq_users_single_admin.
+        session.add(User(username="second", password_hash=hash_password("pw"), singleton=True))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        # Row 2, singleton=false: refused by ck_users_singleton_true too —
+        # this exact row was still admitted before W04-AUDIT.
+        session.add(User(username="ghost", password_hash=hash_password("pw"), singleton=False))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        assert session.execute(select(func.count()).select_from(User)).scalar_one() == 1
+
+
+def test_existing_database_user_can_still_log_in(db_engine: Engine) -> None:
+    """W04-AUDIT: the added CHECK constrains only new writes — a user row
+    already persisted under the previous schema verifies and logs in as
+    before (the constraint never invalidates stored credentials)."""
+
+    with Session(db_engine) as session:
+        # A row written exactly as a pre-0011 deployment would have it.
+        session.add(
+            User(
+                username="legacy-admin",
+                password_hash=hash_password("legacy-pw-密码"),
+                singleton=True,
+            )
+        )
+        session.commit()
+
+        found = session.execute(select(User).where(User.username == "legacy-admin")).scalar_one()
+        assert found.singleton is True
+        assert verify_admin_login(session, "legacy-admin", "legacy-pw-密码") is not None
+        assert verify_admin_login(session, "legacy-admin", "wrong") is None
+
+
+def test_migration_0011_single_admin_check_constraint(db_engine: Engine) -> None:
+    """users carries ck_users_singleton_true in the migrated database."""
+
+    with db_engine.connect() as connection:
+        constraints = {
+            row.conname: row.contype
+            for row in connection.execute(
+                text(
+                    "SELECT conname, contype FROM pg_constraint "
+                    "WHERE conrelid = 'users'::regclass"
+                )
+            )
+        }
+        assert constraints.get("ck_users_singleton_true") == "c"  # CHECK
+        # The unique guarantee stays in place next to the CHECK.
+        indexes = {
+            row.indexname
+            for row in connection.execute(
+                text("SELECT indexname FROM pg_indexes WHERE tablename = 'users'")
+            )
+        }
+        assert "uq_users_single_admin" in indexes
 
 
 def test_migration_0009_users_schema_shape(db_engine: Engine) -> None:

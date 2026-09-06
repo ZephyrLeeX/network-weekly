@@ -881,6 +881,23 @@ def due_jobs(session: Session, *, now: datetime) -> list[ReportJob]:
     )
 
 
+def is_install_pending(job: ReportJob) -> bool:
+    """True when a `succeeded` job still owes its current-DOCX switch.
+
+    Read-only predicate over the state the executor/reconciliation own
+    (§4.4): the success is terminal but `last_error` records the pending
+    switch, so a Web read model must never present the week as a plain,
+    fully-delivered success. Only the install-pending marker counts — a
+    succeeded job with any other `last_error` shape is not this state.
+    """
+
+    return (
+        job.status == STATUS_SUCCEEDED
+        and job.last_error is not None
+        and job.last_error.startswith(_INSTALL_PENDING_ERROR)
+    )
+
+
 def load_weekly_reports(session: Session) -> list[WeeklyReport]:
     """All weekly report rows, newest week first (§20.2 ordering)."""
 

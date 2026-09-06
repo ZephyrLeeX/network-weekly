@@ -253,3 +253,61 @@ def test_unknown_device_id_renders_selection_list(
 
         assert page.status_code == 200
         assert "请先选择一台设备" in page.text
+
+
+def test_relationship_names_are_html_escaped(
+    client: TestClient, db_engine: Engine
+) -> None:
+    """W04-AUDIT: interface/aggregation names are device-reported text and
+    untrusted — a stored <script>/<img onerror> name may only ever reach
+    the page as escaped text, in the relationship cell like everywhere else."""
+
+    with Session(db_engine) as session:
+        device = Device(
+            name="xss-irf",
+            management_ip="192.0.2.44",
+            model_family="s10500x",
+            expected_irf_member_count=1,
+            credential_profile="default",
+        )
+        session.add(device)
+        session.flush()
+
+        def _interface(name: str, aggregate: bool) -> Interface:
+            return Interface(
+                device_id=device.id,
+                normalized_name=name.lower(),
+                display_name=name,
+                description="desc-<b>not-bold</b>",
+                admin_state="up",
+                oper_state="up",
+                speed_bps=10_000_000_000,
+                is_aggregation=aggregate,
+            )
+
+        aggregate = _interface('<script>alert("agg")</script>', True)
+        member = _interface("<img src=x onerror=alert(1)>", False)
+        session.add_all([aggregate, member])
+        session.flush()
+        session.add(
+            AggregationMember(
+                aggregation_interface_id=aggregate.id, member_interface_id=member.id
+            )
+        )
+        session.commit()
+        device_id = device.id
+
+    page = client.get(f"/interfaces?device_id={device_id}")
+    text = page.text
+
+    assert page.status_code == 200
+    # The escaped forms appear — including in BOTH relationship directions
+    # (聚合接口成员 list and 属于聚合 list).
+    assert "&lt;script&gt;alert(&quot;agg&quot;)&lt;/script&gt;" in text
+    assert "&lt;img src=x onerror=alert(1)&gt;" in text
+    assert "聚合接口（成员：&lt;img src=x onerror=alert(1)&gt;）" in text
+    assert "属于聚合：&lt;script&gt;alert(&quot;agg&quot;)&lt;/script&gt;" in text
+    # Raw tags never enter the HTML — the stored payload stays inert text.
+    assert "<script>" not in text
+    assert "<img src=x onerror" not in text
+    assert "<b>not-bold</b>" not in text
