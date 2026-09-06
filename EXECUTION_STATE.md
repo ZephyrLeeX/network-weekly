@@ -24,7 +24,10 @@ Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
     implementation (reporting/jobs.py::request_regenerate), NOT on the
     W03-T010 real-data acceptance.
 W03 merge into main: 131844461ade75c1517b1da91bd7d49bc1090521
-Branch: work/wave-04 (from main at the W03 merge)
+W04 merge into main: 398204eb265091a211644ad772bc29a2ba878fa8
+  (post-merge re-check on main: 278 unit PASS, ruff/mypy clean, alembic
+  at 0010)
+Branch: work/wave-04 (merged); main carries Wave 4
 ```
 
 ## Wave 4 checkpoint ledger
@@ -70,6 +73,9 @@ W04-GATE: bc98a3600eece2add11ad05358ca005ea4707e0d — PASS (engineering
           entry: 278 unit + 233 integration, ruff/mypy clean, alembic at
           0010, live login→priority-interface→list→download→regenerate→
           logout flow against the running container, no secret leakage)
+W04 merge commit into main: 398204eb265091a211644ad772bc29a2ba878fa8
+  (post-merge re-check on main: 278 unit PASS, ruff/mypy clean, alembic
+  at 0010)
 ```
 
 ## Wave 3 checkpoint ledger
