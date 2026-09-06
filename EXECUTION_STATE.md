@@ -3,15 +3,22 @@
 ## Current execution
 
 ```text
-Current Wave: W03 — implementation COMPLETE, GATE BLOCKED (real week data)
-Current Task: W03-AUDIT-4 (audit follow-up: unknown-commit-state race +
-  install-pending residue) REVIEW_PASSED on work/wave-03.
-  W03-GATE stays BLOCKED — REAL_WEEK_DATA_PENDING per owner instruction
-  2026-09-05 — W03-T010's real-report verification has no real weekly data
-  in this environment, so the gate is NOT judged PASS and work/wave-03 is
-  NOT merged into main.
-Branch: work/wave-03 (engineering verification all green after W03-AUDIT-4;
-  merge deferred until the W03-T010 real-data acceptance closes)
+Current Wave: W04 — Login and Operations Web (started per Owner Decision
+  2026-09-06)
+Current Task: W04-T001 (single administrator + salted scrypt password)
+Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
+  Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
+  to the Release Gate (W05-GATE):
+  - W03-T010 stays BLOCKED — REAL_WEEK_DATA_PENDING, but now blocks
+    W05-GATE only (no longer Wave 4 / W03-GATE).
+  - W03-GATE = PASS — engineering gate (real-report manual check
+    deferred to W05-GATE; acceptance must not be fabricated).
+  - W01-T007 stays BLOCKED — FIELD_VALIDATION_PENDING, still blocking
+    W05-GATE.
+  - W04-T004 depends on the REVIEW_PASSED regenerate service
+    implementation (reporting/jobs.py::request_regenerate), NOT on the
+    W03-T010 real-data acceptance.
+Branch: work/wave-04 (from main after the work/wave-03 merge)
 ```
 
 ## Wave 3 checkpoint ledger
@@ -121,26 +128,33 @@ W03-AUDIT-4: 760bdd61ee328049f22fe9677aeecfedfd3097e1 — REVIEW_PASSED
           2 new integration tests, 1 updated)
 ```
 
-## W03-T010 / W03-GATE BLOCKED item (2026-09-05)
+## W03-T010 / W03-GATE item (2026-09-05 instruction, superseded by Owner Decision 2026-09-06)
 
 ```text
 W03-T010 — real weekly report manually checked against source samples:
-  BLOCKED — REAL_WEEK_DATA_PENDING. The regenerate service acceptance is
-  implemented and tested; the real-report verification is impossible in
-  this environment (no reachable real H3C device, dev database verified:
-  0 devices / 0 poll_runs / 0 metrics — same root cause as W01-T007).
-  Owner instruction 2026-09-05: no fabricated acceptance; mark BLOCKED.
-W03-GATE — STOPPED (NOT PASS) per owner instruction: engineering
-  verification is fully green (pytest 248 unit + 150 integration PASS on
-  migrated PostgreSQL 0001→0008; ruff clean; mypy clean 99 files; alembic
-  upgrade head idempotent at 0008; compose rebuilt + smoke: web healthy,
-  worker heartbeat persisted, device-poll + IRF + retention + weekly
-  report loops alive, live container run generated an atomic, validated
-  8-section DOCX for 2026-W35 from the persisted job path). The only
-  missing gate input is the real weekly data manual check. Re-run the
-  gate after one real collection week exists.
-Merge: work/wave-03 NOT merged into main (merge is conditioned on
-  W03-GATE PASS). Wave 4 not started.
+  BLOCKED — REAL_WEEK_DATA_PENDING (unchanged). The regenerate service
+  acceptance is implemented and tested; the real-report verification is
+  impossible in this environment (no reachable real H3C device, dev
+  database verified: 0 devices / 0 poll_runs / 0 metrics — same root
+  cause as W01-T007). Owner instruction 2026-09-05: no fabricated
+  acceptance; mark BLOCKED.
+Owner Decision 2026-09-06 (supersedes the 2026-09-05 gate stop):
+  Wave 3 engineering side passed W03-AUDIT-4; Wave 4 may proceed; the
+  real weekly data manual DOCX check is deferred to W05-GATE.
+  - W03-T010 now blocks W05-GATE only (no longer Wave 4).
+  - W03-GATE = PASS — engineering gate (evidence below; the real-report
+    manual check is carried by W03-T010 into W05-GATE).
+  - W04-T004 depends on the REVIEW_PASSED regenerate service
+    implementation, not on the real-data acceptance.
+W03-GATE — PASS (engineering gate), re-verified green on work/wave-03 at
+  ffe98d8 (post W03-AUDIT-4 docs commit): pytest 252 unit + 170
+  integration PASS on migrated PostgreSQL 0001→0008; ruff clean; mypy
+  clean (100 files); alembic upgrade head idempotent at 0008; dev compose
+  smoke: web healthy (/health database ok), worker heartbeat fresh,
+  device-poll + IRF + retention + weekly-report loops alive.
+Deferred to W05-GATE: the real weekly data manual DOCX check (with
+  W01-T007). It must NOT be recorded as passed anywhere before the real
+  data exists.
 ```
 
 ## W03-AUDIT hotfix (2026-09-06)
@@ -655,13 +669,11 @@ W01-T007: BLOCKED — FIELD_VALIDATION_PENDING. No reachable real
   W01-T007 evidence collection on real devices and re-running the full
   gate.
 W03-T010: BLOCKED — REAL_WEEK_DATA_PENDING (real-report verification
-  acceptance only; the regenerate service is implemented and tested).
-  Same root cause as W01-T007: no reachable real device, hence no real
-  weekly data. Blocks W03-GATE PASS. Close by collecting one complete
-  real week and manually checking the DOCX against source samples.
-W03-GATE: BLOCKED — REAL_WEEK_DATA_PENDING (STOPPED per owner 2026-09-05;
-  engineering verification green, see W03-GATE entry in TASK_GRAPH.md).
-  Blocks Wave 4 start and the work/wave-03 -> main merge.
+  acceptance only; the regenerate service is implemented and tested and
+  does NOT block Wave 4). Same root cause as W01-T007: no reachable real
+  device, hence no real weekly data. Blocks W05-GATE (Owner Decision
+  2026-09-06). Close by collecting one complete real week and manually
+  checking the DOCX against source samples.
 ```
 
 ## Open design gaps
@@ -678,39 +690,34 @@ backend/monitoring/interface_state.py and TASK_GRAPH W02-T006.
 ## Next ready candidates
 
 ```text
-None — W03-GATE is BLOCKED (real week data) and W04-T001 depends on it.
-To close W03: collect one complete real week on real devices, manually
-check the generated DOCX against source samples (close W03-T010's BLOCKED
-acceptance and W01-T007 evidence collection), then re-run the W03-GATE
-verification and merge work/wave-03 into main.
+W04-T001 — single administrator + salted scrypt password (READY per
+Owner Decision 2026-09-06; W03-GATE = PASS as an engineering gate).
+Then W04-T002 -> W04-T003/T004/T005 -> W04-GATE.
+Outstanding release blockers (NOT Wave-4 blockers): W03-T010
+REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING, both
+blocking W05-GATE.
 ```
 
 ## Current Wave Gate
 
 ```text
-W03-GATE — Weekly Report Gate
-Status: BLOCKED — REAL_WEEK_DATA_PENDING (STOPPED per owner 2026-09-05;
-NOT PASS). Engineering verification fully green on work/wave-03 and
-re-validated green after W03-AUDIT-4 (checkpoint 760bdd61ee328049f22fe96
-77aeecfedfd3097e1):
-  pytest 252 unit + 170 integration PASS on migrated PostgreSQL (0008);
-  ruff clean; mypy clean (100 files); alembic upgrade head idempotent at
-  0008 (no new migration); compose image rebuilt (docker build; compose
-  build is a silent no-op in this environment) + smoke: web healthy
-  (/health database ok), worker heartbeat persisted and fresh, device-poll
-  scheduler + IRF loop + retention + weekly-report loop alive; a live
-  manual regenerate of the 2026-W35 job through the §4.4 service produced
-  one atomic, revalidated 8-section DOCX in the reports volume with the
-  empty deployment honestly rendered (关注 / 未配置设备/数据缺失) after
-  W03-AUDIT-4.
-Golden scenarios cover every IMPLEMENTATION_PLAN golden case; failure/
-restart semantics (10-min retry, per-pass recovery of stranded `running`
-jobs, requeue on a lost terminal update, one active job per week at DB
-level, regenerate keeps old DOCX until atomic replace) are proven by
-integration tests.
-Missing for PASS: one DOCX generated from REAL persisted weekly data,
-manually checked against source samples (blocked with W01-T007's root
-cause). Real-device proof remains carried by W01-T007 for W05-GATE.
+W03-GATE — Weekly Report Gate: PASS (engineering gate, Owner Decision
+2026-09-06). Re-verified green on work/wave-03 at ffe98d8 after
+W03-AUDIT-4: pytest 252 unit + 170 integration PASS on migrated
+PostgreSQL (0008); ruff clean; mypy clean (100 files); alembic upgrade
+head idempotent at 0008; dev compose smoke: web healthy (/health
+database ok), worker heartbeat fresh, device-poll scheduler + IRF loop +
+retention + weekly-report loop alive. Failure/restart semantics (10-min
+retry, per-pass recovery of stranded `running` jobs, requeue on a lost
+terminal update, one active job per week at DB level, job-bound
+candidates + reconcile, regenerate keeps old DOCX until atomic replace)
+are proven by integration tests; golden scenarios cover every
+IMPLEMENTATION_PLAN golden case.
+Deferred to W05-GATE: the real weekly data manual DOCX check carried by
+W03-T010 (with W01-T007's real-device evidence). It is NOT part of this
+gate and must not be recorded as passed before real data exists.
+Current gate: W04-GATE — Operations Web Gate (login -> configure
+priority interfaces -> view/download/regenerate report workflow).
 ```
 
 ## Product baseline

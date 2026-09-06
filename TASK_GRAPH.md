@@ -326,21 +326,21 @@ REVIEW_PASSED
 **Tests:** `tests/integration/test_report_jobs.py` (13 cases: schedule idempotency + one row; skip week with success report; incomplete-week rejection; success path persists report row + readable 8-section DOCX; failure path persists last_error + exactly `now+10 min` retry + failed registry row, not runnable before retry time, retry succeeds; regenerate failure keeps previous success row and byte-identical old DOCX; DB-level one-active-per-week incl. succeeded-week re-entry; regenerate incomplete-week rejection; stale running recovery then successful completion; full loop — nothing before 00:10, create+execute after 00:12, restart creates no duplicate; loop retry gating before/after retry time).
 
 ## W03-T010 — Manual regenerate service and real report verification
-**Status:** BLOCKED — REAL_WEEK_DATA_PENDING（regenerate 服务验收 REVIEW_PASSED；真实周报人工核对验收在本环境无法满足，按业主 2026-09-05 指令不得伪造验收）  
+**Status:** BLOCKED — REAL_WEEK_DATA_PENDING（regenerate 服务实现 REVIEW_PASSED；真实周报人工核对验收在本环境无法满足，按业主指令不得伪造验收。Owner Decision 2026-09-06：该项不再阻塞 Wave 4 / W03-GATE，改为阻塞 W05-GATE — Release Gate）  
 **Depends On:** W03-T009  
-**Blocks:** W03-GATE, W04-T004  
+**Blocks:** W05-GATE（真实周报人工核对 acceptance；regenerate 服务实现已 REVIEW_PASSED，不再阻塞 W04-T004）  
 **Acceptance:** regenerate replaces one current server DOCX for the week; real weekly report manually checked against source samples.  
 **Implementation:** `request_regenerate` (W03-T009/T010, `reporting/jobs.py`) is the manual-regenerate entry: idempotent (an active job for the week is returned unchanged — repeated Web submissions later cannot duplicate it), refuses incomplete weeks, creates `trigger='manual'` jobs; execution goes through the same `execute_report_job` path, so the previous successful DOCX stays current/downloadable until the new attempt atomically replaces it (§4.4/§5), and a failed attempt records status + readable error without touching the old file. Wave 4's form (W04-T004) wires directly onto this service.  
 **Tests:** `tests/integration/test_manual_regenerate.py` (3 cases: successful regenerate replaces the single current DOCX — same name, new bytes, exactly one file, registry updated; rapid double regenerate yields ONE job; failed regenerate leaves visible status/error and remains retryable).  
 **BLOCKED item (release-blocking evidence, not engineering-blocking):** 真实周报人工核对需要真实设备一周持久化数据。本环境无可达真实 H3C 设备（W01-T007 FIELD_VALIDATION_PENDING，业主 2026-09-04 授权），dev 库核实 0 devices / 0 poll_runs / 0 metrics——不存在真实周数据。该项必须在真实环境完成连续一周采集后：人工将 DOCX 与源采样核对（period correct / values plausible / tables readable / 8 sections / missing data explicit / no secrets / 本周处理问题可编辑）。
 
 ## W03-GATE — Weekly Report Gate
-**Status:** BLOCKED — REAL_WEEK_DATA_PENDING（按业主 2026-09-05 指令停止：W03-T010 真实周报核对验收缺失真实周数据，GATE 不判 PASS；工程侧验证全部通过，证据如下）  
-**Depends On:** W03-T010  
+**Status:** PASS — engineering gate（Owner Decision 2026-09-06：工程侧验证全部通过 W03-AUDIT-4 复验，允许继续 Wave 4；真实周数据人工 DOCX 核对 deferred to W05-GATE，由 W03-T010 携带，不得在本 gate 伪造）  
+**Depends On:** W03-T009, W03-T010（engineering scope — regenerate 服务实现；其真实数据 acceptance 单独携带至 W05-GATE）  
 **Blocks:** Wave 4  
-**Gate:** trustworthy DOCX can be generated from persisted real weekly data and survives failure/restart scenarios.  
-**Engineering verification evidence (work/wave-03, migrated PostgreSQL 0001→0008):** pytest 全绿（unit + integration，见 EXECUTION_STATE 数目）；ruff clean；mypy clean；`alembic upgrade head` 幂等至 0008；compose 重建 + smoke（web /health、worker heartbeat + report loop、scheduler/IRF/retention 正常）。golden scenarios 覆盖 IMPLEMENTATION_PLAN 全部 golden cases；failure/restart 场景（生成失败 10 分钟重试、worker 重启恢复、同周仅一个活跃任务、regenerate 期间旧 DOCX 保留、原子替换）全部由集成测试证明。  
-**Missing for PASS:** 一份来自真实设备持久化周数据的 DOCX 人工核对（依赖真实环境采集；与 W01-T007 同源阻塞）。真实数据到位后重跑 gate 判定。
+**Gate:** trustworthy DOCX can be generated from persisted weekly data and survives failure/restart scenarios — engineering acceptance on tests + golden scenarios + failure/restart integration proofs.  
+**Engineering verification evidence (work/wave-03, migrated PostgreSQL 0001→0008):** pytest 全绿（252 unit + 170 integration PASS）；ruff clean；mypy clean（100 files）；`alembic upgrade head` 幂等至 0008；compose smoke（web /health healthy、worker heartbeat + report loop、scheduler/IRF/retention 正常）。golden scenarios 覆盖 IMPLEMENTATION_PLAN 全部 golden cases；failure/restart 场景（生成失败 10 分钟重试、worker 重启恢复、同周仅一个活跃任务、regenerate 期间旧 DOCX 保留、原子替换、candidate job-binding + reconcile）全部由集成测试证明。W03-AUDIT..AUDIT-4 四轮审计修复全部 REVIEW_PASSED 并复验全绿。  
+**Deferred to W05-GATE (NOT part of this gate):** 一份来自真实设备持久化周数据的 DOCX 人工核对（依赖真实环境采集；与 W01-T007 同源）。真实数据到位后在 Release Gate 完成核对，才可宣称 W03-T010 acceptance 关闭。
 
 ## W03-AUDIT — Wave 3 audit hotfix
 **Status:** REVIEW_PASSED  
@@ -395,7 +395,7 @@ REVIEW_PASSED
 
 ## W04-T001 — Single administrator and password storage
 **Status:** TODO  
-**Depends On:** W03-GATE  
+**Depends On:** W03-GATE（PASS — engineering gate; READY per Owner Decision 2026-09-06）  
 **Blocks:** W04-T002  
 **Acceptance:** one local administrator can be initialized; salted scrypt hash stored; plaintext password never persisted.
 
@@ -413,7 +413,7 @@ REVIEW_PASSED
 
 ## W04-T004 — Manual regenerate Web action
 **Status:** TODO  
-**Depends On:** W04-T002, W03-T010  
+**Depends On:** W04-T002, W03-T010 regenerate service implementation（REVIEW_PASSED — `reporting/jobs.py::request_regenerate`；真实数据 acceptance 已按 Owner Decision 2026-09-06 移至 W05-GATE，不阻塞本任务）  
 **Blocks:** W04-GATE  
 **Acceptance:** CSRF-protected; duplicate submissions do not create concurrent duplicate report jobs; status becomes visible to user.
 
@@ -465,6 +465,6 @@ REVIEW_PASSED
 
 ## W05-GATE — Release Gate
 **Status:** TODO  
-**Depends On:** W05-T005, W01-T007  
+**Depends On:** W05-T005, W01-T007, W03-T010（Owner Decision 2026-09-06：真实周报人工 DOCX 核对从 W03-GATE 延期至此，作为明确依赖）  
 **Blocks:** release  
-**Required:** report correctness/reliability PASS; monitoring semantics PASS; login/download/priority-interface PASS; install/update PASS; no known P0/P1 blocker; **W01-T007 real-device field validation CLOSED (standalone S10500X + S10500X IRF + S12500 IRF)**.
+**Required:** report correctness/reliability PASS; monitoring semantics PASS; login/download/priority-interface PASS; install/update PASS; no known P0/P1 blocker; **W01-T007 real-device field validation CLOSED (standalone S10500X + S10500X IRF + S12500 IRF)**; **W03-T010 real weekly report manually checked against source samples CLOSED (真实周数据人工核对)**.
