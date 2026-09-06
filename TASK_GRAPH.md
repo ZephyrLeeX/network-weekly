@@ -430,10 +430,13 @@ REVIEW_PASSED
 **Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-T005 — Priority interface Web page
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W04-T002, W02-T005  
 **Blocks:** W04-GATE  
-**Acceptance:** device selection; interface name/description/state; aggregation relationship; monitored toggle; aggregation toggle does not auto-toggle members.
+**Acceptance:** device selection; interface name/description/state; aggregation relationship; monitored toggle; aggregation toggle does not auto-toggle members.  
+**Implementation:** `web/interfaces.py` — `GET /interfaces`（behind `require_admin`, §20.3）renders the W02-T005 `interface_overview` read model: device selector (plain links, server-rendered — no JS), per-interface display name, description, admin/oper state (数据缺失 when absent), 聚合关系 (`聚合接口（成员：…）` / `属于聚合：…`) and the monitored state (§11/§12). `POST /interfaces/{id}/monitored` toggles via the service's single write path `set_monitored` — deliberately NO cascade in the web layer either: an aggregation toggle can never touch members, members stay independently selectable (§11); the route owns the transaction (`set_monitored` itself does not commit — the monitoring pipeline calls it inside its own transaction) and redirects back to the device page. Unknown interface → 404 page; unknown/invalid `device_id` → selection list. CSRF double-submit on the toggle form (§20.4).  
+**Tests:** integration `tests/integration/test_web_interfaces.py` (9: unauthenticated page+toggle 303; no-devices hint; device selector links; names/descriptions/admin-oper/aggregation-relationship display with default unmonitored; toggle on+off via web with redirect back to the device page; aggregation toggle selects ONLY the aggregate while a member is then independently selectable; missing/forged CSRF → 403 with no DB change; unknown interface 404; unknown/non-numeric device id renders selection list). pytest 278 unit + 233 integration PASS; ruff clean; mypy clean (122 files).  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-GATE — Operations Web Gate
 **Status:** TODO  

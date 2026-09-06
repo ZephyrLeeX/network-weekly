@@ -5,7 +5,7 @@
 ```text
 Current Wave: W04 — Login and Operations Web (started per Owner Decision
   2026-09-06)
-Current Task: W04-T005 (priority interface Web page)
+Current Task: W04-GATE (Operations Web Gate verification)
 Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
   Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
   to the Release Gate (W05-GATE):
@@ -54,6 +54,12 @@ W04-T004: 9c535b486ec047d5257503b33808333d4d26f9c3 — REVIEW_PASSED
           form on the list; active job state (排队中/进行中/等待重试)
           rendered next to the report status; incomplete week refused
           with one fixed note; 9 integration tests)
+W04-T005: 8715fab0cace43fe270ee5ea92ec550dbcf3913d — REVIEW_PASSED
+          (GET /interfaces — device selector + W02-T005 interface_overview
+          read model: name/description/admin-oper/聚合关系/monitored;
+          POST /interfaces/{id}/monitored — CSRF toggle via set_monitored
+          with NO cascade (aggregate ≠ members), transaction owned by the
+          route; unknown interface 404; 9 integration tests)
 ```
 
 ## Wave 3 checkpoint ledger
@@ -545,6 +551,17 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W04-T005 (priority interface Web page) — REVIEW_PASSED:
+  /interfaces selects a device, shows the W02-T005 overview read model
+  (names, descriptions, admin/oper, 聚合关系) and toggles monitored via
+  the service's single write path with CSRF; the aggregation toggle never
+  touches members and members stay independently selectable (§11).
+See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
+```
+
+## Previous completed task (W04-T004)
+
+```text
 W04-T004 (manual regenerate Web action) — REVIEW_PASSED:
   the report list's 重新生成 form POSTs to /reports/{week}/regenerate
   behind require_admin + CSRF; the route adapts onto request_regenerate
@@ -555,7 +572,7 @@ W04-T004 (manual regenerate Web action) — REVIEW_PASSED:
 See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
 ```
 
-## Previous completed task (W04-T003)
+## Older completed task (W04-T003)
 
 ```text
 W04-T003 (report list + DOCX download) — REVIEW_PASSED:
@@ -700,6 +717,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W04-T005 checkpoint: 8715fab0cace43fe270ee5ea92ec550dbcf3913d (work/wave-04)
 W04-T004 checkpoint: 9c535b486ec047d5257503b33808333d4d26f9c3 (work/wave-04)
 W04-T003 checkpoint: 83faeaa1bbefeeece955eb4d64b215dbf5cc4dea (work/wave-04)
 W04-T002 checkpoint: 7ed12d02fd2ac5bd3579b25c0bf632a289cb683d (work/wave-04)
