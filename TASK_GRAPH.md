@@ -522,10 +522,16 @@ REVIEW_PASSED
 **Checkpoint:** see EXECUTION_STATE.md Wave 5 checkpoint ledger.
 
 ## W05-T005 — Real-environment stability acceptance
-**Status:** TODO  
+**Status:** IN_PROGRESS — scaffolding complete（2026-09-06, branch work/wave-05）；**BLOCKED for acceptance completion until REAL environment evidence; no REVIEW_PASSED（Owner 指令：不得伪造验收）**  
 **Depends On:** W05-T002, W05-T003, W05-T004  
 **Blocks:** W05-GATE  
-**Acceptance:** all `SYSTEM_SPEC.md` Acceptance items have concrete test/evidence; at least two complete reporting weeks observed.
+**Acceptance:** all `SYSTEM_SPEC.md` Acceptance items have concrete test/evidence; at least two complete reporting weeks observed.  
+**Scaffolding (this task's engineering deliverable):**
+- `docs/ACCEPTANCE.md`: acceptance items **A01–A16** mapped to evidence sources and pass criteria — Debian 13 amd64 install; offline runtime; 10 logical devices; standalone S10500X / S10500X IRF / S12500 IRF; aggregation/priority-interface configuration; ≥2 complete report weeks; 2 consecutive Mondays 00:10; DOCX-failure 10-minute retry; worker-restart recovery; regenerate one-current; 90d retention; update.sh full flow; **A15 real weekly report manual check (closes W03-T010)**; **A16 real-device field validation (closes W01-T007)**. Includes evidence-record, manual-DOCX-check and field-validation templates.
+- `scripts/acceptance_evidence.sh`: read-only evidence collector run on the production host (host facts, image/log config, compose ps, /health, heartbeat age, inventory, per-device 24 h poll-run counts, oldest-raw-data retention check, weekly-report registry vs disk, secrets permission bits — secret CONTENT is never read); honors the `NETWORK_REPORT_*_ROOT` staging overrides.
+- `docs/evidence/README.md`: evidence-file placement rules (real records only).
+**Tool verification (NOT acceptance evidence, synthetic staging stack):** fresh install at staging roots + collector run — exit 0, all 12 sections, 10 devices classified, `file_on_disk=True` for the auto-generated W35 report, secrets shown as `600 1000` bits only. The placeholder-secrets FAILED poll runs in that output are the expected honest state without real devices.  
+**Outstanding (blocking REVIEW_PASSED):** all of A01–A16 pending real-environment execution; W01-T007 and W03-T010 stay BLOCKED — FIELD_VALIDATION_PENDING / REAL_WEEK_DATA_PENDING; W05-GATE stays BLOCKED.
 
 ## W05-GATE — Release Gate
 **Status:** TODO  

@@ -26,6 +26,9 @@ def test_scripts_are_valid_bash() -> None:
         script = DEPLOY / name
         assert script.exists(), name
         assert _bash_syntax_ok(script), name
+    evidence = DEPLOY.parent / "scripts" / "acceptance_evidence.sh"
+    assert evidence.exists()
+    assert _bash_syntax_ok(evidence)
 
 
 def test_scripts_are_fail_fast_and_never_touch_the_network() -> None:

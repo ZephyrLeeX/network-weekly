@@ -5,9 +5,12 @@
 ```text
 Current Wave: W05 — Deployment and Stability — IN PROGRESS (branch
   work/wave-05, created 2026-09-06)
-Current Task: W05-T005 — Real-environment stability acceptance
-  (scaffolding only; stays BLOCKED/IN_PROGRESS until REAL evidence;
-  T001–T004 REVIEW_PASSED)
+Current Task: W05-T005 — Real-environment stability acceptance:
+  scaffolding COMPLETE (docs/ACCEPTANCE.md A01–A16 + templates,
+  scripts/acceptance_evidence.sh, docs/evidence/); acceptance itself
+  BLOCKED until real-environment evidence — T005 must NOT be marked
+  REVIEW_PASSED, W05-GATE stays BLOCKED (Owner 指令 2026-09-06).
+  W05-T001..T004 all REVIEW_PASSED on branch work/wave-05.
 W04-AUDIT merge into main: 872b1631f64ad83d02bff7088679cc5d6accf2e9
   (post-merge re-check on main: 278 unit + 241 integration PASS, ruff
   clean, mypy clean in 122 files, alembic upgrade head idempotent at
@@ -76,6 +79,13 @@ W05-T004: 134ff1fe8101d9943d9c2f642cea432873614474 — REVIEW_PASSED
           DEVICE_POLL PARTIAL/FAILED + failed_sections, SNMP/SSH, capacity,
           secrets perms, redaction; no secret values) pinned by
           test_operations_runbook.py; 300 unit + 243 integration PASS)
+W05-T005: scaffolding commit (see checkpoint ledger) — NO REVIEW_PASSED
+          (docs/ACCEPTANCE.md: items A01–A16 with pass criteria +
+          evidence/manual-check templates, A15 closes W03-T010, A16
+          closes W01-T007; scripts/acceptance_evidence.sh read-only
+          collector — verified on a synthetic staging stack ONLY,
+          explicitly not acceptance evidence; docs/evidence/README.md;
+          A01..A16 all PENDING real environment)
 ```
 
 ## Wave 4 checkpoint ledger

@@ -74,7 +74,7 @@ def test_retention_loop_deletes_expired_data_periodically(db_engine: Engine) -> 
     )
     thread.start()
     deadline = datetime.now(UTC) + timedelta(seconds=10)
-    remaining = -1
+    remaining: int | None = -1
     try:
         while datetime.now(UTC) < deadline:
             with Session(db_engine) as session:
