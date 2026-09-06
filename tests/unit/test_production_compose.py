@@ -37,6 +37,11 @@ def test_web_and_worker_share_one_prebuilt_image_and_nothing_builds() -> None:
     assert services["postgres"]["image"] == "postgres:17-alpine"
 
 
+def test_missing_images_never_trigger_a_registry_pull() -> None:
+    for name, service in _load()["services"].items():
+        assert service["pull_policy"] == "never", name
+
+
 def test_no_named_volumes_anything_persistent_is_a_host_bind() -> None:
     compose = _load()
     # The development `reports` named volume must not reappear here: every

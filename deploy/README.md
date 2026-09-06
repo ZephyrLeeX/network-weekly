@@ -33,6 +33,7 @@ once in `/opt/network-report/.env`:
 NETWORK_REPORT_APP_IMAGE=network-weekly-app:0.1.0   # pre-built, loaded offline
 NETWORK_REPORT_DATA_DIR=/data/network-report
 NETWORK_REPORT_CONFIG_DIR=/etc/network-report
+NETWORK_REPORT_WEB_PORT=8000                        # host port for the web UI
 ```
 
 ## Persistence guarantees

@@ -24,6 +24,9 @@
 services:
   web:
     image: ${NETWORK_REPORT_APP_IMAGE:?set NETWORK_REPORT_APP_IMAGE in .env}
+    # Offline runtime: a missing local image must be an immediate error,
+    # never a silent registry pull attempt.
+    pull_policy: never
     command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
     environment:
@@ -37,7 +40,7 @@ services:
       - ${NETWORK_REPORT_DATA_DIR:?set NETWORK_REPORT_DATA_DIR in .env}/reports:/var/lib/network-report/reports
       - ${NETWORK_REPORT_CONFIG_DIR:?set NETWORK_REPORT_CONFIG_DIR in .env}/devices.toml:/etc/network-report/devices.toml:ro
     ports:
-      - "8000:8000"
+      - "${NETWORK_REPORT_WEB_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,6 +54,7 @@ services:
 
   worker:
     image: ${NETWORK_REPORT_APP_IMAGE:?set NETWORK_REPORT_APP_IMAGE in .env}
+    pull_policy: never
     command: ["python", "-m", "backend.worker"]
     restart: unless-stopped
     environment:
@@ -73,6 +77,7 @@ services:
 
   postgres:
     image: postgres:17-alpine
+    pull_policy: never
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
