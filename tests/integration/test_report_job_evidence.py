@@ -1,4 +1,5 @@
-"""W05-AUDIT-2: A09 scheduled-report evidence from `report_jobs` history.
+"""W05-AUDIT-2 + W05-PRE-ACCEPTANCE-HARDENING: A09 scheduled-report evidence
+from `report_jobs` history.
 
 A09 (two consecutive Monday 00:10 Asia/Shanghai automatic reports) must be
 judged from `report_jobs` rows with `trigger='scheduled'` — never from
@@ -8,10 +9,14 @@ tests pin, against real PostgreSQL:
 - the core regression: a scheduled job succeeds, a later manual regenerate
   updates the `weekly_reports` registry — and the scheduled job's history
   (status, created_at) is untouched, still proving the automatic generation;
-- a manual-only week never counts as scheduled evidence;
+- a manual-only week never counts as scheduled evidence — not even two
+  consecutive manual weeks created exactly on time;
 - a failed scheduled job never counts as succeeded evidence;
-- two consecutive scheduled+succeeded weeks are identifiable in the
-  collector output (and non-consecutive weeks are not claimed as such).
+- HARDENING: the A09 summary counts a week only when the succeeded
+  scheduled job's created_at is on time (Monday 00:10 ±5 min) — two
+  consecutive LATE successes must be summarized as NO, one on-time + one
+  late as NO, two consecutive on-time successes as YES;
+- ISO year wrap: the last week of a year pairs with the next year's W01.
 """
 
 from collections.abc import Iterator
@@ -27,7 +32,7 @@ from backend.ops.report_job_evidence import (
     next_week_code,
     render_scheduled_job_evidence,
     scheduled_jobs,
-    scheduled_succeeded_weeks,
+    scheduled_on_time_succeeded_weeks,
 )
 from backend.reporting.jobs import STATUS_FAILED, STATUS_SUCCEEDED
 from backend.reporting.period import ReportPeriod, period_for_iso_week
@@ -41,6 +46,8 @@ W35 = period_for_iso_week(2026, 35)
 #: §4.1: Monday 00:10 Asia/Shanghai after W36 ends (2026-09-07 00:10 +08).
 SCHEDULED_MONDAY_0010 = datetime(2026, 9, 6, 16, 10, 0, tzinfo=UTC)
 SCHEDULED_CREATED = SCHEDULED_MONDAY_0010 + timedelta(seconds=41)
+#: 10 minutes late: outside the ±5 min loop tolerance.
+LATE_CREATED = SCHEDULED_MONDAY_0010 + timedelta(minutes=10)
 MANUAL_CREATED = datetime(2026, 9, 6, 18, 30, 0, tzinfo=UTC)  # same day, later
 
 
@@ -156,7 +163,7 @@ def test_manual_regenerate_does_not_destroy_scheduled_evidence(
     assert "2026-09-07T00:10:41+08:00" in rendered  # Asia/Shanghai wall clock
     assert "trigger=manual" not in rendered
     assert "2026-09-07T02:30" not in rendered  # the manual attempt is absent
-    assert f"weeks with a succeeded scheduled job: {W36.week_code}" in rendered
+    assert f"weeks with an on-time succeeded scheduled job: {W36.week_code}" in rendered
 
 
 def test_manual_only_week_is_not_scheduled_evidence(db_engine: Engine) -> None:
@@ -175,11 +182,39 @@ def test_manual_only_week_is_not_scheduled_evidence(db_engine: Engine) -> None:
 
     evidence = _read_scheduled(db_engine)
     assert evidence == []
-    assert scheduled_succeeded_weeks(evidence) == []
+    assert scheduled_on_time_succeeded_weeks(evidence) == []
     rendered = render_scheduled_job_evidence(evidence)
     assert "no scheduled report jobs recorded" in rendered
-    assert "weeks with a succeeded scheduled job: none" in rendered
-    assert "two consecutive scheduled+succeeded weeks (A09): no" in rendered
+    assert "weeks with an on-time succeeded scheduled job: none" in rendered
+    assert "two consecutive on-time scheduled+succeeded weeks (A09): no" in rendered
+
+
+def test_two_on_time_manual_successes_are_not_the_a09_shape(
+    db_engine: Engine,
+) -> None:
+    """HARDENING: trigger is judged at the query level, so even two
+    consecutive weeks whose MANUAL jobs were created exactly at Monday
+    00:10 (on time, succeeded, registered in weekly_reports) never reach
+    the A09 summary."""
+
+    for period, created in (
+        (W36, SCHEDULED_MONDAY_0010),
+        (W37, SCHEDULED_MONDAY_0010 + timedelta(days=7)),
+    ):
+        _add_job(
+            db_engine,
+            period,
+            trigger="manual",
+            status=STATUS_SUCCEEDED,
+            created=created,
+            finished=created,
+        )
+        _add_success_report(db_engine, period, generated=created)
+
+    evidence = _read_scheduled(db_engine)
+    assert evidence == []
+    rendered = render_scheduled_job_evidence(evidence)
+    assert "two consecutive on-time scheduled+succeeded weeks (A09): no" in rendered
 
 
 def test_failed_scheduled_job_is_not_succeeded_evidence(db_engine: Engine) -> None:
@@ -198,18 +233,61 @@ def test_failed_scheduled_job_is_not_succeeded_evidence(db_engine: Engine) -> No
 
     evidence = _read_scheduled(db_engine)
     assert [item.status for item in evidence] == [STATUS_FAILED]
-    assert scheduled_succeeded_weeks(evidence) == []
+    assert scheduled_on_time_succeeded_weeks(evidence) == []
     rendered = render_scheduled_job_evidence(evidence)
     assert "status=failed" in rendered
     assert "attempts=3" in rendered
-    assert "two consecutive scheduled+succeeded weeks (A09): no" in rendered
+    assert "on_schedule=yes" in rendered  # on time, but still not A09 evidence
+    assert "two consecutive on-time scheduled+succeeded weeks (A09): no" in rendered
 
 
-def test_two_consecutive_scheduled_succeeded_weeks_are_identified(
+def test_two_late_scheduled_successes_do_not_satisfy_a09(db_engine: Engine) -> None:
+    """The HARDENING false positive: W36 and W37 both have scheduled
+    succeeded jobs created at 00:20 — outside Monday 00:10 ±5 min. The old
+    summary reported the A09 shape from status alone; it must now say no."""
+
+    for period, created in ((W36, LATE_CREATED), (W37, LATE_CREATED + timedelta(days=7))):
+        _add_job(
+            db_engine,
+            period,
+            trigger="scheduled",
+            status=STATUS_SUCCEEDED,
+            created=created,
+            finished=created,
+        )
+        _add_success_report(db_engine, period, generated=created)
+
+    evidence = _read_scheduled(db_engine)
+    assert scheduled_on_time_succeeded_weeks(evidence) == []
+    rendered = render_scheduled_job_evidence(evidence)
+    assert rendered.count("on_schedule=no") == 2
+    assert "weeks with an on-time succeeded scheduled job: none" in rendered
+    assert "two consecutive on-time scheduled+succeeded weeks (A09): no" in rendered
+
+
+def test_one_on_time_and_one_late_success_do_not_satisfy_a09(
     db_engine: Engine,
 ) -> None:
-    """A09's shape: two DISTINCT consecutive week codes, each with a
-    succeeded scheduled job, are identifiable in the collector output."""
+    _add_job(
+        db_engine, W36, trigger="scheduled", status=STATUS_SUCCEEDED,
+        created=SCHEDULED_CREATED, finished=SCHEDULED_CREATED,
+    )
+    _add_job(
+        db_engine, W37, trigger="scheduled", status=STATUS_SUCCEEDED,
+        created=LATE_CREATED + timedelta(days=7), finished=None,
+    )
+
+    evidence = _read_scheduled(db_engine)
+    assert scheduled_on_time_succeeded_weeks(evidence) == [W36.week_code]
+    rendered = render_scheduled_job_evidence(evidence)
+    assert "two consecutive on-time scheduled+succeeded weeks (A09): no" in rendered
+
+
+def test_two_consecutive_on_time_succeeded_weeks_are_identified(
+    db_engine: Engine,
+) -> None:
+    """A09's shape: two DISTINCT consecutive week codes, each with an
+    on-time succeeded scheduled job, are identifiable in the output."""
 
     for period, monday in ((W36, SCHEDULED_CREATED), (W37, SCHEDULED_CREATED + timedelta(days=7))):
         _add_job(
@@ -223,10 +301,10 @@ def test_two_consecutive_scheduled_succeeded_weeks_are_identified(
         _add_success_report(db_engine, period, generated=monday)
 
     evidence = _read_scheduled(db_engine)
-    assert scheduled_succeeded_weeks(evidence) == [W36.week_code, W37.week_code]
+    assert scheduled_on_time_succeeded_weeks(evidence) == [W36.week_code, W37.week_code]
     rendered = render_scheduled_job_evidence(evidence)
     assert (
-        f"two consecutive scheduled+succeeded weeks (A09): yes "
+        f"two consecutive on-time scheduled+succeeded weeks (A09): yes "
         f"({W36.week_code} -> {W37.week_code})" in rendered
     )
 
@@ -244,9 +322,9 @@ def test_non_consecutive_succeeded_weeks_are_not_claimed_consecutive(
     )
 
     evidence = _read_scheduled(db_engine)
-    assert scheduled_succeeded_weeks(evidence) == [W35.week_code, W37.week_code]
+    assert scheduled_on_time_succeeded_weeks(evidence) == [W35.week_code, W37.week_code]
     rendered = render_scheduled_job_evidence(evidence)
-    assert "two consecutive scheduled+succeeded weeks (A09): no" in rendered
+    assert "two consecutive on-time scheduled+succeeded weeks (A09): no" in rendered
 
 
 def test_next_week_code_wraps_the_iso_year() -> None:

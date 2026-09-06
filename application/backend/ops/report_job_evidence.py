@@ -20,10 +20,14 @@ shortly after 00:10); the human acceptance judgment stays with
 docs/ACCEPTANCE.md. Error texts and other free-form fields are deliberately
 not printed.
 
-The summary lines at the bottom list which weeks have a succeeded
-scheduled attempt and whether two of them are consecutive ISO weeks — the
-shape A09 needs. `weekly_reports`/DOCX remain corroboration that a week
-ended with a downloadable success, but they can never prove the trigger.
+The summary lines at the bottom list which weeks have an ON-TIME succeeded
+scheduled attempt (trigger=scheduled + status=succeeded AND created within
+±5 min of that week's Monday 00:10 — all three, per docs/ACCEPTANCE.md A09;
+W05-PRE-ACCEPTANCE-HARDENING: a late scheduled success no longer counts,
+which the old summary silently did) and whether two of them are consecutive
+ISO weeks — the shape A09 needs. `weekly_reports`/DOCX remain corroboration
+that a week ended with a downloadable success, but they can never prove the
+trigger or its timing.
 """
 
 from __future__ import annotations
@@ -133,12 +137,24 @@ def format_job_line(evidence: ScheduledJobEvidence) -> str:
     )
 
 
-def scheduled_succeeded_weeks(
+def scheduled_on_time_succeeded_weeks(
     evidence: list[ScheduledJobEvidence],
 ) -> list[str]:
-    """Distinct week codes with a SUCCEEDED scheduled job, oldest first."""
+    """Distinct week codes whose scheduled job BOTH succeeded AND was
+    created on time (Monday 00:10 ±5 min), oldest first.
 
-    weeks = {item.week_code for item in evidence if item.status == STATUS_SUCCEEDED}
+    A09 (docs/ACCEPTANCE.md) needs all three: trigger=scheduled (guaranteed
+    by `scheduled_jobs`), status=succeeded, and `is_on_schedule` — a late
+    scheduled success is honest evidence but does not satisfy A09, so it
+    must not feed the consecutive-weeks summary
+    (W05-PRE-ACCEPTANCE-HARDENING).
+    """
+
+    weeks = {
+        item.week_code
+        for item in evidence
+        if item.status == STATUS_SUCCEEDED and is_on_schedule(item)
+    }
     return sorted(weeks)
 
 
@@ -174,11 +190,13 @@ def render_scheduled_job_evidence(
     lines = [format_job_line(item) for item in evidence]
     if not lines:
         lines.append("no scheduled report jobs recorded")
-    weeks = scheduled_succeeded_weeks(evidence)
-    lines.append(f"weeks with a succeeded scheduled job: {', '.join(weeks) or 'none'}")
+    weeks = scheduled_on_time_succeeded_weeks(evidence)
+    lines.append(
+        f"weeks with an on-time succeeded scheduled job: {', '.join(weeks) or 'none'}"
+    )
     pairs = consecutive_scheduled_pairs(weeks)
     lines.append(
-        "two consecutive scheduled+succeeded weeks (A09): "
+        "two consecutive on-time scheduled+succeeded weeks (A09): "
         + (
             f"yes ({' -> '.join(pairs[0])})"
             if pairs

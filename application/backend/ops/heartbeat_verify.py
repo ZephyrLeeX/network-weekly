@@ -1,4 +1,4 @@
-"""Deploy-time worker heartbeat verification (W05-AUDIT fix 1, W05-AUDIT-2).
+"""Deploy-time worker heartbeat verification (W05-AUDIT fix 1, -2, HARDENING).
 
 Used by `deploy/lib.sh` (install.sh / update.sh) via
 `python -m backend.ops.heartbeat_verify`. The verifier answers one question:
@@ -30,25 +30,55 @@ inspect` ID — never a short ID or an image tag) and distinguishes:
   newer than the baseline with the OLD `started_at` is exactly the old
   worker's post-baseline final tick and must FAIL.
 
+W05-PRE-ACCEPTANCE-HARDENING closes the remaining hole in that design: a
+baseline with NO heartbeat row (`{}`) used to make the very first fresh row
+pass as "fresh install" — but "no row yet" is also what the database looks
+like when an EXISTING worker container simply has not ticked since it
+started. The baseline now records WHEN it was captured (`captured_at`),
+and with no prior row the verifier branches on the PRE identity:
+
+* fresh install (no worker container before, "" → new): the first fresh row
+  is the new evidence — unchanged;
+* replacement of an existing worker (pre ≠ "" and pre ≠ post): the row must
+  ALSO carry `started_at` AFTER the baseline capture — the old container's
+  first-ever tick after the baseline (started_at before the capture) must
+  FAIL. A LEGACY baseline without `captured_at` cannot prove which
+  container wrote the row and fails closed (check the worker logs);
+* same container: the row can only come from the container that is still
+  running — first fresh row passes (started_at may stay put).
+
 Rules (a reason is always printed):
 
 1. the row for the current worker id must exist (a fresh heartbeat written
    by a DIFFERENT worker id is invisible to this query and never passes);
-2. with a baseline: `last_heartbeat` must be strictly NEWER than the
+2. with a baseline row: `last_heartbeat` must be strictly NEWER than the
    baseline's;
-3. without a baseline (fresh install / first heartbeat of this worker id):
-   the row appearing at all is the new evidence;
+3. without a baseline row: the row appearing at all is new evidence — but
+   when an existing worker's container was replaced, `started_at` must be
+   newer than the baseline's `captured_at` (legacy baselines without
+   `captured_at` fail closed here);
 4. the heartbeat age must still be below `interval * 4` (§25 liveness);
-5. ONLY when the container was replaced: `started_at` must also be newer
-   than the baseline's (rules 2+4+5 together = the replacement worker's own
-   heartbeat loop ran). `started_at` is deliberately NOT a condition when
-   the container was not replaced — that would break the legitimate
-   same-container re-verify.
+5. when the container was replaced WITH a baseline row: `started_at` must
+   also be newer than the baseline's (rules 2+4+5 together = the
+   replacement worker's own heartbeat loop ran). `started_at` is
+   deliberately NOT a condition when the container was not replaced — that
+   would break the legitimate same-container re-verify.
 
-Subcommands (baseline JSON holds only timestamps — never secret material):
+Baseline JSON (timestamps only — never secret material); `parse_baseline`
+accepts every historical format so a rollback target reading a pre-hardening
+baseline never crashes:
+
+  {}                                      legacy: no row, capture time unknown
+  {"last_heartbeat", "started_at"}        legacy: row, capture time unknown
+  {"captured_at"}                         current: no row at capture time
+  {"captured_at", "last_heartbeat",
+   "started_at"}                          current: row at capture time
+
+Subcommands:
 
   baseline                                print the current worker's heartbeat
-                                          as a JSON object ({} when it has no
+                                          as a JSON object (with `captured_at`
+                                          always; only that key when it has no
                                           row yet); run BEFORE the start
   verify <baseline> <pre-id> <post-id>    exit 0 iff rules 1-5 hold; the
                                           replacement decision is computed
@@ -91,30 +121,62 @@ class HeartbeatSample:
     started_at: datetime
 
 
-def dump_baseline(sample: HeartbeatSample | None) -> str:
-    """Serialize a baseline (or `{}` for "no row yet") for the shell to hold."""
+@dataclass(frozen=True)
+class HeartbeatBaseline:
+    """The state captured before the start/update.
 
-    if sample is None:
-        return "{}"
-    return json.dumps(
-        {
-            "last_heartbeat": sample.last_heartbeat.isoformat(),
-            "started_at": sample.started_at.isoformat(),
-        }
-    )
+    `sample` is the worker's row at capture time (`None` = no row yet);
+    `captured_at` is the capture instant (`None` in the two legacy formats,
+    which predate W05-PRE-ACCEPTANCE-HARDENING).
+    """
+
+    captured_at: datetime | None
+    sample: HeartbeatSample | None
 
 
-def parse_baseline(raw: str) -> HeartbeatSample | None:
-    """Parse `dump_baseline` output; `{}` means the worker had no row."""
+def dump_baseline(sample: HeartbeatSample | None, *, captured_at: datetime) -> str:
+    """Serialize a baseline for the shell to hold; `captured_at` is always
+    recorded so a no-row baseline can still bound a replacement worker's
+    `started_at` (W05-PRE-ACCEPTANCE-HARDENING)."""
+
+    data: dict[str, str] = {"captured_at": captured_at.isoformat()}
+    if sample is not None:
+        data["last_heartbeat"] = sample.last_heartbeat.isoformat()
+        data["started_at"] = sample.started_at.isoformat()
+    return json.dumps(data)
+
+
+def parse_baseline(raw: str) -> HeartbeatBaseline:
+    """Parse a baseline JSON in any historical format.
+
+    `{}` and `{last_heartbeat, started_at}` are the pre-hardening formats
+    (no `captured_at` — a verifier can then no longer prove which container
+    wrote a first row, and `verify_heartbeat` fails that case closed).
+    """
 
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("heartbeat baseline JSON must be an object")
     if not data:
-        return None
-    return HeartbeatSample(
-        last_heartbeat=datetime.fromisoformat(str(data["last_heartbeat"])),
-        started_at=datetime.fromisoformat(str(data["started_at"])),
+        return HeartbeatBaseline(captured_at=None, sample=None)
+
+    captured_at = (
+        datetime.fromisoformat(str(data["captured_at"]))
+        if "captured_at" in data
+        else None
+    )
+    if "last_heartbeat" not in data:
+        if "started_at" in data:
+            raise ValueError(
+                "heartbeat baseline JSON must not carry started_at without last_heartbeat"
+            )
+        return HeartbeatBaseline(captured_at=captured_at, sample=None)
+    return HeartbeatBaseline(
+        captured_at=captured_at,
+        sample=HeartbeatSample(
+            last_heartbeat=datetime.fromisoformat(str(data["last_heartbeat"])),
+            started_at=datetime.fromisoformat(str(data["started_at"])),
+        ),
     )
 
 
@@ -145,60 +207,98 @@ def fetch_sample(conn: Connection, worker_id: str) -> HeartbeatSample | None:
 
 def verify_heartbeat(
     sample: HeartbeatSample | None,
-    baseline: HeartbeatSample | None,
+    baseline: HeartbeatBaseline,
     *,
     now: datetime,
     interval_seconds: int,
     worker_id: str,
-    container_replaced: bool,
+    pre_id: str,
+    post_id: str,
 ) -> tuple[bool, str]:
     """Decide whether the CURRENT worker produced NEW post-start evidence.
 
     Returns (ok, reason); the reason is written to stdout by the CLI either
     way so a failed install/update prints what was actually observed. The
-    reasons distinguish: a new heartbeat from the replacement worker, a new
-    heartbeat from the existing (same-container) worker, the old worker's
-    post-baseline final tick while the replacement worker is still silent,
-    a stale heartbeat, and a missing worker row.
+    reasons distinguish: a new heartbeat from the replacement worker, the
+    old worker's post-baseline tick while the replacement worker is still
+    silent (with and without a baseline row), a first heartbeat that cannot
+    be attributed to the replacement worker (legacy baseline), a stale
+    heartbeat, and a missing worker row.
     """
 
     limit = interval_seconds * AGE_LIMIT_INTERVALS
+    container_replaced = is_container_replaced(pre_id, post_id)
 
     if sample is None:
         return False, f"no heartbeat row for worker {worker_id!r} yet (limit {limit}s)"
     age = (now - sample.last_heartbeat).total_seconds()
-
-    if baseline is None:
-        if age >= limit:
-            return False, (
-                f"first heartbeat for worker {worker_id!r} is already stale: "
-                f"age {age:.0f}s >= limit {limit}s"
-            )
-        return True, (
-            f"first heartbeat for worker {worker_id!r} observed "
-            f"(age {age:.0f}s < limit {limit}s)"
-        )
-
-    if sample.last_heartbeat <= baseline.last_heartbeat:
-        return False, (
-            f"worker {worker_id!r} wrote no NEW heartbeat after the baseline: row "
-            f"{sample.last_heartbeat.isoformat()} <= baseline "
-            f"{baseline.last_heartbeat.isoformat()} — a stale row from a "
-            "previous worker must not pass"
-        )
     if age >= limit:
         return False, (
-            f"new heartbeat for worker {worker_id!r} is already stale: "
+            f"heartbeat for worker {worker_id!r} is already stale: "
             f"age {age:.0f}s >= limit {limit}s"
         )
 
-    if container_replaced and sample.started_at <= baseline.started_at:
+    if baseline.sample is None:
+        # No row at capture time: either nothing ever ran (fresh install) or
+        # an existing worker container had not ticked yet (HARDENING — the
+        # race where the old container's FIRST tick lands after the capture
+        # and must never pass for its replacement).
+        if not pre_id:
+            return True, (
+                f"first heartbeat for worker {worker_id!r} on a fresh install "
+                f"(no worker container before the start; "
+                f"age {age:.0f}s < limit {limit}s)"
+            )
+        if container_replaced:
+            if baseline.captured_at is None:
+                return False, (
+                    f"baseline for worker {worker_id!r} has no captured_at "
+                    f"(legacy pre-hardening format) and held no heartbeat row: "
+                    "with the worker container replaced, a first heartbeat "
+                    "cannot be proven to come from the replacement worker "
+                    "rather than from the pre-capture container — check "
+                    "'docker compose -p network-report logs worker' and "
+                    "re-run the start/update"
+                )
+            if sample.started_at <= baseline.captured_at:
+                return False, (
+                    f"old container wrote after the baseline but the "
+                    f"replacement worker has not: worker {worker_id!r} "
+                    f"started_at {sample.started_at.isoformat()} <= baseline "
+                    f"captured_at {baseline.captured_at.isoformat()} while the "
+                    "worker container was replaced and the baseline held no "
+                    "heartbeat row — that row predates the capture instant and "
+                    "cannot prove the replacement worker's heartbeat loop runs"
+                )
+            return True, (
+                f"first heartbeat for worker {worker_id!r} written after the "
+                f"baseline capture by the replacement worker (started_at "
+                f"{sample.started_at.isoformat()} > captured_at "
+                f"{baseline.captured_at.isoformat()}, age {age:.0f}s < limit "
+                f"{limit}s)"
+            )
+        return True, (
+            f"first heartbeat for worker {worker_id!r} observed "
+            f"with the worker container unchanged (age {age:.0f}s < limit "
+            f"{limit}s, worker kept running)"
+        )
+
+    baseline_last = baseline.sample.last_heartbeat
+    if sample.last_heartbeat <= baseline_last:
+        return False, (
+            f"worker {worker_id!r} wrote no NEW heartbeat after the baseline: row "
+            f"{sample.last_heartbeat.isoformat()} <= baseline "
+            f"{baseline_last.isoformat()} — a stale row from a "
+            "previous worker must not pass"
+        )
+
+    if container_replaced and sample.started_at <= baseline.sample.started_at:
         return False, (
             f"old worker wrote after the baseline but the replacement worker "
             f"has not: worker {worker_id!r} last_heartbeat "
             f"{sample.last_heartbeat.isoformat()} > baseline but started_at "
             f"{sample.started_at.isoformat()} <= baseline "
-            f"{baseline.started_at.isoformat()} while the worker container was "
+            f"{baseline.sample.started_at.isoformat()} while the worker container was "
             "replaced — that is the old container's final tick, not evidence "
             "that the replacement worker's heartbeat loop runs"
         )
@@ -207,7 +307,7 @@ def verify_heartbeat(
         return True, (
             f"new heartbeat for worker {worker_id!r} written after the baseline "
             f"by the replacement worker (age {age:.0f}s < limit {limit}s, "
-            f"started_at advanced past {baseline.started_at.isoformat()})"
+            f"started_at advanced past {baseline.sample.started_at.isoformat()})"
         )
     return True, (
         f"new heartbeat for worker {worker_id!r} written after the baseline "
@@ -232,7 +332,7 @@ def main(argv: list[str]) -> int:
     if argv[1] == "baseline":
         with get_engine().connect() as conn:
             sample = fetch_sample(conn, settings.worker_id)
-        print(dump_baseline(sample))
+        print(dump_baseline(sample, captured_at=datetime.now(UTC)))
         return 0
 
     baseline = parse_baseline(argv[2])
@@ -244,7 +344,8 @@ def main(argv: list[str]) -> int:
         now=datetime.now(UTC),
         interval_seconds=settings.heartbeat_interval_seconds,
         worker_id=settings.worker_id,
-        container_replaced=is_container_replaced(argv[3], argv[4]),
+        pre_id=argv[3],
+        post_id=argv[4],
     )
     print(reason)
     return 0 if ok else 1

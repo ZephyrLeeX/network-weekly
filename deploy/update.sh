@@ -9,9 +9,10 @@
 #   - The target image must exist locally (offline; nothing is pulled).
 #   - A failed migration restores the previous .env and exits 14 WITHOUT
 #     restarting anything: the old containers keep serving the old image.
-#   - A failed restart/health/heartbeat exits 17/18/19. The migration has
-#     ALREADY COMMITTED at that point, so the printed remediation is
-#     schema-aware (W05-AUDIT fix 3): blindly rolling back the image is NOT
+#   - Any failure AFTER the migration committed (restart, health, heartbeat,
+#     even the heartbeat-baseline / worker-container-identity captures)
+#     exits 17/18/19 with schema-aware remediation (W05-AUDIT fix 3,
+#     W05-PRE-ACCEPTANCE-HARDENING): blindly rolling back the image is NOT
 #     automatically safe — see docs/OPERATIONS.md §5 (rollback may require
 #     restoring the pre-update database backup first).
 #   - Never touches /data/network-report (DB + DOCX) or /etc/network-report
@@ -77,16 +78,20 @@ fi
 
 # Captured AFTER the migration (which does not touch heartbeat rows) and
 # immediately before the recreate, so the heartbeat verifier (W05-AUDIT
-# fix 1, W05-AUDIT-2) can insist on evidence written after THIS update: the
-# old worker's last row must never pass, and when the recreate REPLACES the
-# worker container its started_at must have advanced too — the old worker's
-# post-baseline final tick otherwise masquerades as new-worker evidence.
+# fix 1, W05-AUDIT-2, W05-PRE-ACCEPTANCE-HARDENING) can insist on evidence
+# written after THIS update: the old worker's last row must never pass, and
+# when the recreate REPLACES the worker container its started_at must have
+# advanced past the baseline too — the old worker's post-baseline final
+# tick otherwise masquerades as new-worker evidence. These captures run
+# AFTER the migration committed, so even their failures are schema-aware
+# (W05-PRE-ACCEPTANCE-HARDENING): the old containers are now serving a
+# migrated schema.
 step "capturing the pre-restart worker heartbeat baseline"
 HEARTBEAT_BASELINE=$(heartbeat_baseline) \
-    || die 19 "cannot read the pre-update worker heartbeat baseline (is the database reachable?)"
+    || post_migration_failure 19 "cannot read the pre-update worker heartbeat baseline (is the database reachable?)"
 echo "heartbeat baseline: $HEARTBEAT_BASELINE"
 PRE_WORKER_CONTAINER_ID=$(worker_container_id) \
-    || die 19 "cannot read the pre-update worker container identity from Docker"
+    || post_migration_failure 19 "cannot read the pre-update worker container identity from Docker"
 echo "pre-update worker container: ${PRE_WORKER_CONTAINER_ID:-<none>}"
 
 step "restarting web + worker on the target image"
@@ -95,7 +100,7 @@ if ! COMPOSE up -d --wait; then
 fi
 
 POST_WORKER_CONTAINER_ID=$(worker_container_id) \
-    || die 19 "cannot read the worker container identity after the update"
+    || post_migration_failure 19 "cannot read the worker container identity after the update"
 echo "post-update worker container: ${POST_WORKER_CONTAINER_ID:-<none>}"
 
 step "verifying web /health"

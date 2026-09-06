@@ -165,11 +165,12 @@ def test_heartbeat_verdict_is_bound_to_worker_container_identity() -> None:
 
 
 def test_heartbeat_verifier_fallback_shares_the_race_invariants() -> None:
-    """W05-AUDIT-2: the inline fallback (rollback targets predating the
-    W05-AUDIT-2 verifier) must decide replacement from the pre/post
-    container IDs and demand an advanced started_at exactly like the tested
-    module — a last_heartbeat newer than the baseline alone must never pass
-    a replaced container."""
+    """W05-AUDIT-2 + W05-PRE-ACCEPTANCE-HARDENING: the inline fallback
+    (rollback targets predating the W05-AUDIT-2 verifier) must decide
+    replacement from the pre/post container IDs and demand an advanced
+    started_at exactly like the tested module — a last_heartbeat newer than
+    the baseline alone must never pass a replaced container, and a no-row
+    baseline must be judged from captured_at (fail closed without it)."""
 
     lib = (DEPLOY / "lib.sh").read_text(encoding="utf-8")
 
@@ -184,18 +185,37 @@ def test_heartbeat_verifier_fallback_shares_the_race_invariants() -> None:
     fallback = fallback.split("\nPY\n")[0]  # the heredoc body only
     assert "pre_id != post_id" in fallback
     assert 'started_at' in fallback
-    assert 'baseline["started_at"]' in fallback
+    assert 'baseline_row["started_at"]' in fallback
     assert "started <= baseline_started" in fallback
     assert "replacement worker" in fallback
     # ...and still refuses a stale/identical row and a missing own row.
     assert "wrote no NEW heartbeat after the baseline" in fallback
     assert "no heartbeat row for worker" in fallback
+    # HARDENING no-row rules, mirrored from the tested module: with no
+    # baseline row, a replaced container needs started_at past captured_at,
+    # a legacy baseline without captured_at fails closed, and only a fresh
+    # install (no PRE container) passes on the bare first row.
+    assert 'baseline["captured_at"]' in fallback
+    assert "started <= captured_at" in fallback
+    assert "no captured_at" in fallback
+    assert "fresh install" in fallback
+    assert "worker container unchanged" in fallback
+
+    # The baseline itself always records captured_at — in the tested module
+    # AND in the legacy fallback that serves pre-W05-AUDIT images.
+    baseline_fallback = lib.split("heartbeat_verify baseline")[1]
+    baseline_fallback = baseline_fallback.split('python - baseline <<\'PY\'')[1]
+    baseline_fallback = baseline_fallback.split("\nPY\n")[0]
+    assert '"captured_at"' in baseline_fallback
 
 
 def test_post_migration_failure_paths_are_schema_aware() -> None:
-    """W05-AUDIT fix 3: after a committed migration, roll-back advice must
-    carry the schema-compatibility caveat instead of an unconditional image
-    rollback hint."""
+    """W05-AUDIT fix 3 + W05-PRE-ACCEPTANCE-HARDENING: after a committed
+    migration, roll-back advice must carry the schema-compatibility caveat
+    instead of an unconditional image rollback hint — and EVERY failure past
+    `alembic upgrade head` (including the heartbeat-baseline and the POST
+    worker-container-identity captures) must route through the schema-aware
+    path, never a bare die 17/18/19."""
 
     lib = (DEPLOY / "lib.sh").read_text(encoding="utf-8")
     update = (DEPLOY / "update.sh").read_text(encoding="utf-8")
@@ -209,8 +229,24 @@ def test_post_migration_failure_paths_are_schema_aware() -> None:
         "restore the pre-update database backup first, then start the old image.",
     ):
         assert needed in lib, needed
-    # All three post-migration failure paths (17/18/19) route through it.
-    assert update.count("post_migration_failure") >= 3
+
+    # Every failure AFTER the migration committed is schema-aware: from the
+    # migration step onwards update.sh must contain no bare die 17/18/19.
+    migration = update.index('step "database migration')
+    tail = update[migration:]
+    assert re.search(r"\bdie 1[789]", tail) is None
+    # The migration-failure path itself keeps die 14 (.env restore, old
+    # stack untouched) — the only bare die left in the migration tail.
+    assert "die 14" in tail
+    # All post-migration failure sites (restart 17, POST identity query 19,
+    # missing POST identity 19, health 18, heartbeat 19, baseline/pre-ID
+    # captures 19) route through the helper.
+    assert update.count("post_migration_failure") >= 7
+    assert (
+        'POST_WORKER_CONTAINER_ID=$(worker_container_id) \\\n'
+        '    || post_migration_failure 19' in update
+    )
+
     # The unconditional hint is gone from update.sh entirely — including the
     # final "update complete" message, which must stay schema-qualified.
     assert "rollback with:" not in update

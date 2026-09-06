@@ -123,15 +123,20 @@ heartbeat_verify_accepts_container_ids() {
 
 # Wait for heartbeat evidence that the worker started by THIS
 # install/update wrote a NEW heartbeat after the baseline captured by
-# heartbeat_baseline (W05-AUDIT fix 1, §25; W05-AUDIT-2); returns 1 on
-# timeout (callers decide the exit code).
+# heartbeat_baseline (W05-AUDIT fix 1, §25; W05-AUDIT-2;
+# W05-PRE-ACCEPTANCE-HARDENING); returns 1 on timeout (callers decide the
+# exit code).
 #
 # Arguments: baseline JSON, worker container ID before the start, worker
 # container ID after the start. When the container was REPLACED, a
 # last_heartbeat newer than the baseline is NOT enough: the old worker's
 # post-baseline final tick looks exactly like that. A replaced container
 # additionally requires started_at to have moved past the baseline's. When
-# the container was NOT replaced (same-container re-verify) the heartbeat
+# the baseline held NO row, a replaced container instead requires
+# started_at past the baseline's captured_at (a legacy baseline without
+# captured_at cannot prove that and fails closed); a fresh install (no
+# worker container before) still passes on the first fresh row. When the
+# container was NOT replaced (same-container re-verify) the heartbeat
 # moving is sufficient and started_at may stay put.
 #
 # The pre-W05-AUDIT check ("any heartbeat row is fresh enough") passed on a
@@ -139,8 +144,11 @@ heartbeat_verify_accepts_container_ids() {
 # tested implementation lives in backend.ops.heartbeat_verify; the inline
 # fallback below applies the SAME rules when the target image predates the
 # W05-AUDIT-2 verifier (a rollback target), keeping `update.sh --image
-# <old>` usable. Keep the fallback in sync with
-# backend/ops/heartbeat_verify.py.
+# <old>` usable — including the W05-PRE-ACCEPTANCE-HARDENING no-row rules:
+# with no baseline row and an existing worker's container replaced, the row
+# must carry started_at AFTER the baseline's captured_at, and a legacy
+# baseline without captured_at cannot prove that and FAILS closed. Keep the
+# fallback in sync with backend/ops/heartbeat_verify.py.
 wait_heartbeat() {
     local baseline=$1 pre_id=$2 post_id=$3
     local attempt
@@ -179,23 +187,50 @@ if row is None:
     raise SystemExit(1)
 last, started = row
 age = (datetime.now(UTC) - last).total_seconds()
+if age >= limit:
+    print(f"heartbeat for worker {worker_id!r} is already stale: "
+          f"age {age:.0f}s >= limit {limit}s")
+    raise SystemExit(1)
 if not baseline:
-    if age >= limit:
-        print(f"first heartbeat for worker {worker_id!r} is already stale: "
-              f"age {age:.0f}s >= limit {limit}s")
-        raise SystemExit(1)
-    print(f"first heartbeat for worker {worker_id!r} observed (age {age:.0f}s)")
+    baseline_row = None
+    captured_at = None
+else:
+    baseline_row = ({k: baseline[k] for k in ("last_heartbeat", "started_at")}
+                    if "last_heartbeat" in baseline else None)
+    captured_at = (datetime.fromisoformat(baseline["captured_at"])
+                   if "captured_at" in baseline else None)
+if baseline_row is None:
+    if not pre_id:
+        print(f"first heartbeat for worker {worker_id!r} on a fresh install "
+              f"(no worker container before the start; age {age:.0f}s)")
+        raise SystemExit(0)
+    if pre_id != post_id:
+        if captured_at is None:
+            print(f"baseline for worker {worker_id!r} has no captured_at "
+                  f"(legacy pre-hardening format) and held no heartbeat row: "
+                  "with the worker container replaced, a first heartbeat "
+                  "cannot be proven to come from the replacement worker "
+                  "rather than from the pre-capture container")
+            raise SystemExit(1)
+        if started <= captured_at:
+            print(f"old container wrote after the baseline but the replacement "
+                  f"worker has not: worker {worker_id!r} started_at "
+                  f"{started.isoformat()} <= baseline captured_at "
+                  f"{captured_at.isoformat()} while the worker container was "
+                  "replaced and the baseline held no heartbeat row")
+            raise SystemExit(1)
+        print(f"first heartbeat for worker {worker_id!r} written after the "
+              f"baseline capture by the replacement worker (age {age:.0f}s)")
+        raise SystemExit(0)
+    print(f"first heartbeat for worker {worker_id!r} observed "
+          f"with the worker container unchanged (age {age:.0f}s, worker kept running)")
     raise SystemExit(0)
-baseline_last = datetime.fromisoformat(baseline["last_heartbeat"])
+baseline_last = datetime.fromisoformat(baseline_row["last_heartbeat"])
 if last <= baseline_last:
     print(f"worker {worker_id!r} wrote no NEW heartbeat after the baseline")
     raise SystemExit(1)
-if age >= limit:
-    print(f"new heartbeat for worker {worker_id!r} is already stale: "
-          f"age {age:.0f}s >= limit {limit}s")
-    raise SystemExit(1)
 if pre_id != post_id:
-    baseline_started = datetime.fromisoformat(baseline["started_at"])
+    baseline_started = datetime.fromisoformat(baseline_row["started_at"])
     if started <= baseline_started:
         print(f"old worker wrote after the baseline but the replacement worker "
               f"has not: worker {worker_id!r} started_at {started.isoformat()} "
@@ -218,18 +253,23 @@ PY
 }
 
 # Print the pre-start heartbeat baseline for NETWORK_REPORT_WORKER_ID as a
-# JSON object ({} when this worker has no row yet). Must run BEFORE the
-# stack is (re)started; as a one-off container it works on a fresh install
-# (no worker container yet) and always runs on the TARGET image (update.sh
-# has already switched the image reference when it calls this).
+# JSON object, ALWAYS carrying `captured_at` (the capture instant the
+# verifier needs to judge a replaced container when the baseline held no
+# row), plus the worker's row when it has one. Must run BEFORE the stack is
+# (re)started; as a one-off container it works on a fresh install (no
+# worker container yet) and always runs on the TARGET image (update.sh has
+# already switched the image reference when it calls this).
 heartbeat_baseline() {
     if COMPOSE run --rm --no-deps worker python -m backend.ops.heartbeat_verify baseline 2>/dev/null; then
         return 0
     fi
     # Legacy fallback for pre-W05-AUDIT target images (rollback target):
-    # same query, same JSON. Keep in sync with backend/ops/heartbeat_verify.py.
+    # same query, same JSON shape (captured_at included so the fallback
+    # verifier gets the same evidence as the tested module's baseline).
+    # Keep in sync with backend/ops/heartbeat_verify.py.
     COMPOSE run --rm --no-deps worker python - baseline <<'PY' 2>/dev/null
 import json, sys
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
@@ -243,13 +283,11 @@ with get_engine().connect() as conn:
         select(WorkerHeartbeat.last_heartbeat, WorkerHeartbeat.started_at)
         .where(WorkerHeartbeat.worker_id == worker_id)
     ).first()
-if row is None:
-    print("{}")
-else:
-    print(json.dumps({
-        "last_heartbeat": row[0].isoformat(),
-        "started_at": row[1].isoformat(),
-    }))
+baseline = {"captured_at": datetime.now(UTC).isoformat()}
+if row is not None:
+    baseline["last_heartbeat"] = row[0].isoformat()
+    baseline["started_at"] = row[1].isoformat()
+print(json.dumps(baseline))
 PY
 }
 
