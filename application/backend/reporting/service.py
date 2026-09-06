@@ -20,7 +20,9 @@ Overall status (§19 — fixed rules, deterministic):
           interface still confirmed Down, or any IRF member still missing.
     关注: no 异常 condition, but any recovered device/interface Down, CPU
           or memory sustained-high, priority-interface high utilization,
-          or Coverage < 95% (single device or overall).
+          or Coverage < 95% (single device or overall). A deployment with
+          NO devices has no coverage evidence at all — 数据完整性不足 keeps
+          the report out of 正常 over an empty database (§6.2).
     正常: none of the above.
 
 CRC/Error/Drop observations NEVER change the status (§19). Missing data
@@ -297,9 +299,19 @@ def _summary_text(
         f"{overall_coverage:.2f}%" if overall_coverage is not None else MISSING_TEXT
     )
 
+    if not coverage.devices:
+        # Empty deployment: no coverage evidence exists, so the summary must
+        # never read as healthy — 未配置设备/数据缺失, integrity not satisfied
+        # (§6.2; an empty database is not a good week).
+        coverage_clauses = ["未配置设备/数据缺失", "数据完整性不足"]
+    else:
+        coverage_clauses = [
+            f"Monitoring Coverage {coverage_text}",
+            "数据完整性不足" if coverage.below_target else "数据完整性满足要求",
+        ]
+
     clauses = [
-        f"Monitoring Coverage {coverage_text}",
-        "数据完整性不足" if coverage.below_target else "数据完整性满足要求",
+        *coverage_clauses,
         f"设备掉线 {device_downs} 次"
         + (f"（{device_open} 次期末仍未恢复）" if device_open else ""),
         f"重点接口中断 {interface_downs} 次"
@@ -316,7 +328,13 @@ def _summary_text(
             f"{name} 成员 {'、'.join(str(m) for m in members)}" for name, members in missing_irf
         )
         clauses.append(f"IRF 成员期末缺失：{detail}")
-    else:
+    # A fabric with no successful observation this week has NO evidence about
+    # its members: the summary must say 数据缺失, never 无缺失 (§6.2/§17) — and
+    # absence of evidence is not a §19 异常 condition either.
+    missing_irf_data = [s.device_name for s in irf_summaries if s.data_missing]
+    if missing_irf_data:
+        clauses.append(f"IRF 成员状态数据缺失（{'、'.join(missing_irf_data)}）")
+    if not missing_irf and not missing_irf_data:
         clauses.append("IRF 成员无缺失")
 
     clauses.append(f"CPU 持续高负载 {cpu_sustained} 台")

@@ -12,6 +12,10 @@ Invariants (§27):
   by the partial unique index `uq_report_jobs_active_week` (§4.3);
 - at most one generation executing at a time: jobs run inline on the
   worker's report loop thread;
+- a `running` row is always a leftover (worker restart, or a terminal
+  success/failure update lost to a database outage): the loop re-runs
+  recovery on its passes, so a job can never be stranded without a retry
+  (§4.2/§4.3);
 - a failed regeneration never destroys the previous successful DOCX —
   the `weekly_reports` success row and its file stay untouched until a
   new attempt atomically replaces the file (§4.4/§5);
@@ -189,11 +193,13 @@ def request_regenerate(
 
 
 def recover_stale_running_jobs(session: Session, *, now: datetime) -> int:
-    """Reset jobs stuck in `running` back to pending (worker restart, §4.2).
+    """Reset jobs stuck in `running` back to pending (§4.2).
 
-    A single-worker deployment can only have a `running` job at boot if
-    the previous worker died mid-generation; the attempt is re-run rather
-    than lost. Returns how many jobs were recovered.
+    Generations run inline on the report loop's thread, so a `running` row
+    can only be a leftover: the previous worker died mid-generation, or its
+    terminal success/failure update was lost to a database outage. The
+    attempt is re-run rather than lost. Returns how many jobs were
+    recovered.
     """
 
     stuck = session.execute(
@@ -201,7 +207,7 @@ def recover_stale_running_jobs(session: Session, *, now: datetime) -> int:
     ).scalars().all()
     for job in stuck:
         job.status = STATUS_PENDING
-        job.last_error = "worker restart interrupted generation; retrying"
+        job.last_error = "generation interrupted (restart or lost update); retrying"
         job.next_retry_at = now
         job.updated_at = now
         logger.warning("recovered stale running report job %d (%s)", job.id, job.week_code)
@@ -293,6 +299,50 @@ def _mark_failure(
     session.commit()
 
 
+def _record_failure(
+    session_factory: sessionmaker, job_id: int, error: str, *, now: datetime
+) -> bool:
+    """Record a failed attempt; when even that cannot be persisted, requeue.
+
+    The generation DID fail, but a database outage can also swallow the
+    failure update — and a job left in `running` with `next_retry_at = NULL`
+    would never be picked up again. The fallback resets it to `pending`
+    with the 10-minute `next_retry_at` (§4.3), so the loop keeps retrying
+    without a worker restart; if even the reset fails, the loop's recovery
+    pass re-collects the stranded `running` row later (§4.2). Returns True
+    once the job is out of `running`.
+    """
+
+    try:
+        with session_factory() as session:
+            _mark_failure(session, job_id, error, now=now)
+        return True
+    except SQLAlchemyError as exc:
+        logger.error(
+            "report job %d failure could not be recorded (%s); queueing a retry",
+            job_id,
+            type(exc).__name__,
+        )
+    try:
+        with session_factory() as session:
+            job = session.get(ReportJob, job_id)
+            if job is None or job.status != STATUS_RUNNING:
+                return False
+            job.status = STATUS_PENDING
+            job.last_error = error
+            job.next_retry_at = now + RETRY_DELAY
+            job.updated_at = now
+            session.commit()
+            return True
+    except SQLAlchemyError as exc:
+        logger.error(
+            "report job %d could not be queued for retry (%s); recovery retries next pass",
+            job_id,
+            type(exc).__name__,
+        )
+        return False
+
+
 def execute_report_job(
     session_factory: sessionmaker,
     job_id: int,
@@ -344,8 +394,7 @@ def execute_report_job(
     except Exception as exc:  # noqa: BLE001 — every failure must be recorded (§4.3)
         summary = _error_summary(exc)
         logger.exception("report job %d failed: %s", job_id, summary)
-        with session_factory() as session:
-            _mark_failure(session, job_id, summary, now=at)
+        _record_failure(session_factory, job_id, summary, now=at)
         return ReportOutcome(
             job_id=job_id, week_code=week_code, status=STATUS_FAILED, error=summary
         )

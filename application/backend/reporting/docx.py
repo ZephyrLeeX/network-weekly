@@ -134,11 +134,16 @@ def _basic_info(document: DocumentObject, data: WeeklyReportData) -> None:
     """Section 1: 周报基本信息与总体摘要 (§6.1)."""
 
     coverage = data.coverage
-    coverage_summary = (
-        f"总体 {_fmt_percent(coverage.coverage_percent)}"
-        f"（设备 {len(coverage.devices)} 台，SUCCESS {coverage.success}，"
-        f"PARTIAL {coverage.partial}，FAILED {coverage.failed}）"
-    )
+    if coverage.devices:
+        coverage_summary = (
+            f"总体 {_fmt_percent(coverage.coverage_percent)}"
+            f"（设备 {len(coverage.devices)} 台，SUCCESS {coverage.success}，"
+            f"PARTIAL {coverage.partial}，FAILED {coverage.failed}）"
+        )
+    else:
+        # Empty deployment: no coverage evidence exists — 数据缺失, never a
+        # percentage computed over zero devices, never a healthy look (§6.2).
+        coverage_summary = "未配置设备/数据缺失（设备 0 台，无 Monitoring Coverage 数据）"
     if coverage.below_target:
         coverage_summary += "；数据完整性不足"
 

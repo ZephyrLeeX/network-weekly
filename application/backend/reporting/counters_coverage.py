@@ -19,6 +19,9 @@ with expected taken from the planned-cycle grid (7*24*12 = 2016 for a full
 week; a disabled device has no planned cycles). PARTIAL is always shown
 separately so the percentage can never hide partial collection failures.
 Below 95% the report states 数据完整性不足 — and still generates (§18.3).
+A database with no devices at all has no coverage evidence: coverage is
+数据缺失, the report states 未配置设备/数据缺失, and integrity is never
+claimed satisfied over an empty deployment (§6.2).
 
 Both statistics live ONLY here; the report service composes them.
 """
@@ -205,9 +208,20 @@ def _int_or_none(value: object) -> int | None:
 def counter_delta_top_entries(
     session: Session, period: ReportPeriod, limit: int = 10
 ) -> list[InterfaceCounterDelta]:
-    """§16: the Top-10 weekly incrementers (observation only)."""
+    """§16: the Top-10 weekly incrementers (observation only).
 
-    return weekly_counter_deltas(session, period)[:limit]
+    An interface with NO valid counter interval (`total_delta is None`) has
+    no rankable observation — it never fills a Top-10 slot (数据缺失 is not a
+    value, §6.2). A genuine total of 0 (every reported counter constant) is
+    a real observation and stays eligible.
+    """
+
+    ranked = [
+        delta
+        for delta in weekly_counter_deltas(session, period)
+        if delta.total_delta is not None
+    ]
+    return ranked[:limit]
 
 
 @dataclass(frozen=True)
@@ -260,6 +274,12 @@ class CoverageSummary:
         return sum(d.failed for d in self.devices)
 
     @property
+    def data_missing(self) -> bool:
+        """No planned cycles at all — coverage is 数据缺失, not a value (§6.2)."""
+
+        return self.expected == 0
+
+    @property
     def coverage_percent(self) -> float | None:
         if self.expected == 0:
             return None
@@ -267,8 +287,16 @@ class CoverageSummary:
 
     @property
     def below_target(self) -> bool:
-        """§18.3: overall OR any single device below 95% → 数据完整性不足."""
+        """§18.3: overall OR any single device below 95% → 数据完整性不足.
 
+        A deployment with NO devices has no coverage evidence at all: the
+        integrity requirement cannot be claimed satisfied, so this counts
+        as below target (and the report says 未配置设备/数据缺失) instead of
+        showing a healthy empty database (§6.2).
+        """
+
+        if not self.devices:
+            return True
         overall = self.coverage_percent
         overall_low = overall is not None and overall < COVERAGE_TARGET_PERCENT
         return overall_low or any(d.below_target for d in self.devices)

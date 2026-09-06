@@ -11,10 +11,13 @@ from typing import Any
 import pytest
 from docx import Document
 from sqlalchemy import Engine, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.db.engine import get_session_factory
 from backend.db.models import ReportJob, WeeklyReport
+from backend.reporting import jobs as reporting_jobs
+from backend.reporting import schedule as reporting_schedule
 from backend.reporting.docx import RenderedReport
 from backend.reporting.jobs import (
     ACTIVE_STATUSES,
@@ -280,6 +283,154 @@ def test_recover_stale_running_jobs(db_engine: Engine, tmp_path: Path) -> None:
     # The recovered job then completes (§27.1: restart keeps responsibility).
     outcome = execute_report_job(get_session_factory(), job_id, tmp_path, now=NOW)
     assert outcome.status == STATUS_SUCCEEDED
+
+
+def test_lost_success_update_becomes_recorded_failure(
+    db_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A success update lost to a database outage must not strand the job."""
+
+    with Session(db_engine) as session:
+        job = ensure_scheduled_job(session, PERIOD, now=NOW)
+        assert job is not None
+        job_id = job.id
+
+    def exploding_mark_success(
+        session: Session, job_id: int, rendered: RenderedReport, *, now: datetime
+    ) -> None:
+        raise SQLAlchemyError("connection lost")
+
+    monkeypatch.setattr(reporting_jobs, "_mark_success", exploding_mark_success)
+    outcome = execute_report_job(get_session_factory(), job_id, tmp_path, now=NOW)
+    assert outcome.status == STATUS_FAILED
+    assert "database error" in (outcome.error or "")
+
+    monkeypatch.undo()
+    with Session(db_engine) as session:
+        job = session.get(ReportJob, job_id)
+        assert job is not None
+        assert job.status == STATUS_FAILED  # recorded failure, NOT stuck running
+        assert job.next_retry_at == NOW + RETRY_DELAY  # §4.3 cadence kept
+        # The rendered-but-unrecorded file never became the success row (§4.4).
+        report = session.execute(
+            select(WeeklyReport).where(WeeklyReport.week_code == PERIOD.week_code)
+        ).scalar_one()
+        assert report.status == "failed"
+
+    # The retry then completes the generation end-to-end.
+    succeeded = execute_report_job(get_session_factory(), job_id, tmp_path, now=NOW + RETRY_DELAY)
+    assert succeeded.status == STATUS_SUCCEEDED
+
+
+def test_failure_update_lost_queues_retry_without_worker_restart(
+    db_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Terminal updates both lost -> the fallback requeues the job (§4.3)."""
+
+    with Session(db_engine) as session:
+        job = ensure_scheduled_job(session, PERIOD, now=NOW)
+        assert job is not None
+        job_id = job.id
+
+    def exploding(session: Session, *_args: object, **_kwargs: object) -> None:
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(reporting_jobs, "_mark_success", exploding)
+    monkeypatch.setattr(reporting_jobs, "_mark_failure", exploding)
+    outcome = execute_report_job(get_session_factory(), job_id, tmp_path, now=NOW)
+    assert outcome.status == STATUS_FAILED
+
+    monkeypatch.undo()
+    with Session(db_engine) as session:
+        job = session.get(ReportJob, job_id)
+        assert job is not None
+        assert job.status == STATUS_PENDING  # requeued by the fallback, not stuck
+        assert job.next_retry_at == NOW + RETRY_DELAY  # 10-minute retry continues
+        assert job.last_error is not None and "database error" in job.last_error
+
+    # The same worker (no restart) picks the job up on a later pass.
+    loop = WeeklyReportLoop(get_session_factory(), tmp_path)
+    loop._clock = lambda: NOW + RETRY_DELAY
+    loop.run_pass()
+    with Session(db_engine) as session:
+        job = session.get(ReportJob, job_id)
+        assert job is not None
+        assert job.status == STATUS_SUCCEEDED
+
+
+def test_stuck_running_job_recovered_by_later_pass_without_restart(
+    db_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even a failed requeue is recovered by a later pass (§4.2), no restart."""
+
+    with Session(db_engine) as session:
+        job = ensure_scheduled_job(session, PERIOD, now=NOW)
+        assert job is not None
+        job_id = job.id
+
+    def exploding(session: Session, *_args: object, **_kwargs: object) -> None:
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(reporting_jobs, "_mark_success", exploding)
+    monkeypatch.setattr(reporting_jobs, "_record_failure", lambda *_a, **_k: False)
+    outcome = execute_report_job(get_session_factory(), job_id, tmp_path, now=NOW)
+    assert outcome.status == STATUS_FAILED
+
+    with Session(db_engine) as session:
+        job = session.get(ReportJob, job_id)
+        assert job is not None
+        assert job.status == STATUS_RUNNING  # last-resort state
+
+    monkeypatch.undo()
+    loop = WeeklyReportLoop(get_session_factory(), tmp_path)
+    loop._clock = lambda: NOW
+    loop.run_pass()  # recovery collects the stranded running row, then runs it
+    with Session(db_engine) as session:
+        job = session.get(ReportJob, job_id)
+        assert job is not None
+        assert job.status == STATUS_SUCCEEDED
+        assert job.last_error is None
+
+
+def test_recovery_failure_retried_on_later_pass(
+    db_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed recovery (DB blip) is retried by the next pass (§4.2/§27.9)."""
+
+    with Session(db_engine) as session:
+        job = ensure_scheduled_job(session, PERIOD, now=NOW)
+        assert job is not None
+        job_id = job.id
+        job.status = STATUS_RUNNING  # stranded by an interrupted generation
+        job.next_retry_at = None
+        session.commit()
+
+    real_recover = reporting_schedule.recover_stale_running_jobs
+    calls = {"count": 0}
+
+    def flaky_recover(session: Session, *, now: datetime) -> int:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise SQLAlchemyError("database briefly unavailable")
+        return real_recover(session, now=now)
+
+    monkeypatch.setattr(reporting_schedule, "recover_stale_running_jobs", flaky_recover)
+    loop = WeeklyReportLoop(get_session_factory(), tmp_path)
+    loop._clock = lambda: NOW
+
+    loop.run_pass()  # recovery fails: contained, job untouched
+    assert calls["count"] == 1
+    with Session(db_engine) as session:
+        job = session.get(ReportJob, job_id)
+        assert job is not None
+        assert job.status == STATUS_RUNNING
+
+    loop.run_pass()  # the next pass retries recovery and then completes the job
+    assert calls["count"] == 2
+    with Session(db_engine) as session:
+        job = session.get(ReportJob, job_id)
+        assert job is not None
+        assert job.status == STATUS_SUCCEEDED
 
 
 def test_worker_loop_schedules_at_monday_0010_and_recovers(

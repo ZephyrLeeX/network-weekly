@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.models import (
     Device,
+    DeviceMember,
     DeviceMetric,
     DevicePollRun,
     DeviceReachabilityIncident,
@@ -128,6 +129,50 @@ def test_fully_empty_week_is_attention_with_missing_data(db_engine: Engine) -> N
         assert all(d.cpu is None and d.memory is None for d in data.device_resources)
         assert data.interface_top10 == ()
         assert data.counter_top10 == ()
+
+
+def test_zero_device_database_is_not_normal(db_engine: Engine) -> None:
+    """A truly empty database (0 devices) is 数据缺失, never a good week (§6.2)."""
+
+    with Session(db_engine) as session:
+        assert session.query(Device).count() == 0  # fixture left no device behind
+
+        data = build_weekly_report_data(session, PERIOD)
+
+        assert data.coverage.devices == ()
+        assert data.coverage.coverage_percent is None  # Coverage 数据缺失, not 0%
+        assert data.coverage.below_target  # integrity cannot be claimed satisfied
+        assert data.device_resources == ()
+        # Missing configuration is not an 异常 condition — but never 正常.
+        assert data.overall_status == STATUS_ATTENTION
+        assert "总体状态：正常" not in data.summary_text
+        assert "未配置设备/数据缺失" in data.summary_text
+        assert "数据完整性满足要求" not in data.summary_text
+        assert "数据完整性不足" in data.summary_text
+
+
+def test_irf_data_missing_week_summary_is_explicit(db_engine: Engine) -> None:
+    """§17: no successful observation → 数据缺失 in the summary, never 无缺失."""
+
+    with Session(db_engine) as session:
+        device = _device(session, "core-irf", expected_members=2)
+        session.add_all(
+            [
+                DeviceMember(device_id=device.id, member_id=1),
+                DeviceMember(device_id=device.id, member_id=2),
+            ]
+        )
+        _good_week(session, device.id)
+        session.commit()
+
+        data = build_weekly_report_data(session, PERIOD)
+        assert data.irf_summaries[0].data_missing
+        assert "IRF 成员状态数据缺失（core-irf）" in data.summary_text
+        assert "IRF 成员无缺失" not in data.summary_text
+        assert "期末缺失" not in data.summary_text
+        # Missing IRF evidence is not an 异常 condition by itself; the overall
+        # status still follows §19 + Coverage (here: low coverage → 关注).
+        assert data.overall_status == STATUS_ATTENTION
 
 
 def test_healthy_week_is_normal(db_engine: Engine) -> None:

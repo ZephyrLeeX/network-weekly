@@ -3,8 +3,9 @@
 
 One pass, every minute:
 
-1. recover `running` jobs stranded by a previous worker (§4.2/§27.1) —
-   done once at loop start;
+1. recover `running` jobs stranded by a previous worker or by a terminal
+   update lost to a database outage (§4.2/§27.1) — a failed recovery is
+   simply retried on the next pass, so recovery itself never gets stuck;
 2. if `now >= last Monday 00:00 + 10 min` (== Monday 00:10 Asia/Shanghai,
    §4.1), idempotently ensure the persistent job for the just-completed
    week exists (§4.2: the responsibility is the DB row, so a worker that
@@ -12,6 +13,10 @@ One pass, every minute:
 3. run every due job — pending, or failed with `next_retry_at <= now`
    (the 10-minute retry, §4.3) — one at a time, oldest first (§27: never
    two concurrent generations; the loop thread runs them inline).
+
+Recovery can run at every pass start because generations are inline: at
+pass start no job of this worker is legitimately `running`, so a `running`
+row is always a leftover that must be re-queued (§4.2).
 
 A pass that fails (database blip) is contained: the loop logs and keeps
 cycling (§27.9).
@@ -66,10 +71,15 @@ class WeeklyReportLoop:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._sleep = sleep
         self._execute = execute if execute is not None else execute_report_job
-        self._recovered = False
 
     def recover_once(self) -> int:
-        """Reset jobs stuck in `running` from a previous worker (§4.2)."""
+        """Reset jobs stuck in `running` back to pending (§4.2).
+
+        Called at the start of EVERY pass, not only at loop start: a failed
+        recovery (database briefly down) is retried by the following passes
+        until it succeeds, so a stranded `running` job is picked up again
+        without a worker restart (§4.2/§27.9).
+        """
 
         with self._session_factory() as session:
             recovered = recover_stale_running_jobs(session, now=self._clock())
@@ -111,9 +121,10 @@ class WeeklyReportLoop:
             ran += 1
 
     def run_pass(self) -> None:
-        """One schedule+retry pass; failures contained (§27.9)."""
+        """One recovery+schedule+retry pass; failures contained (§27.9)."""
 
         try:
+            self.recover_once()
             self.ensure_scheduled()
             self.run_due()
         except Exception as exc:  # noqa: BLE001 — keep the loop alive
@@ -124,10 +135,6 @@ class WeeklyReportLoop:
             "weekly report loop started (check interval %d s)",
             int(self._check_interval.total_seconds()),
         )
-        try:
-            self.recover_once()
-        except Exception as exc:  # noqa: BLE001 — recovery retries next pass
-            logger.error("report job recovery failed (%s)", type(exc).__name__)
         while not stop.is_set():
             self.run_pass()
             if self._sleep is not None:

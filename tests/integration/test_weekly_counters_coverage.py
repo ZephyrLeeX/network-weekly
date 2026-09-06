@@ -157,7 +157,48 @@ def test_interface_without_any_counter_data_not_ranked(db_engine: Engine) -> Non
 
         deltas = weekly_counter_deltas(session, PERIOD)
         assert deltas[0].total_delta is None
-        assert counter_delta_top_entries(session, PERIOD) == deltas[:10]
+        # total_delta is None = no rankable observation: it must not fill a
+        # Top-10 slot (数据缺失 is not a value, §6.2) — the Top 10 stays empty.
+        assert counter_delta_top_entries(session, PERIOD) == []
+
+
+def test_top_entries_exclude_missing_data_but_keep_true_zero(db_engine: Engine) -> None:
+    """Boundary: total None never ranks; a genuine 0 total is a real rank."""
+
+    with Session(db_engine) as session:
+        device = _device(session, "core-1")
+        zero = _interface(session, device.id, "XGE1/0/1")  # constant counter
+        silent = _interface(session, device.id, "XGE1/0/2")  # counters never reported
+        for i in range(2):
+            cycle = PERIOD.start + i * STEP
+            run = _cycle(session, device.id, cycle)
+            _sample(session, run, zero.id, cycle, crc=10)
+            _sample(session, run, silent.id, cycle)
+        session.commit()
+
+        top = counter_delta_top_entries(session, PERIOD)
+        assert [d.normalized_name for d in top] == ["xge1/0/1"]  # None-total excluded
+        assert top[0].crc_delta == 0  # one valid interval, genuinely zero increment
+        assert top[0].total_delta == 0
+
+
+def test_top_entries_filled_only_by_interfaces_with_data(db_engine: Engine) -> None:
+    """With fewer rankable interfaces than 10, None-total ones stay out."""
+
+    with Session(db_engine) as session:
+        device = _device(session, "core-1")
+        with_data = _interface(session, device.id, "XGE1/0/1")
+        without_data = _interface(session, device.id, "XGE1/0/2")
+        for i in range(2):
+            cycle = PERIOD.start + i * STEP
+            run = _cycle(session, device.id, cycle)
+            _sample(session, run, with_data.id, cycle, crc=100 + 10 * i)
+            _sample(session, run, without_data.id, cycle)
+        session.commit()
+
+        top = counter_delta_top_entries(session, PERIOD)
+        assert [d.normalized_name for d in top] == ["xge1/0/1"]
+        assert top[0].total_delta == 10
 
 
 def test_top_entries_ranked_by_total_delta(db_engine: Engine) -> None:

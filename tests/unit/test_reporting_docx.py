@@ -261,6 +261,70 @@ def test_irf_and_open_questions_sections(tmp_path: Path) -> None:
     assert last_table.rows[0].cells[0].text.strip() == ""
 
 
+def test_zero_device_coverage_renders_missing_not_healthy(tmp_path: Path) -> None:
+    """Audit: an empty deployment shows 未配置设备/数据缺失, never healthy."""
+
+    report = _report(
+        status=STATUS_ATTENTION,
+        summary_text="2026-W36 周报总体状态：关注。未配置设备/数据缺失；数据完整性不足。",
+        coverage=CoverageSummary(devices=()),
+    )
+    path = render_report_docx(report, tmp_path).path
+    document = Document(str(path))
+    cells = {(row.cells[0].text, row.cells[1].text) for row in document.tables[0].rows}
+    assert ("当前总体状态", STATUS_ATTENTION) in cells  # never 正常 over an empty DB
+    coverage_row = next(text for label, text in cells if label == "Monitoring Coverage 摘要")
+    assert "未配置设备/数据缺失" in coverage_row
+    assert "数据完整性不足" in coverage_row
+    assert "总体" not in coverage_row  # no percentage over zero devices
+    all_text = "\n".join(p.text for p in document.paragraphs)
+    assert "数据完整性满足要求" not in all_text
+    assert "未配置设备/数据缺失" in all_text
+
+
+def test_irf_data_missing_fabric_renders_missing_not_loss(tmp_path: Path) -> None:
+    """Audit: no successful observation reads as 数据缺失, not member loss."""
+
+    fabric = IrfDeviceWeeklySummary(
+        device_id=3,
+        device_name="irf-core",
+        expected_member_count=2,
+        observed_member_count=None,
+        latest_observation_at=None,
+        members=(
+            IrfMemberWeeklySummary(
+                member_id=1,
+                observations_count=0,
+                missing_windows=(),
+                latest_observed=None,
+                latest_role=None,
+            ),
+            IrfMemberWeeklySummary(
+                member_id=2,
+                observations_count=0,
+                missing_windows=(),
+                latest_observed=None,
+                latest_role=None,
+            ),
+        ),
+        role_changes=(),
+    )
+    report = _report(
+        status=STATUS_ATTENTION,
+        summary_text="2026-W36 周报总体状态：关注。IRF 成员状态数据缺失（irf-core）。",
+        irf_summaries=(fabric,),
+    )
+    path = render_report_docx(report, tmp_path).path
+    document = Document(str(path))
+    all_text = "\n".join(p.text for p in document.paragraphs)
+    assert "本周无成功观察，成员状态数据缺失" in all_text  # IRF section header
+    assert "IRF 成员状态数据缺失（irf-core）" in all_text  # summary paragraph
+    irf_table = next(
+        table for table in document.tables if table.rows[0].cells[0].text == "成员编号"
+    )
+    assert [row.cells[1].text for row in irf_table.rows[1:]] == [MISSING, MISSING]
+
+
 def test_top10_table_renders_rank_and_utilization(tmp_path: Path) -> None:
     entry = InterfaceTopEntry(
         interface_id=1,
