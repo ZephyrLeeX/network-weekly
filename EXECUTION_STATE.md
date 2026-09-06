@@ -4,13 +4,13 @@
 
 ```text
 Current Wave: W03 — implementation COMPLETE, GATE BLOCKED (real week data)
-Current Task: W03-AUDIT-3 (audit follow-up: report candidate/attempt
-  consistency) REVIEW_PASSED on work/wave-03.
+Current Task: W03-AUDIT-4 (audit follow-up: unknown-commit-state race +
+  install-pending residue) REVIEW_PASSED on work/wave-03.
   W03-GATE stays BLOCKED — REAL_WEEK_DATA_PENDING per owner instruction
   2026-09-05 — W03-T010's real-report verification has no real weekly data
   in this environment, so the gate is NOT judged PASS and work/wave-03 is
   NOT merged into main.
-Branch: work/wave-03 (engineering verification all green after W03-AUDIT-3;
+Branch: work/wave-03 (engineering verification all green after W03-AUDIT-4;
   merge deferred until the W03-T010 real-data acceptance closes)
 ```
 
@@ -104,6 +104,21 @@ W03-AUDIT-3: e5a9396b9b357b2106157401b0c91e935158b850 — REVIEW_PASSED
           last_error with a succeeded_install_pending outcome and is
           completed by the next pass; 2 new + 4 rewritten integration
           tests, 1 rewritten + 1 extended unit test)
+W03-AUDIT-4: 760bdd61ee328049f22fe9677aeecfedfd3097e1 — REVIEW_PASSED
+          (audit follow-up, no schema change / no migration: 1) a
+          success-commit state that cannot be determined (database
+          unreachable for the verification query, recovered right after)
+          resolves to commit_unknown — the job-bound candidate is kept,
+          nothing is recorded, nothing is scheduled, the row keeps its
+          state, the next pass's recovery/reconciliation arbitrates; the
+          landed success can never be degraded to FAILED + 10-min retry
+          again, and _mark_failure refuses to downgrade a succeeded job
+          as a hard guard; 2) reconcile_report_files clears a stale
+          install-pending last_error strictly from DB + directory when
+          the job is the week's current success with its DOCX on disk
+          and no candidate left, or a newer success superseded the job —
+          the diagnosable state cannot outlive its lost clearing commit;
+          2 new integration tests, 1 updated)
 ```
 
 ## W03-T010 / W03-GATE BLOCKED item (2026-09-05)
@@ -321,6 +336,79 @@ W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
 started; W01-T007 still FIELD_VALIDATION_PENDING.
 ```
 
+## W03-AUDIT-4 follow-up hotfix (2026-09-06)
+
+```text
+W03-AUDIT-4 — REVIEW_PASSED (checkpoint 760bdd61ee328049f22fe9677aeecfedfd3097e1,
+work/wave-03). Two audit items fixed; no schema change, no migration.
+
+1. unknown → FAILED 竞态修复 (§4.4): after a failed success update,
+   execute_report_job classified the attempt via _success_commit_state
+   (committed / absent / unknown) — but the "unknown" branch (database
+   still unreachable for the verification query) STILL fell through to
+   _record_failed_attempt. If the database recovered before the failure
+   recorder ran while the success commit had actually landed (lost
+   reply), the succeeded job was downgraded to FAILED + 10-minute retry.
+   The state machine is now strict:
+     committed  → install the candidate → SUCCEEDED / INSTALL_PENDING
+     absent     → discard the candidate → FAILED + 10-min retry
+     unknown    → keep the candidate, record NOTHING (no FAILED), schedule
+                  NOTHING (no retry), leave the row in its current state —
+                  the next pass's recovery (a stranded `running` row
+                  re-enters the retry) and reconciliation (a landed
+                  success gets its candidate installed) arbitrate.
+   The unresolved attempt is reported as the distinct outcome status
+   commit_unknown (never an ordinary FAILED, never an unqualified
+   SUCCEEDED). Additionally _mark_failure now refuses to downgrade a
+   succeeded job (logs and returns untouched) — a terminal success can
+   never lose to a late failure record even if future call sites change.
+
+2. install-pending 残留清理 (§4.4): the switch and the marker-clearing
+   are two separate commits, so a database failure between them (the
+   candidate's os.replace already succeeded, the last_error-clearing
+   commit lost) left a succeeded job whose candidate is gone while the
+   row still claims a switch is owed — and with no candidate left,
+   candidate-based reconciliation could never see it again. The next
+   pass's reconcile_report_files now also sweeps stale markers strictly
+   from the database and the directory: a succeeded job carrying the
+   install-pending last_error is cleared when the week's success row is
+   exactly this job's commit (generated_at == finished_at) AND its
+   recorded current DOCX exists on disk AND no candidate bound to the
+   job remains — or when a strictly newer success of the week superseded
+   the job (nothing can be owed anymore). A missing current DOCX keeps
+   the marker: there the diagnosis is still true.
+
+Tests: tests/integration/test_report_file_consistency.py (+2, 1 updated):
+the required unknown-state scenario (A success → regenerate B → B's
+success commit LANDS with a lost reply → exactly the commit-state query
+hits a windowed database outage (commit state unknown) → the failure
+recorder's database is already recovered → job still succeeded, finished_at
+intact, next_retry_at NULL, no FAILED last_error, not in due_jobs,
+candidate kept → a direct _mark_failure call is refused by the guard →
+next pass reconcile installs B, current bytes change, registry still B's
+commit, no duplicate job); the required residue scenario (install
+OSError → diagnosable install-pending → reconcile completes the switch
+but its marker-clearing commit is lost → current bytes are B with no
+candidate while the row still says install pending → next healthy pass
+clears the stale marker, bytes/registry untouched, nothing scheduled);
+the outage-kept-candidate test now pins the unresolved commit_unknown
+outcome with nothing recorded and nothing scheduled.
+Evidence: pytest 252 unit + 170 integration PASS on migrated PostgreSQL
+(0001→0008); ruff clean; mypy clean (100 files); `alembic upgrade head`
+idempotent at 0008 (no migration); image rebuilt (docker build;
+compose build is a silent no-op in this environment) + compose smoke:
+web healthy (/health database ok), worker heartbeat persisted and fresh
+(11 s), poll/IRF/weekly-report loops alive with zero errors; live manual
+regenerate of 2026-W35 through the §4.4 service inside the worker
+container on the new code: succeeded, 8 validated sections, exactly one
+current DOCX in the reports volume (no candidate/temp residue), registry
+row success pointing at it, job row succeeded with last_error NULL,
+reconcile pass clean, empty deployment still rendered honestly (当前总体
+状态 关注, 未配置设备/数据缺失, 数据完整性不足).
+W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
+started; W01-T007 still FIELD_VALIDATION_PENDING.
+```
+
 ```text
 W02-T001: 9e1601de5e691f903810abe837935cc616649d2f — REVIEW_PASSED
           (migration 0003; poll runs + device/interface metrics; idempotent
@@ -408,6 +496,26 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W03-AUDIT-4 (audit follow-up: unknown-commit-state race + install-pending
+residue) — REVIEW_PASSED:
+  1. A success-commit state that cannot be determined (database
+     unreachable for the verification query, recovered right after) no
+     longer falls through to the failure recorder: the attempt resolves
+     to commit_unknown — candidate kept, no FAILED recorded, no retry
+     scheduled, row state untouched; the next pass's recovery/
+     reconciliation arbitrates. _mark_failure refuses to downgrade a
+     succeeded job as a hard guard.
+  2. reconcile_report_files clears a stale install-pending last_error
+     strictly from DB + directory (the job is the week's current success
+     with its DOCX on disk and no candidate left, or a newer success
+     superseded the job) — the diagnosable state cannot outlive its lost
+     clearing commit.
+See "W03-AUDIT-4 follow-up hotfix (2026-09-06)" above for full evidence.
+```
+
+## Previous completed task
+
+```text
 W03-AUDIT-3 (audit follow-up: report candidate/attempt consistency) —
 REVIEW_PASSED:
   Candidate DOCXs are job-bound (…docx.candidate.<job_id>) and
@@ -420,7 +528,7 @@ REVIEW_PASSED:
 See "W03-AUDIT-3 follow-up hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Previous completed task
+## Older completed task
 
 ```text
 W03-AUDIT-2 (audit follow-up: regenerate file/DB consistency) —
@@ -433,7 +541,7 @@ REVIEW_PASSED:
 See "W03-AUDIT-2 follow-up hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Older completed task
+## Earlier completed task
 
 ```text
 W03-AUDIT (Wave 3 audit hotfix) — REVIEW_PASSED:
@@ -448,7 +556,7 @@ W03-AUDIT (Wave 3 audit hotfix) — REVIEW_PASSED:
 See "W03-AUDIT hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Earlier completed task
+## Earlier completed task (W03-T010 engineering scope)
 
 ```text
 W03-T010 (engineering scope) — regenerate service REVIEW_PASSED:
@@ -493,6 +601,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W03-AUDIT-4 checkpoint: 760bdd61ee328049f22fe9677aeecfedfd3097e1 (work/wave-03)
 W03-AUDIT-3 checkpoint: e5a9396b9b357b2106157401b0c91e935158b850 (work/wave-03)
 W03-AUDIT-2 checkpoint: 5bdc22e138950940146de87d84c65184bacaa75c (work/wave-03)
 W03-AUDIT checkpoint: 936b1583f46376cf043d28286910952e711a49d7 (work/wave-03)
@@ -582,10 +691,10 @@ verification and merge work/wave-03 into main.
 W03-GATE — Weekly Report Gate
 Status: BLOCKED — REAL_WEEK_DATA_PENDING (STOPPED per owner 2026-09-05;
 NOT PASS). Engineering verification fully green on work/wave-03 and
-re-validated green after W03-AUDIT (checkpoint 936b1583f46376cf043d2828
-6910952e711a49d7):
-  pytest 250 unit + 160 integration PASS on migrated PostgreSQL (0008);
-  ruff clean; mypy clean (99 files); alembic upgrade head idempotent at
+re-validated green after W03-AUDIT-4 (checkpoint 760bdd61ee328049f22fe96
+77aeecfedfd3097e1):
+  pytest 252 unit + 170 integration PASS on migrated PostgreSQL (0008);
+  ruff clean; mypy clean (100 files); alembic upgrade head idempotent at
   0008 (no new migration); compose image rebuilt (docker build; compose
   build is a silent no-op in this environment) + smoke: web healthy
   (/health database ok), worker heartbeat persisted and fresh, device-poll
@@ -593,7 +702,7 @@ re-validated green after W03-AUDIT (checkpoint 936b1583f46376cf043d2828
   manual regenerate of the 2026-W35 job through the §4.4 service produced
   one atomic, revalidated 8-section DOCX in the reports volume with the
   empty deployment honestly rendered (关注 / 未配置设备/数据缺失) after
-  W03-AUDIT.
+  W03-AUDIT-4.
 Golden scenarios cover every IMPLEMENTATION_PLAN golden case; failure/
 restart semantics (10-min retry, per-pass recovery of stranded `running`
 jobs, requeue on a lost terminal update, one active job per week at DB
