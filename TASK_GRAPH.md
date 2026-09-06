@@ -510,10 +510,16 @@ REVIEW_PASSED
 **Checkpoint:** see EXECUTION_STATE.md Wave 5 checkpoint ledger.
 
 ## W05-T004 — Logging, retention scheduling and operator runbook
-**Status:** TODO  
+**Status:** REVIEW_PASSED（2026-09-06, branch work/wave-05）  
 **Depends On:** W04-GATE  
 **Blocks:** W05-T005  
-**Acceptance:** logs bounded/rotatable; retention runs safely; common failure checks and report regeneration steps documented.
+**Acceptance:** logs bounded/rotatable; retention runs safely; common failure checks and report regeneration steps documented.  
+**Implementation:**
+- Bounded logs: every production service logs to json-file rotation (10 MB × 3, YAML anchor in the prod compose) — verified live via `docker inspect` on a recreated stack; pinned by `test_container_logs_are_bounded_and_rotating`.
+- Retention truly periodic: the worker's §24 loop (first pass 60 s after start, every 6 h thereafter) is now exercised end to end in `tests/integration/test_retention_loop.py` — it deletes seeded >90-day raw rows on its passes, keeps running afterwards, honors the stop event, and a sub-90-day configuration terminates the loop loudly (logged error, no deletion) instead of silently skipping cleanup. (`run_retention` batching/long-term-data isolation was already pinned by W02 tests.)
+- `docs/OPERATIONS.md` operator runbook: compose quick-reference + rollback one-liner + exit-code table (2, 10–19); daily web /health + worker-heartbeat checks; offline install checklist (image `docker load`, post-install verification, go-live steps for devices.toml/secrets.env); upgrade checklist with **pre-update pg_dump** and post-update verification (health/heartbeat/version/DOCX intact); rollback incl. the DB-restore path when a migration already ran; compose-config changes distributed by re-running the idempotent install.sh; Monday routine; manual regenerate (one-current guarantee + job state display); report job/retry/reconcile troubleshooting (status machine, 10-min retry, stale-running recovery, `succeeded_install_pending` + `reconcile_report_files`, candidate naming `<file>.docx.candidate.<job_id>` with registry-vs-disk check SQL); DEVICE_POLL SUCCESS/PARTIAL/FAILED + `failed_sections` (`credentials`/`overlap`) semantics with per-device SQL; SNMP/SSH troubleshooting (profile keys, per-cycle secret reload, 2-cycle down semantics, read-only SSH allowlist); DB/disk capacity + retention verification; secrets 0600/uid-1000 checks; log redaction statement.
+**Tests:** 300 unit + 243 integration PASS, ruff clean, mypy clean (126 files). `tests/unit/test_operations_runbook.py` pins section coverage AND secret safety: no `KEY=value` secret assignments, no placeholder values (`change-me-*`), keys only ever appear as `<PROFILE>` placeholders.  
+**Checkpoint:** see EXECUTION_STATE.md Wave 5 checkpoint ledger.
 
 ## W05-T005 — Real-environment stability acceptance
 **Status:** TODO  

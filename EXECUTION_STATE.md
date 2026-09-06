@@ -5,8 +5,9 @@
 ```text
 Current Wave: W05 — Deployment and Stability — IN PROGRESS (branch
   work/wave-05, created 2026-09-06)
-Current Task: W05-T004 — Logging, retention scheduling and operator
-  runbook (next; T001/T002/T003 REVIEW_PASSED)
+Current Task: W05-T005 — Real-environment stability acceptance
+  (scaffolding only; stays BLOCKED/IN_PROGRESS until REAL evidence;
+  T001–T004 REVIEW_PASSED)
 W04-AUDIT merge into main: 872b1631f64ad83d02bff7088679cc5d6accf2e9
   (post-merge re-check on main: 278 unit + 241 integration PASS, ruff
   clean, mypy clean in 122 files, alembic upgrade head idempotent at
@@ -65,6 +66,16 @@ W05-T003: 7b382e7ff9667ca072f3feabe232fe5a75d6941e — REVIEW_PASSED
           from a W04-T001-commit-built image to a HEAD-built image, 10
           devices + 1 admin intact, raising-0012 image → exit 14 with old
           stack still healthy, missing image → exit 12, re-run idempotent)
+W05-T004: 134ff1fe8101d9943d9c2f642cea432873614474 — REVIEW_PASSED
+          (prod compose json-file 10MB×3 on all services — live-verified
+          via docker inspect; tests/integration/test_retention_loop.py
+          proves the worker §24 loop deletes >90d rows periodically,
+          survives passes, honors stop, refuses sub-90-day config loudly;
+          docs/OPERATIONS.md runbook (install/upgrade/rollback + pg_dump,
+          health/heartbeat, job/retry/reconcile/install-pending/candidate,
+          DEVICE_POLL PARTIAL/FAILED + failed_sections, SNMP/SSH, capacity,
+          secrets perms, redaction; no secret values) pinned by
+          test_operations_runbook.py; 300 unit + 243 integration PASS)
 ```
 
 ## Wave 4 checkpoint ledger
