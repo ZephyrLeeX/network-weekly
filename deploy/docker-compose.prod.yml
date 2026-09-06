@@ -1,0 +1,88 @@
+# Production Compose file for the Network Weekly Report System
+# (SYSTEM_SPEC.md §25/§26.1). deploy/install.sh installs this file as
+# /opt/network-report/docker-compose.yml together with a 0600 .env.
+#
+# Differences from the development docker-compose.yml in the repository root:
+#   - No `build:` sections. Production consumes a pre-built application image
+#     that already exists on the host (offline install, SYSTEM_SPEC.md §25);
+#     nothing is ever pulled at runtime.
+#   - No named volumes. PostgreSQL data and generated DOCX reports live on
+#     host bind mounts under /data/network-report, so both survive the
+#     replacement/recreation of any container (W05-T001). The development
+#     `reports` named volume is a dev-only convenience and is NOT read here
+#     (one-time copy: see deploy/README.md).
+#   - devices.toml (non-sensitive inventory, §22.1) is bind-mounted
+#     read-only into web and worker: the worker polls against it and
+#     host-side one-off commands (install.sh inventory sync) run on the web
+#     service. secrets.env is mounted read-only into the worker ONLY — the
+#     poller is the only consumer of device credentials. secrets.env must be
+#     mode 0600 and owned by the deployment service account (container uid
+#     1000, SYSTEM_SPEC.md §22.2): the backend refuses to load a
+#     wider-permission file, and the non-root container process must be able
+#     to read it.
+
+services:
+  web:
+    image: ${NETWORK_REPORT_APP_IMAGE:?set NETWORK_REPORT_APP_IMAGE in .env}
+    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
+      NETWORK_REPORT_ENVIRONMENT: production
+      NETWORK_REPORT_DATA_DIR: /var/lib/network-report
+      NETWORK_REPORT_TIMEZONE: ${NETWORK_REPORT_TIMEZONE:-Asia/Shanghai}
+      NETWORK_REPORT_LOG_LEVEL: ${NETWORK_REPORT_LOG_LEVEL:-INFO}
+      TZ: ${NETWORK_REPORT_TIMEZONE:-Asia/Shanghai}
+    volumes:
+      - ${NETWORK_REPORT_DATA_DIR:?set NETWORK_REPORT_DATA_DIR in .env}/reports:/var/lib/network-report/reports
+      - ${NETWORK_REPORT_CONFIG_DIR:?set NETWORK_REPORT_CONFIG_DIR in .env}/devices.toml:/etc/network-report/devices.toml:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Real /health request (W00-T005): the web app must actually respond.
+      test: ["CMD", "python", "-c", "import json, sys, urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3); d = json.load(r); sys.exit(0 if r.status == 200 and d.get('status') == 'ok' else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  worker:
+    image: ${NETWORK_REPORT_APP_IMAGE:?set NETWORK_REPORT_APP_IMAGE in .env}
+    command: ["python", "-m", "backend.worker"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
+      NETWORK_REPORT_ENVIRONMENT: production
+      NETWORK_REPORT_DATA_DIR: /var/lib/network-report
+      NETWORK_REPORT_TIMEZONE: ${NETWORK_REPORT_TIMEZONE:-Asia/Shanghai}
+      NETWORK_REPORT_LOG_LEVEL: ${NETWORK_REPORT_LOG_LEVEL:-INFO}
+      NETWORK_REPORT_WORKER_ID: ${NETWORK_REPORT_WORKER_ID:-worker}
+      NETWORK_REPORT_HEARTBEAT_INTERVAL_SECONDS: ${NETWORK_REPORT_HEARTBEAT_INTERVAL_SECONDS:-30}
+      NETWORK_REPORT_RETENTION_DAYS: ${NETWORK_REPORT_RETENTION_DAYS:-90}
+      TZ: ${NETWORK_REPORT_TIMEZONE:-Asia/Shanghai}
+    volumes:
+      - ${NETWORK_REPORT_DATA_DIR:?set NETWORK_REPORT_DATA_DIR in .env}/reports:/var/lib/network-report/reports
+      - ${NETWORK_REPORT_CONFIG_DIR:?set NETWORK_REPORT_CONFIG_DIR in .env}/devices.toml:/etc/network-report/devices.toml:ro
+      - ${NETWORK_REPORT_CONFIG_DIR:?set NETWORK_REPORT_CONFIG_DIR in .env}/secrets.env:/etc/network-report/secrets.env:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    volumes:
+      - ${NETWORK_REPORT_DATA_DIR:?set NETWORK_REPORT_DATA_DIR in .env}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
