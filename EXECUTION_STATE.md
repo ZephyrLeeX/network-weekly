@@ -5,7 +5,7 @@
 ```text
 Current Wave: W04 — Login and Operations Web (started per Owner Decision
   2026-09-06)
-Current Task: W04-T001 (single administrator + salted scrypt password)
+Current Task: W04-T002 (server-side session + login/logout)
 Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
   Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
   to the Release Gate (W05-GATE):
@@ -18,7 +18,20 @@ Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
   - W04-T004 depends on the REVIEW_PASSED regenerate service
     implementation (reporting/jobs.py::request_regenerate), NOT on the
     W03-T010 real-data acceptance.
-Branch: work/wave-04 (from main after the work/wave-03 merge)
+W03 merge into main: 131844461ade75c1517b1da91bd7d49bc1090521
+Branch: work/wave-04 (from main at the W03 merge)
+```
+
+## Wave 4 checkpoint ledger
+
+```text
+W04-T001: 620d2af3323f3b97c7349652bd138bf24dd90336 — REVIEW_PASSED
+          (migration 0009 users + uq_users_single_admin singleton index;
+          auth/passwords.py salted scrypt scrypt$N$r$p$salt$hash with
+          hmac.compare_digest; auth/admin.py initialize_admin/get_admin/
+          verify_admin_login/set_admin_password; admin_cli.py init with
+          env-or-getpass password entry, never argv/stdout/logs;
+          plaintext never persisted; 8 unit + 8 integration tests)
 ```
 
 ## Wave 3 checkpoint ledger
@@ -510,6 +523,18 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W04-T001 (single administrator + salted scrypt password) — REVIEW_PASSED:
+  migration 0009 users with the singleton unique index (§21 as a DB
+  guarantee); auth/passwords.py self-describing salted scrypt hashes;
+  auth/admin.py create/reinitialize/login-verify/password-rotate service;
+  python -m backend.admin_cli init reading the password from env or
+  getpass — never argv/stdout/logs; plaintext never persisted.
+See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
+```
+
+## Older completed task (W03-AUDIT-4)
+
+```text
 W03-AUDIT-4 (audit follow-up: unknown-commit-state race + install-pending
 residue) — REVIEW_PASSED:
   1. A success-commit state that cannot be determined (database
@@ -527,7 +552,7 @@ residue) — REVIEW_PASSED:
 See "W03-AUDIT-4 follow-up hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Previous completed task
+## Older completed task (W03-AUDIT-3)
 
 ```text
 W03-AUDIT-3 (audit follow-up: report candidate/attempt consistency) —
@@ -542,7 +567,7 @@ REVIEW_PASSED:
 See "W03-AUDIT-3 follow-up hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Older completed task
+## Older completed task (W03-AUDIT-2)
 
 ```text
 W03-AUDIT-2 (audit follow-up: regenerate file/DB consistency) —
@@ -555,7 +580,7 @@ REVIEW_PASSED:
 See "W03-AUDIT-2 follow-up hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Earlier completed task
+## Older completed task (W03-AUDIT)
 
 ```text
 W03-AUDIT (Wave 3 audit hotfix) — REVIEW_PASSED:
@@ -615,6 +640,8 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W04-T001 checkpoint: 620d2af3323f3b97c7349652bd138bf24dd90336 (work/wave-04)
+W03 merge into main: 131844461ade75c1517b1da91bd7d49bc1090521
 W03-AUDIT-4 checkpoint: 760bdd61ee328049f22fe9677aeecfedfd3097e1 (work/wave-03)
 W03-AUDIT-3 checkpoint: e5a9396b9b357b2106157401b0c91e935158b850 (work/wave-03)
 W03-AUDIT-2 checkpoint: 5bdc22e138950940146de87d84c65184bacaa75c (work/wave-03)
@@ -690,9 +717,8 @@ backend/monitoring/interface_state.py and TASK_GRAPH W02-T006.
 ## Next ready candidates
 
 ```text
-W04-T001 — single administrator + salted scrypt password (READY per
-Owner Decision 2026-09-06; W03-GATE = PASS as an engineering gate).
-Then W04-T002 -> W04-T003/T004/T005 -> W04-GATE.
+W04-T002 — server-side session + login/logout (W04-T001 REVIEW_PASSED).
+Then W04-T003/T004/T005 -> W04-GATE.
 Outstanding release blockers (NOT Wave-4 blockers): W03-T010
 REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING, both
 blocking W05-GATE.

@@ -394,10 +394,13 @@ REVIEW_PASSED
 # Wave 4 — Login and Operations Web
 
 ## W04-T001 — Single administrator and password storage
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W03-GATE（PASS — engineering gate; READY per Owner Decision 2026-09-06）  
 **Blocks:** W04-T002  
-**Acceptance:** one local administrator can be initialized; salted scrypt hash stored; plaintext password never persisted.
+**Acceptance:** one local administrator can be initialized; salted scrypt hash stored; plaintext password never persisted.  
+**Implementation:** migration `0009` — `users` (username unique, `password_hash`, singleton, TIMESTAMPTZ audit columns) with the UNIQUE index `uq_users_single_admin` on the always-true `singleton` flag making §21 "系统只有一个本地管理员账号" a database guarantee. `auth/passwords.py` — self-describing salted scrypt hashes `scrypt$N$r$p$<salt hex>$<digest hex>` (stdlib `hashlib.scrypt`, n=2¹⁴/r=8/p=1, 16-byte `secrets` salt per password, `hmac.compare_digest` verification; malformed stored hashes verify False, never raise). `auth/admin.py` — `initialize_admin` (create-or-reinitialize, idempotent for install flows; validation rejects empty credentials before any DB use), `get_admin`, `verify_admin_login` (unknown username indistinguishable from wrong password — both `None`, with a timing-balancing hash burn), `set_admin_password` (rotation with a fresh salt). `admin_cli.py` — `python -m backend.admin_cli init [USERNAME]` reads the password from `NETWORK_REPORT_ADMIN_PASSWORD` (install.sh path) or getpass with confirmation; never in argv/stdout/logs; registers the value with the secret-redaction log filter (§22.2). Plaintext exists only as function arguments (§21).  
+**Tests:** unit `tests/unit/test_auth_passwords.py` (8: scrypt format + cost, random salt, correct/wrong verification, plaintext never in the stored hash incl. hex form, unicode round trip, malformed-hash → False, empty inputs) + integration `tests/integration/test_auth_admin.py` (8: single-account creation, persisted column is scrypt hash not plaintext, reinitialize-in-place keeps one row, correct/wrong/unknown login indistinguishability, password rotation invalidates old, empty credentials rejected before DB, database-level second-admin rejection via `uq_users_single_admin`, migration 0009 schema shape incl. TIMESTAMPTZ + both unique indexes). pytest 260 unit + 8 auth/migration integration PASS; ruff clean; mypy clean (106 files).  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-T002 — Server-side session and login/logout
 **Status:** TODO  
