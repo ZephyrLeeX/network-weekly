@@ -15,12 +15,23 @@ The invariants under test:
   candidate is installed, no FAILED downgrade, no retry);
 - an install failure after the commit is diagnosable (job `last_error`,
   STATUS_INSTALL_PENDING outcome) and is completed by the next pass's
-  reconciliation — never reported as an unqualified full success.
+  reconciliation — never reported as an unqualified full success;
+- an undeterminable commit state (the database unreachable for the
+  success-state query, recovered right after) never degrades a landed
+  success into FAILED + retry: nothing is recorded, nothing is
+  scheduled, the candidate is kept and the next pass's reconciliation
+  installs it (W03-AUDIT-4);
+- an install-pending marker whose switch (or superseding discard)
+  already happened while its clearing commit was lost is cleared by a
+  later pass strictly from the database and the directory — it cannot
+  survive forever (W03-AUDIT-4).
 """
 
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import TracebackType
+from typing import Any
 
 import pytest
 from sqlalchemy import Engine, select
@@ -33,6 +44,7 @@ from backend.reporting import jobs as reporting_jobs
 from backend.reporting.docx import RenderedReport, candidate_file_name, render_report_candidate
 from backend.reporting.jobs import (
     RETRY_DELAY,
+    STATUS_COMMIT_UNKNOWN,
     STATUS_FAILED,
     STATUS_INSTALL_PENDING,
     STATUS_PENDING,
@@ -97,19 +109,67 @@ class _OutageAfterOpenFactory:
 
     Opens before `fail_from_open` reach the real database; from that open
     on, every call fails — the wire dies between two statements, exactly
-    like a real outage mid-generation.
+    like a real outage mid-generation. `fail_through_open` (exclusive)
+    bounds the blip: from that open on the database is reachable again,
+    modelling an outage that outlives one query but not the next one.
     """
 
     def __init__(self, healthy: sessionmaker) -> None:
         self._healthy = healthy
         self.opens = 0
         self.fail_from_open: int | None = None
+        self.fail_through_open: int | None = None
 
     def __call__(self) -> object:
         self.opens += 1
-        if self.fail_from_open is not None and self.opens >= self.fail_from_open:
+        in_window = self.fail_from_open is not None and self.opens >= self.fail_from_open
+        bounded = self.fail_through_open is not None and self.opens >= self.fail_through_open
+        if in_window and not bounded:
             return _OutageSession()
         return self._healthy()
+
+
+class _CommitLostSession:
+    """A session that reads fine but can never commit.
+
+    Models the W03-AUDIT-4 residue window: the in-process file switch
+    (`os.replace`) already happened, the marker-clearing commit of the
+    reconciliation did not land.
+    """
+
+    def __init__(self, inner: Session) -> None:
+        self._inner = inner
+
+    def __enter__(self) -> _CommitLostSession:
+        self._inner.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self._inner.__exit__(exc_type, exc, tb)
+
+    def get(self, *args: Any, **kwargs: Any) -> Any:
+        return self._inner.get(*args, **kwargs)
+
+    def execute(self, *args: Any, **kwargs: Any) -> Any:
+        return self._inner.execute(*args, **kwargs)
+
+    def commit(self) -> None:
+        raise SQLAlchemyError("commit lost after the file switch")
+
+
+class _CommitLostFactory:
+    """Session factory whose every session loses its commits."""
+
+    def __init__(self, healthy: sessionmaker) -> None:
+        self._healthy = healthy
+
+    def __call__(self) -> _CommitLostSession:
+        return _CommitLostSession(self._healthy())
 
 
 def test_success_db_failure_keeps_old_docx_until_retry_succeeds(
@@ -217,8 +277,9 @@ def test_outage_kept_candidate_is_never_installed_and_retry_redoes_it(
         regenerate_id = job.id
 
     # The database dies the moment B's candidate exists: `_mark_success`
-    # cannot commit and even the failure record is swallowed by the
-    # outage, so the job stays `running` and the job-bound candidate is
+    # cannot commit and the commit-state query is swallowed by the
+    # outage, so the attempt resolves to commit-unknown — nothing is
+    # recorded and nothing is scheduled — and the job-bound candidate is
     # kept on disk for reconciliation.
     def render_then_outage(data: object, output_dir: Path, *, job_id: int) -> RenderedReport:
         rendered = render_report_candidate(data, output_dir, job_id=job_id)  # type: ignore[arg-type]
@@ -229,8 +290,8 @@ def test_outage_kept_candidate_is_never_installed_and_retry_redoes_it(
         factory,  # type: ignore[arg-type]
         regenerate_id, tmp_path, now=later, render=render_then_outage
     )
-    assert outcome.status == STATUS_FAILED
-    assert "database error" in (outcome.error or "")
+    assert outcome.status == STATUS_COMMIT_UNKNOWN  # unresolved, NOT a failure
+    assert outcome.error is not None and "unknown" in outcome.error
     candidate_b = tmp_path / candidate_file_name(PERIOD, regenerate_id)
     assert candidate_b.exists()  # kept — resolution was impossible
     assert current.read_bytes() == bytes_a  # A untouched
@@ -238,6 +299,9 @@ def test_outage_kept_candidate_is_never_installed_and_retry_redoes_it(
         stuck = session.get(ReportJob, regenerate_id)
         assert stuck is not None
         assert stuck.status == STATUS_RUNNING  # terminal update lost
+        assert stuck.last_error is None  # no FAILED recorded
+        assert stuck.next_retry_at is None  # no retry scheduled
+        assert due_jobs(session, now=later + RETRY_DELAY) == []
         report = session.execute(
             select(WeeklyReport).where(WeeklyReport.week_code == PERIOD.week_code)
         ).scalar_one()
@@ -343,6 +407,114 @@ def test_lost_success_reply_returns_succeeded_without_retry(
     assert sorted(p.name for p in tmp_path.iterdir()) == [CURRENT_NAME]
 
 
+def test_unknown_commit_state_never_downgrades_a_landed_success(
+    db_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The required W03-AUDIT-4 scenario: a landed success commit whose
+    state query hit a database blip must not become FAILED + retry.
+
+    B's success commit LANDS but its reply is lost  ->  the first
+    success-state query is swallowed by a database outage (commit state
+    unknown)  ->  by the failure recorder's turn the database is back
+    again  ->  the job must stay `succeeded`, must never be degraded to
+    FAILED, must not enter `due_jobs`, and its candidate must be kept  ->
+    the next pass's reconciliation installs B and the current bytes
+    change.
+    """
+
+    factory = _OutageAfterOpenFactory(get_session_factory())
+
+    # Successful report A (job 1).
+    with Session(db_engine) as session:
+        job = request_regenerate(session, PERIOD, now=NOW)
+        first_id = job.id
+    first = execute_report_job(factory, first_id, tmp_path, now=NOW)  # type: ignore[arg-type]
+    assert first.status == STATUS_SUCCEEDED
+    current = tmp_path / CURRENT_NAME
+    bytes_a = current.read_bytes()
+
+    # Manual regenerate B (job 2): the commit lands, the reply is lost,
+    # and exactly the commit-state query dies with the database — the very
+    # next open would already be healthy, which is precisely the window
+    # that used to degrade the landed success to FAILED.
+    later = NOW + timedelta(hours=1)
+    with Session(db_engine) as session:
+        job = request_regenerate(session, PERIOD, now=later)
+        regenerate_id = job.id
+
+    real_mark_success = reporting_jobs._mark_success
+
+    def commit_then_lose_reply(
+        session: Session, job_id: int, rendered: RenderedReport, *, now: datetime
+    ) -> None:
+        real_mark_success(session, job_id, rendered, now=now)  # commit lands…
+        factory.fail_from_open = factory.opens + 1  # …the state query dies…
+        factory.fail_through_open = factory.opens + 2  # …the DB is back after
+        raise SQLAlchemyError("connection lost after commit")  # …reply is lost
+
+    monkeypatch.setattr(reporting_jobs, "_mark_success", commit_then_lose_reply)
+    outcome = execute_report_job(
+        factory,  # type: ignore[arg-type]
+        regenerate_id, tmp_path, now=later
+    )
+    monkeypatch.undo()
+    assert outcome.status == STATUS_COMMIT_UNKNOWN  # neither FAILED nor SUCCEEDED
+    assert outcome.error is not None and "unknown" in outcome.error
+
+    # The success STAYS committed: no FAILED downgrade, no retry, the
+    # job-bound candidate is kept for the next pass to arbitrate.
+    candidate_b = tmp_path / candidate_file_name(PERIOD, regenerate_id)
+    assert candidate_b.exists()
+    assert current.read_bytes() == bytes_a  # nothing installed in-process
+    with Session(db_engine) as session:
+        succeeded_job = session.get(ReportJob, regenerate_id)
+        assert succeeded_job is not None
+        assert succeeded_job.status == STATUS_SUCCEEDED  # the landed commit
+        assert succeeded_job.finished_at == later
+        assert succeeded_job.next_retry_at is None  # no retry scheduled
+        assert succeeded_job.last_error is None  # no FAILED recorded
+        assert due_jobs(session, now=later + RETRY_DELAY) == []  # not runnable
+        report = session.execute(
+            select(WeeklyReport).where(WeeklyReport.week_code == PERIOD.week_code)
+        ).scalar_one()
+        assert report.status == "success"
+        assert report.file_path == str(current)
+        assert report.generated_at == later  # B's committed success
+
+    # Defensive guard: even a failure record reaching the terminal success
+    # afterwards cannot downgrade it.
+    with Session(db_engine) as session:
+        reporting_jobs._mark_failure(
+            session, regenerate_id, "late failure record", now=later
+        )
+        guarded = session.get(ReportJob, regenerate_id)
+        assert guarded is not None
+        assert guarded.status == STATUS_SUCCEEDED
+        assert guarded.last_error is None
+        assert guarded.next_retry_at is None
+
+    # The next pass (database healthy): reconciliation finds B's candidate,
+    # B's own landed success authorizes it — B is installed.
+    loop = WeeklyReportLoop(get_session_factory(), tmp_path, clock=lambda: later)
+    loop.run_pass()
+    assert not candidate_b.exists()  # installed, not discarded
+    assert current.read_bytes() != bytes_a  # the current bytes are now B's
+    assert sorted(p.name for p in tmp_path.iterdir()) == [CURRENT_NAME]
+    with Session(db_engine) as session:
+        done = session.get(ReportJob, regenerate_id)
+        assert done is not None
+        assert done.status == STATUS_SUCCEEDED
+        assert done.last_error is None
+        assert session.query(ReportJob).count() == 2  # no duplicate job scheduled
+        report = session.execute(
+            select(WeeklyReport).where(WeeklyReport.week_code == PERIOD.week_code)
+        ).scalar_one()
+        assert report.status == "success"
+        assert report.file_path == str(current)
+        assert report.generated_at == later  # still B's commit, now on disk
+        assert due_jobs(session, now=later + RETRY_DELAY) == []
+
+
 def test_install_failure_after_commit_is_diagnosable_and_reconciled(
     db_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -417,6 +589,101 @@ def test_install_failure_after_commit_is_diagnosable_and_reconciled(
         assert done.status == STATUS_SUCCEEDED
         assert done.last_error is None  # diagnostic cleared by the install
         assert session.query(ReportJob).count() == 2  # no duplicate job scheduled
+
+
+def test_install_pending_marker_cleared_after_lost_clearing_commit(
+    db_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The required W03-AUDIT-4 residue window: the candidate's atomic
+    switch succeeded but the marker-clearing commit was lost.
+
+    B's switch failure leaves the install-pending marker  ->  the next
+    reconciliation installs B but cannot commit the cleared `last_error`
+    ->  the candidate is gone while the row still claims a switch is owed
+    ->  the FOLLOWING pass must clear the stale marker strictly from the
+    database and the directory (job succeeded + the success row is this
+    job's own commit + the current DOCX exists + no candidate left) —
+    the diagnosable state must not survive forever.
+    """
+
+    # Successful report A (job 1).
+    with Session(db_engine) as session:
+        job = request_regenerate(session, PERIOD, now=NOW)
+        first_id = job.id
+    first = execute_report_job(get_session_factory(), first_id, tmp_path, now=NOW)
+    assert first.status == STATUS_SUCCEEDED
+    current = tmp_path / CURRENT_NAME
+    bytes_a = current.read_bytes()
+
+    # Regenerate B (job 2): the DB success commits, the switch fails —
+    # the diagnosable install-pending state with the kept candidate.
+    later = NOW + timedelta(hours=1)
+    with Session(db_engine) as session:
+        job = request_regenerate(session, PERIOD, now=later)
+        regenerate_id = job.id
+
+    def failing_switch(rendered: RenderedReport) -> None:
+        raise OSError("reports volume hiccup")
+
+    monkeypatch.setattr(reporting_jobs, "install_report", failing_switch)
+    pending = execute_report_job(get_session_factory(), regenerate_id, tmp_path, now=later)
+    monkeypatch.undo()
+    assert pending.status == STATUS_INSTALL_PENDING
+    candidate_b = tmp_path / candidate_file_name(PERIOD, regenerate_id)
+    assert candidate_b.exists()
+    with Session(db_engine) as session:
+        marked = session.get(ReportJob, regenerate_id)
+        assert marked is not None
+        assert marked.last_error is not None
+        assert "install pending" in marked.last_error
+
+    # The next reconciliation completes the switch (os.replace) but its
+    # marker-clearing commit is lost.
+    lost = WeeklyReportLoop(
+        _CommitLostFactory(get_session_factory()), tmp_path  # type: ignore[arg-type]
+    )
+    lost._clock = lambda: later
+    with pytest.raises(SQLAlchemyError, match="commit lost"):
+        lost.reconcile_files()
+
+    # The residue: B IS the current DOCX and no candidate remains, yet the
+    # row still claims a switch is owed. Before the sweep this could never
+    # resolve — reconciliation only looked at candidates.
+    assert current.read_bytes() != bytes_a  # the switch DID complete
+    assert sorted(p.name for p in tmp_path.iterdir()) == [CURRENT_NAME]
+    with Session(db_engine) as session:
+        stale = session.get(ReportJob, regenerate_id)
+        assert stale is not None
+        assert stale.status == STATUS_SUCCEEDED
+        assert stale.last_error is not None  # stale residue
+        assert "install pending" in stale.last_error
+        report = session.execute(
+            select(WeeklyReport).where(WeeklyReport.week_code == PERIOD.week_code)
+        ).scalar_one()
+        assert report.status == "success"
+        assert report.file_path == str(current)
+        assert report.generated_at == later  # still B's committed success
+
+    # The next healthy pass clears the stale marker from the row; the
+    # bytes and the registry stay exactly as the completed switch left them.
+    healthy = WeeklyReportLoop(get_session_factory(), tmp_path, clock=lambda: later)
+    healthy.run_pass()
+    assert current.read_bytes() != bytes_a  # untouched by the cleanup
+    assert sorted(p.name for p in tmp_path.iterdir()) == [CURRENT_NAME]
+    with Session(db_engine) as session:
+        done = session.get(ReportJob, regenerate_id)
+        assert done is not None
+        assert done.status == STATUS_SUCCEEDED
+        assert done.last_error is None  # residue cleared
+        assert done.next_retry_at is None
+        assert session.query(ReportJob).count() == 2  # no duplicate scheduled
+        report = session.execute(
+            select(WeeklyReport).where(WeeklyReport.week_code == PERIOD.week_code)
+        ).scalar_one()
+        assert report.status == "success"
+        assert report.file_path == str(current)
+        assert report.generated_at == later
+        assert due_jobs(session, now=later + RETRY_DELAY) == []
 
 
 def test_stale_candidate_cannot_override_a_newer_success(

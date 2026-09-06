@@ -97,7 +97,11 @@ class WeeklyReportLoop:
         job whose committed success it carries — a success that committed
         but never reached its atomic file switch (crash, lost reply,
         volume hiccup) is completed here instead of being lost; every
-        unauthorized or superseded candidate is removed.
+        unauthorized or superseded candidate is removed. Install-pending
+        markers whose owed switch demonstrably completed (or was
+        superseded) while their clearing commit was lost — no candidate
+        left to resolve — are cleared here too, so the diagnosable state
+        never outlives its cause (W03-AUDIT-4).
         """
 
         with self._session_factory() as session:

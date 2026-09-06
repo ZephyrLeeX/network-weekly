@@ -33,10 +33,21 @@ Invariants (§27):
 - a lost success reply (the commit landed, the caller saw an error)
   resolves to SUCCEEDED: the job's own candidate is installed and no
   retry is scheduled — the job is never degraded back to FAILED;
+- an undeterminable commit state (the database is unreachable when the
+  attempt's success is queried after the success update failed) resolves
+  to nothing at all: the job-bound candidate is kept, no FAILED is
+  recorded, no retry is scheduled and the row keeps its current state —
+  the next pass's recovery/reconciliation arbitrates (W03-AUDIT-4), and
+  `_mark_failure` additionally refuses to ever downgrade a `succeeded`
+  job if a failure record reaches it anyway;
 - an install failure after the committed success is a diagnosable
   non-terminal state: the success stays, the candidate survives, the
   job row records the pending switch in `last_error`, and reconciliation
-  completes (and clears) it on a later pass;
+  completes (and clears) it on a later pass; a marker whose switch
+  demonstrably completed (or was superseded) but whose clearing commit
+  was lost — no candidate left to resolve — is cleared by the next
+  pass's reconciliation too, so the diagnosable state never outlives
+  its cause (W03-AUDIT-4);
 - report statistics read only persisted data (§27.10) — the executor
   never contacts a device.
 
@@ -95,6 +106,13 @@ ACTIVE_STATUSES = (STATUS_PENDING, STATUS_RUNNING, STATUS_FAILED)
 # current DOCX is not switched yet (reconciliation owns the switch) — it
 # must never be reported as an unqualified full success (W03-AUDIT-3).
 STATUS_INSTALL_PENDING = "succeeded_install_pending"
+# Outcome of one attempt whose success-commit state could not be
+# determined: the database was unreachable when the attempt's success was
+# queried after the success update failed, so the attempt is neither
+# succeeded nor verifiably failed. Nothing is recorded and nothing is
+# scheduled — the job-bound candidate is kept and the next pass's
+# recovery/reconciliation arbitrates (W03-AUDIT-4).
+STATUS_COMMIT_UNKNOWN = "commit_unknown"
 
 TRIGGER_SCHEDULED = "scheduled"
 TRIGGER_MANUAL = "manual"
@@ -113,6 +131,13 @@ _INSTALL_PENDING_ERROR = (
     "success committed but the current DOCX is not switched yet "
     "(install pending; reconciliation will retry)"
 )
+# Returned (never persisted — the database is unreachable by definition)
+# when the success-commit state is undeterminable, so the loop sees an
+# unresolved attempt instead of an ordinary failure.
+_COMMIT_UNKNOWN_ERROR = (
+    "success commit state unknown (database unavailable); the job-bound "
+    "candidate is kept for the next pass to arbitrate"
+)
 
 
 class ReportJobError(RuntimeError):
@@ -125,7 +150,9 @@ class ReportOutcome:
 
     job_id: int
     week_code: str
-    status: str  # STATUS_SUCCEEDED / STATUS_FAILED
+    # STATUS_SUCCEEDED / STATUS_FAILED / STATUS_INSTALL_PENDING /
+    # STATUS_COMMIT_UNKNOWN.
+    status: str
     error: str | None = None
     report_path: str | None = None
 
@@ -315,6 +342,18 @@ def _mark_failure(
     job = session.get(ReportJob, job_id)
     if job is None:
         logger.error("report job %d disappeared; cannot record failure", job_id)
+        return
+    if job.status == STATUS_SUCCEEDED:
+        # A terminal success is never degraded — a landed success commit
+        # whose reply was lost must not become FAILED + 10-minute retry
+        # just because the database recovered before a failure record was
+        # attempted (W03-AUDIT-4). Defensive: the commit-unknown path no
+        # longer records failures at all.
+        logger.error(
+            "report job %d is already succeeded; refusing to record a failure (%s)",
+            job_id,
+            error,
+        )
         return
     job.status = STATUS_FAILED
     job.last_error = error
@@ -535,6 +574,86 @@ def _candidate_authorizes_install(
     )
 
 
+def _candidate_exists(output_dir: Path, job_id: int) -> bool:
+    """True when a candidate bound to `job_id` is still in `output_dir`."""
+
+    return any(
+        parsed is not None and parsed[1] == job_id
+        for parsed in (
+            parse_candidate_name(candidate.name)
+            for candidate in output_dir.glob("*" + CANDIDATE_SUFFIX + "*")
+        )
+    )
+
+
+def _clear_completed_install_pending(
+    session: Session, output_dir: Path, *, now: datetime
+) -> bool:
+    """Clear a succeeded job's install-pending marker once nothing is owed.
+
+    The atomic switch and the clearing of the marker are two separate
+    commits, and the marker itself is written best-effort: a database
+    failure in between leaves a job whose candidate is already gone (the
+    `os.replace` succeeded) while the row still claims a switch is owed —
+    and with no candidate left, the candidate resolution above can never
+    see it again, so the diagnosable state would survive forever. The
+    next pass therefore clears the marker when the database and the
+    directory agree nothing is owed anymore (W03-AUDIT-4):
+
+    - the job's own commit IS the week's current success
+      (`_candidate_authorizes_install`) and its recorded current DOCX
+      exists with no candidate of this job beside it — the switch
+      completed;
+    - a strictly newer success of the week superseded the job — its
+      candidate can never be installed, so nothing is owed.
+
+    A missing current DOCX keeps the marker: there the diagnosis is
+    still true. Returns True when a row was cleared.
+    """
+
+    pending = (
+        session.execute(
+            select(ReportJob).where(
+                ReportJob.status == STATUS_SUCCEEDED,
+                ReportJob.last_error.is_not(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    changed = False
+    for job in pending:
+        if job.last_error is None or not job.last_error.startswith(_INSTALL_PENDING_ERROR):
+            continue
+        row = session.execute(
+            select(WeeklyReport).where(WeeklyReport.week_code == job.week_code)
+        ).scalar_one_or_none()
+        if _candidate_authorizes_install(job, job.week_code, row):
+            assert row is not None and row.file_path is not None  # authorized above
+            if not Path(row.file_path).exists():
+                continue  # the current DOCX is gone — the diagnosis still holds
+        elif not (
+            row is not None
+            and row.status == REPORT_STATUS_SUCCESS
+            and row.generated_at is not None
+            and job.finished_at is not None
+            and row.generated_at > job.finished_at
+        ):
+            continue  # not the job's own success and not superseded — keep it
+        if _candidate_exists(output_dir, job.id):
+            continue  # the candidate resolution above owns it
+        logger.info(
+            "report job %d: install-pending marker cleared (nothing is owed for "
+            "%s anymore)",
+            job.id,
+            job.week_code,
+        )
+        job.last_error = None
+        job.updated_at = now
+        changed = True
+    return changed
+
+
 def reconcile_report_files(
     session: Session, output_dir: Path, *, now: datetime | None = None
 ) -> int:
@@ -558,9 +677,12 @@ def reconcile_report_files(
 
     An installed candidate clears the job's install-pending `last_error`
     (the owed switch is done); a discarded one clears it too (nothing is
-    owed anymore). Returns how many candidates were resolved. Safe to run
-    at every pass: with no candidates present it is a directory listing
-    only.
+    owed anymore). A marker whose candidate is already gone — the switch
+    (or the superseding discard) happened but its clearing commit was
+    lost — is resolved as well, strictly from the database and the
+    directory (W03-AUDIT-4). Returns how many candidates were resolved.
+    Safe to run at every pass: with no candidates and no stale marker it
+    is a directory listing and one indexed query only.
     """
 
     output_dir = Path(output_dir)
@@ -603,6 +725,8 @@ def reconcile_report_files(
             job.updated_at = now or datetime.now(UTC)
             changed = True
         resolved += 1
+    if _clear_completed_install_pending(session, output_dir, now=now or datetime.now(UTC)):
+        changed = True
     if changed:
         session.commit()
     return resolved
@@ -627,7 +751,11 @@ def execute_report_job(
     with a 10-minute `next_retry_at` (§4.3).
 
     A success commit whose reply was lost resolves to SUCCEEDED — the
-    job's own candidate is installed and nothing is retried; an install
+    job's own candidate is installed and nothing is retried; when the
+    commit state cannot be determined (the database is unreachable for
+    the verification query) the attempt resolves to STATUS_COMMIT_UNKNOWN
+    — the candidate stays job-bound and nothing is recorded or scheduled,
+    so the next pass's recovery/reconciliation arbitrates; an install
     failure keeps the success terminal but reports
     STATUS_INSTALL_PENDING until reconciliation switches the file.
     """
@@ -666,9 +794,15 @@ def execute_report_job(
         # database actually holds for THIS attempt: a commit that landed
         # despite the lost reply is terminal — install this job's own
         # candidate and report success (never FAILED, never a retry,
-        # W03-AUDIT-3). Otherwise the candidate belongs to a failed
-        # attempt: discarded when that is verifiable, kept job-bound for
-        # reconciliation when the database is still unreachable.
+        # W03-AUDIT-3). When the database is unreachable the commit state
+        # is undeterminable: keep the job-bound candidate, record nothing,
+        # schedule nothing and leave the row exactly as it is — the next
+        # pass's recovery (a stranded `running` row re-enters the retry)
+        # and reconciliation (a landed success gets its candidate
+        # installed) arbitrate, and a FAILED downgrade becomes impossible
+        # even for the window where the database is back first (§4.4,
+        # W03-AUDIT-4). Otherwise the candidate belongs to a verifiably
+        # failed attempt: discarded, and the failure recorded (§4.3).
         commit_state = _success_commit_state(session_factory, job_id, week_code, now=at)
         if commit_state == "committed":
             logger.warning(
@@ -687,14 +821,19 @@ def execute_report_job(
             )
         if commit_state == "unknown":
             logger.warning(
-                "report job %d: candidate %s kept (database still unavailable); "
-                "reconciliation will resolve it against job %d",
+                "report job %d: commit state for %s unknown (database unavailable); "
+                "candidate %s kept, nothing recorded, the next pass arbitrates",
                 job_id,
+                week_code,
                 rendered.candidate.name,
-                job_id,
             )
-        else:
-            _discard_candidate(rendered, job_id)
+            return ReportOutcome(
+                job_id=job_id,
+                week_code=week_code,
+                status=STATUS_COMMIT_UNKNOWN,
+                error=_COMMIT_UNKNOWN_ERROR,
+            )
+        _discard_candidate(rendered, job_id)
         return _record_failed_attempt(session_factory, job_id, week_code, exc, now=at)
 
     installed = _install_committed(session_factory, rendered, job_id, now=at)
