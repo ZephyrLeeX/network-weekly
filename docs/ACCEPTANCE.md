@@ -25,7 +25,7 @@ evidence rule）。
 | A10 | DOCX 失败 → 10 分钟重试 | 注入一次失败（如临时只读 reports 目录）后的 report_jobs 时间线 | 失败有状态+错误摘要，10 分钟重试最终成功，恢复后文件可下载 |
 | A11 | Worker 重启恢复 | 周一 00:10 前重启 worker 容器 | 任务自动恢复并生成；不补跑过期实时采集 |
 | A12 | regenerate one-current | 同一周手工重新生成 | 服务器始终只有一个当前 DOCX；旧文件在成功前一直可下载 |
-| A13 | 90 天清理 | evidence 脚本 retention 节（或 seeded 老数据验证） | 三张原始表最老数据 ≤ ~90 天；长期表不受影响 |
+| A13 | 90 天清理 | evidence 脚本 retention 节（或 seeded 老数据验证） | 三张原始表最老行（`MIN` collected_at / cycle_started_at，即 oldest row 年龄）≤ ~90 天（脚本判定值 BEYOND-90d/OK）；长期表不受影响 |
 | A14 | update.sh 全流程 | 升级记录：镜像→迁移→重启→/health→心跳，退出码 0 | 按第 4 节升级清单执行；含一次真实 schema 迁移 |
 | A15 | 真实周报人工核对（W03-T010） | A13 模板人工核对记录 | period 正确 / 数值与抽查一致 / 8 章节完整 / 缺失数据显式 / 无 Secret 泄漏 / 本周处理问题可编辑 |
 | A16 | 真机字段验证（W01-T007） | 独立 S10500X + S10500X IRF + S12500 IRF 的采集核对记录（脱敏 fixture 已固化） | W01-T007 最小验证集合全部关闭 |

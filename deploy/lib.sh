@@ -87,12 +87,31 @@ PY
     return 1
 }
 
-# Wait for a fresh worker heartbeat row (independent of web health, §25);
+# Wait for a NEW heartbeat written by THIS worker (NETWORK_REPORT_WORKER_ID)
+# after the baseline captured by heartbeat_baseline (W05-AUDIT fix 1, §25);
 # returns 1 on timeout (callers decide the exit code).
+#
+# The pre-W05-AUDIT check ("any heartbeat row is fresh enough") passed on a
+# stale row left behind by the previous worker — a false positive. The
+# tested implementation lives in backend.ops.heartbeat_verify; the inline
+# fallback below applies the SAME rules when the target image predates that
+# module (a rollback target), keeping `update.sh --image <old>` usable.
+# Keep the fallback in sync with backend/ops/heartbeat_verify.py.
 wait_heartbeat() {
+    local baseline=$1
     local attempt
+    if COMPOSE exec -T worker python -c "import backend.ops.heartbeat_verify" 2>/dev/null; then
+        for attempt in $(seq 1 24); do
+            if COMPOSE exec -T worker python -m backend.ops.heartbeat_verify verify "$baseline" 2>/dev/null; then
+                return 0
+            fi
+            sleep 5
+        done
+        return 1
+    fi
     for attempt in $(seq 1 24); do
-        if COMPOSE exec -T worker python - <<'PY' 2>/dev/null
+        if COMPOSE exec -T worker python - verify "$baseline" <<'PY' 2>/dev/null
+import json, sys
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -101,15 +120,26 @@ from backend.config import load_settings
 from backend.db.engine import get_engine
 from backend.db.models import WorkerHeartbeat
 
-limit = load_settings().heartbeat_interval_seconds * 4
+baseline = json.loads(sys.argv[2])
+worker_id = load_settings().worker_id
 with get_engine().connect() as conn:
-    row = conn.execute(select(WorkerHeartbeat.last_heartbeat).limit(1)).first()
+    row = conn.execute(
+        select(WorkerHeartbeat.last_heartbeat, WorkerHeartbeat.started_at)
+        .where(WorkerHeartbeat.worker_id == worker_id)
+    ).first()
+limit = load_settings().heartbeat_interval_seconds * 4
 if row is None:
-    print("no heartbeat row yet")
+    print(f"no heartbeat row for worker {worker_id!r} yet (limit {limit}s)")
     raise SystemExit(1)
 age = (datetime.now(UTC) - row[0]).total_seconds()
-print(f"worker heartbeat age {age:.0f}s (limit {limit}s)")
-raise SystemExit(0 if age <= limit else 1)
+if baseline and row[0] <= datetime.fromisoformat(baseline["last_heartbeat"]):
+    print(f"worker {worker_id!r} wrote no NEW heartbeat after the baseline")
+    raise SystemExit(1)
+if age >= limit:
+    print(f"heartbeat for worker {worker_id!r} is stale: age {age:.0f}s >= limit {limit}s")
+    raise SystemExit(1)
+print(f"new heartbeat for worker {worker_id!r} written after the baseline (age {age:.0f}s)")
+raise SystemExit(0)
 PY
         then
             return 0
@@ -119,13 +149,74 @@ PY
     return 1
 }
 
+# Print the pre-start heartbeat baseline for NETWORK_REPORT_WORKER_ID as a
+# JSON object ({} when this worker has no row yet). Must run BEFORE the
+# stack is (re)started; as a one-off container it works on a fresh install
+# (no worker container yet) and always runs on the TARGET image (update.sh
+# has already switched the image reference when it calls this).
+heartbeat_baseline() {
+    if COMPOSE run --rm --no-deps worker python -m backend.ops.heartbeat_verify baseline 2>/dev/null; then
+        return 0
+    fi
+    # Legacy fallback for pre-W05-AUDIT target images (rollback target):
+    # same query, same JSON. Keep in sync with backend/ops/heartbeat_verify.py.
+    COMPOSE run --rm --no-deps worker python - baseline <<'PY' 2>/dev/null
+import json, sys
+
+from sqlalchemy import select
+
+from backend.config import load_settings
+from backend.db.engine import get_engine
+from backend.db.models import WorkerHeartbeat
+
+worker_id = load_settings().worker_id
+with get_engine().connect() as conn:
+    row = conn.execute(
+        select(WorkerHeartbeat.last_heartbeat, WorkerHeartbeat.started_at)
+        .where(WorkerHeartbeat.worker_id == worker_id)
+    ).first()
+if row is None:
+    print("{}")
+else:
+    print(json.dumps({
+        "last_heartbeat": row[0].isoformat(),
+        "started_at": row[1].isoformat(),
+    }))
+PY
+}
+
 # install.sh verifiers: fail the script with the documented exit codes.
 verify_health() {
     wait_health || die 18 "web /health did not report ok (application+database) within 2 minutes; 'docker compose -p network-report logs web' shows why"
 }
 
 verify_heartbeat() {
-    wait_heartbeat || die 19 "worker heartbeat missing or stale; 'docker compose -p network-report logs worker' shows why"
+    local baseline=${1:-}
+    [[ -n $baseline ]] || baseline='{}'
+    wait_heartbeat "$baseline" \
+        || die 19 "worker wrote no NEW heartbeat after this start; 'docker compose -p network-report logs worker' shows why"
+}
+
+# Failure AFTER the migration committed (W05-AUDIT fix 3): the schema may
+# already have moved forward, so the previous unconditional "roll back the
+# image" hint was unsafe — rolling back may require a DB restore first.
+# Prints the schema-aware remediation and exits $1.
+post_migration_failure() {
+    local code=$1
+    shift
+    {
+        printf 'FATAL (exit %s): %s\n\n' "$code" "$*"
+        cat <<'EOF'
+Database migration has already committed.
+The schema may no longer be compatible with the previous image.
+Do NOT blindly roll back the application image.
+
+See docs/OPERATIONS.md rollback procedure.
+If the previous image cannot run against the migrated schema,
+restore the pre-update database backup first, then start the old image.
+EOF
+    } >&2
+    exit "$code"
 }
 
 # True (exit 0) when the single administrator account already exists.

@@ -108,28 +108,12 @@ for name, status, count in rows:
     print(f"device={name} status={status} count={count}")
 PY
 
-section "oldest raw data (retention: must be within ~90 days)"
-COMPOSE exec -T web python - <<'PY'
-from datetime import UTC, datetime
-
-from sqlalchemy import func, select
-
-from backend.db.engine import get_engine
-from backend.db.models import DeviceMetric, DevicePollRun, InterfaceMetric
-
-with get_engine().connect() as conn:
-    for label, column, table in (
-        ("device_metrics", DeviceMetric.collected_at, DeviceMetric),
-        ("interface_metrics", InterfaceMetric.collected_at, InterfaceMetric),
-        ("device_poll_runs", DevicePollRun.cycle_started_at, DevicePollRun),
-    ):
-        oldest = conn.execute(select(func.max(column))).scalar_one()
-        if oldest is None:
-            print(f"{label}: empty")
-            continue
-        age_days = (datetime.now(UTC) - oldest).total_seconds() / 86400
-        print(f"{label}: oldest {oldest} ({age_days:.1f} days) {'OK' if age_days <= 91 else 'BEYOND-90d'}")
-PY
+section "oldest raw data (retention: the OLDEST row of each raw table must be within ~90 days, A13)"
+# W05-AUDIT fix 2: this section used MAX(collected_at) — the NEWEST row — and
+# therefore always reported OK while recent data existed. The tested module
+# computes the true MIN() oldest-row age per table (§24, A13 BEYOND-90d).
+COMPOSE exec -T web python -m backend.ops.retention_evidence \
+    || fact "retention evidence query FAILED"
 
 section "weekly reports (registry vs disk)"
 COMPOSE exec -T web python - <<'PY'

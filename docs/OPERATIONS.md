@@ -18,7 +18,9 @@ nrc logs -f worker     # 跟踪 worker 日志
 docker load -i <镜像tar>   # 离线导入新镜像（生产机不访问 Internet）
 deploy/install.sh          # 安装 / 重复安装（幂等）
 deploy/update.sh --image <新镜像>   # 升级
-deploy/update.sh --image "$(grep '^NETWORK_REPORT_APP_IMAGE=' /opt/network-report/.env.bak | cut -d= -f2-)"   # 回滚到上一镜像
+# 回滚到上一镜像（仅在上一镜像兼容当前数据库 schema 时可直接执行；
+# 若上一镜像的迁移已执行且不兼容新 schema，须先还原数据库备份 — 见第 5 节）:
+deploy/update.sh --image "$(grep '^NETWORK_REPORT_APP_IMAGE=' /opt/network-report/.env.bak | cut -d= -f2-)"
 ```
 
 install.sh / update.sh 退出码：`2` 用法错误；`10` 主机/系统；`11`
@@ -96,8 +98,16 @@ docker exec -i network-report-postgres-1 \
 `version` 已变为新版本；报告列表能打开、最近一周 DOCX 可下载且文件仍在
 `/data/network-report/reports`（升级不删除任何 DOCX）。
 
-**升级失败**：按退出码定位（见第 0 节）。迁移失败（14）时 `.env` 已自动还
-原，旧容器未受影响，仍在正常运行；`nrc logs` 查看原因后修复镜像重试。
+**升级失败**：按退出码定位（见第 0 节），并区分两个阶段：
+
+- **迁移失败（14）**：`.env` 已自动还原，未重启任何容器，旧 stack 不受
+  影响，仍在正常运行；`nrc logs` 查看原因后修复镜像重试。此阶段直接回退
+  旧镜像是安全的（迁移未提交）。
+- **迁移成功后 restart / health / 心跳失败（17/18/19）**：迁移**已提交**，
+  schema 可能已前进，**不要盲目回退应用镜像**。update.sh 会打印
+  schema-aware 处置提示：先确认上一镜像能否运行于已迁移的 schema——能，
+  按第 5 节回退；不能，先还原升级前数据库备份（第 5 节，危险操作），再
+  启动旧镜像。
 
 **compose/部署配置变更**（如日志参数、端口）随仓库新版本分发：重跑一次
 `deploy/install.sh`（幂等，只会刷新 `/opt` 下的 compose 文件并保留 `.env`
@@ -110,15 +120,26 @@ docker exec -i network-report-postgres-1 \
 deploy/update.sh --image "$(grep '^NETWORK_REPORT_APP_IMAGE=' /opt/network-report/.env.bak | cut -d= -f2-)"
 ```
 
-- 仅回退应用镜像：直接执行上面命令（若旧镜像未跑过新 schema 则到此为止）。
-- 若新镜像的迁移已执行且旧镜像无法兼容新 schema：先还原数据库备份，再执行
-  上面命令。还原（危险操作，会覆盖当前数据，先二次确认）：
+按迁移是否已提交分两种情况（update.sh 的失败提示会标明当前处于哪种）：
+
+- **迁移尚未提交**（如镜像检查、迁移失败：退出码 12/14）：旧 stack 未受
+  影响、仍在正常运行，数据库 schema 未变——直接执行上面命令回退镜像是
+  安全的。
+- **迁移已提交**（升级后 restart / health / 心跳失败：退出码 17/18/19）：
+  数据库 schema 可能已前进，**不得盲目回退应用镜像**。先判断上一镜像能否
+  运行于已迁移的 schema：
+  - 能兼容：直接执行上面命令。
+  - 不能兼容（或无法确认）：**先还原升级前的数据库备份**（第 4 节
+    pg_dump，危险操作，会覆盖当前数据，先二次确认），再执行上面命令启动
+    旧镜像。
 
 ```bash
 cat /root/network-report-<日期>.sql | docker exec -i network-report-postgres-1 \
   psql -U network_report -d network_report
 ```
 
+- 系统不自动做数据库 downgrade，也不会自动还原数据库——两者都必须由操作
+  员按上面步骤显式执行。
 - `/data`、`/etc` 不受升级/回滚影响，无需处理。
 
 ## 6. 每周一例行

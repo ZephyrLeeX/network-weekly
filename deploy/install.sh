@@ -175,6 +175,14 @@ step "device inventory sync"
 COMPOSE run --rm --no-deps web python -m backend.inventory_sync \
     || die 16 "inventory sync failed (is $CONFIG_DIR/devices.toml valid TOML?)"
 
+# Captured BEFORE the stack starts so the heartbeat verifier can insist on a
+# heartbeat written after THIS start (W05-AUDIT fix 1): a row left by the
+# previous worker — even seconds old — must never pass the verification.
+step "capturing the pre-start worker heartbeat baseline"
+HEARTBEAT_BASELINE=$(heartbeat_baseline) \
+    || die 19 "cannot read the pre-start worker heartbeat baseline (is the database reachable?)"
+echo "heartbeat baseline: $HEARTBEAT_BASELINE"
+
 step "starting web + worker"
 COMPOSE up -d --wait || die 17 "docker compose could not bring the stack up (see the output above)"
 
@@ -182,7 +190,7 @@ step "verifying web /health"
 verify_health
 
 step "verifying worker heartbeat"
-verify_heartbeat
+verify_heartbeat "$HEARTBEAT_BASELINE"
 
 step "install complete"
 COMPOSE ps

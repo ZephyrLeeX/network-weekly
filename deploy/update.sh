@@ -9,8 +9,11 @@
 #   - The target image must exist locally (offline; nothing is pulled).
 #   - A failed migration restores the previous .env and exits 14 WITHOUT
 #     restarting anything: the old containers keep serving the old image.
-#   - A failed restart/health/heartbeat exits 17/18/19 with log commands;
-#     rollback is then `update.sh --image <previous>` (printed on failure).
+#   - A failed restart/health/heartbeat exits 17/18/19. The migration has
+#     ALREADY COMMITTED at that point, so the printed remediation is
+#     schema-aware (W05-AUDIT fix 3): blindly rolling back the image is NOT
+#     automatically safe — see docs/OPERATIONS.md §5 (rollback may require
+#     restoring the pre-update database backup first).
 #   - Never touches /data/network-report (DB + DOCX) or /etc/network-report
 #     (devices.toml + secrets.env): those are host bind mounts outside the
 #     application directory this script manages.
@@ -72,21 +75,38 @@ if ! COMPOSE run --rm --no-deps web alembic upgrade head; then
     die 14 "alembic upgrade head failed on the target image; the running stack was left untouched ('docker compose -p network-report logs' shows the old services)"
 fi
 
+# Captured AFTER the migration (which does not touch heartbeat rows) and
+# immediately before the recreate, so the heartbeat verifier (W05-AUDIT
+# fix 1) can insist on a heartbeat written after THIS update: the old
+# worker's last row must never pass as evidence of the new one.
+step "capturing the pre-restart worker heartbeat baseline"
+HEARTBEAT_BASELINE=$(heartbeat_baseline) \
+    || die 19 "cannot read the pre-update worker heartbeat baseline (is the database reachable?)"
+echo "heartbeat baseline: $HEARTBEAT_BASELINE"
+
 step "restarting web + worker on the target image"
 if ! COMPOSE up -d --wait; then
-    die 17 "service restart failed; rollback with: $SCRIPT_DIR/update.sh --image $CURRENT_IMAGE"
+    post_migration_failure 17 "service restart failed; 'docker compose -p network-report ps' shows what happened"
 fi
 
 step "verifying web /health"
 if ! wait_health; then
-    die 18 "web /health failed after the update; 'docker compose -p network-report logs web' shows why — rollback with: $SCRIPT_DIR/update.sh --image $CURRENT_IMAGE"
+    post_migration_failure 18 "web /health failed after the update; 'docker compose -p network-report logs web' shows why"
 fi
 
 step "verifying worker heartbeat"
-if ! wait_heartbeat; then
-    die 19 "worker heartbeat stale after the update; 'docker compose -p network-report logs worker' shows why — rollback with: $SCRIPT_DIR/update.sh --image $CURRENT_IMAGE"
+if ! wait_heartbeat "$HEARTBEAT_BASELINE"; then
+    post_migration_failure 19 "worker wrote no NEW heartbeat after the update; 'docker compose -p network-report logs worker' shows why"
 fi
 
 step "update complete"
 COMPOSE ps
-echo "previous image kept in $APP_DIR/.env.bak (rollback: $SCRIPT_DIR/update.sh --image $CURRENT_IMAGE)"
+cat <<EOF
+
+Update complete. Previous image kept in $APP_DIR/.env.bak.
+Roll back ONLY after checking that the previous image is compatible with the
+(migrated) database schema — see docs/OPERATIONS.md §5:
+  $SCRIPT_DIR/update.sh --image $CURRENT_IMAGE
+If the previous image cannot run against the migrated schema, restore the
+pre-update database backup first (docs/OPERATIONS.md §4), then roll back.
+EOF

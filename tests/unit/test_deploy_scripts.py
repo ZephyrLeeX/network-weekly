@@ -87,3 +87,83 @@ def test_update_covers_the_spec_26_3_flow_without_destroying_state() -> None:
     assert "migration failed — .env restored" in update
     # Nothing in the update path may delete persistent state.
     assert re.search(r"(?<![-\w])rm\s", update) is None
+
+
+def test_heartbeat_verifier_targets_only_the_current_worker() -> None:
+    """W05-AUDIT fix 1: the verifier must demand a NEW post-start heartbeat.
+
+    The old `select(...).limit(1)` check accepted ANY worker's fresh row, so
+    a heartbeat left behind by the previous worker passed as evidence that
+    the new worker had started.
+    """
+
+    lib = (DEPLOY / "lib.sh").read_text(encoding="utf-8")
+    install = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+    update = (DEPLOY / "update.sh").read_text(encoding="utf-8")
+
+    # The tested module is the authoritative implementation; the inline
+    # fallback (rollback to pre-W05-AUDIT images) applies the same rules.
+    assert "backend.ops.heartbeat_verify" in lib
+    assert "select(WorkerHeartbeat.last_heartbeat).limit(1)" not in lib
+    assert lib.count("WorkerHeartbeat.worker_id == worker_id") >= 2, (
+        "module invocation fallback and inline fallback must both filter by worker_id"
+    )
+    for helper in ("heartbeat_baseline()", "wait_heartbeat()"):
+        assert helper in lib, helper
+    # The baseline is captured BEFORE the stack is (re)started and passed to
+    # the verifier — in both install.sh and update.sh.
+    assert install.index("HEARTBEAT_BASELINE=$(heartbeat_baseline)") < install.index(
+        'step "starting web + worker"'
+    )
+    assert 'verify_heartbeat "$HEARTBEAT_BASELINE"' in install
+    assert update.index("HEARTBEAT_BASELINE=$(heartbeat_baseline)") < update.index(
+        'step "restarting web + worker'
+    )
+    assert 'wait_heartbeat "$HEARTBEAT_BASELINE"' in update
+
+
+def test_post_migration_failure_paths_are_schema_aware() -> None:
+    """W05-AUDIT fix 3: after a committed migration, roll-back advice must
+    carry the schema-compatibility caveat instead of an unconditional image
+    rollback hint."""
+
+    lib = (DEPLOY / "lib.sh").read_text(encoding="utf-8")
+    update = (DEPLOY / "update.sh").read_text(encoding="utf-8")
+
+    # The mandated remediation text lives in the shared helper.
+    for needed in (
+        "Database migration has already committed.",
+        "The schema may no longer be compatible with the previous image.",
+        "Do NOT blindly roll back the application image.",
+        "See docs/OPERATIONS.md rollback procedure.",
+        "restore the pre-update database backup first, then start the old image.",
+    ):
+        assert needed in lib, needed
+    # All three post-migration failure paths (17/18/19) route through it.
+    assert update.count("post_migration_failure") >= 3
+    # The unconditional hint is gone from update.sh entirely — including the
+    # final "update complete" message, which must stay schema-qualified.
+    assert "rollback with:" not in update
+    assert "compatible with the" in update
+    assert "restore the" in update
+
+
+def test_post_migration_failure_function_prints_schema_aware_remediation() -> None:
+    """The real helper, executed: prints the mandated block, exits with the
+    given code, and never prints an unconditional rollback command."""
+
+    lib = DEPLOY / "lib.sh"
+    for code in ("17", "18", "19"):
+        result = subprocess.run(
+            ["bash", "-c", f'source "{lib}"; post_migration_failure {code} "detail text"'],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == int(code), code
+        stderr = result.stderr
+        assert "FATAL" in stderr and "detail text" in stderr, code
+        assert "Database migration has already committed." in stderr, code
+        assert "Do NOT blindly roll back the application image." in stderr, code
+        assert "restore the pre-update database backup first" in stderr, code
+        assert "rollback with" not in stderr, code
