@@ -2,8 +2,10 @@
 
 Wave 0 scope: process lifecycle plus the persistent heartbeat loop
 (SYSTEM_SPEC.md §25). Wave 2 adds the five-minute DEVICE_POLL scheduler
-(W02-T002) alongside the heartbeat; IRF observation, retention, weekly
-statistics, DOCX generation and report retry join in later Wave 2/3 tasks.
+(W02-T002), the ~15-minute IRF observation loop (W02-T008) and the §24
+retention pass (W02-T009). Wave 3 adds the weekly report loop
+(W03-T009): Monday 00:10 generation, 10-minute retry and restart
+recovery from the persistent `report_jobs` rows (§4).
 
 Every loop is a thread on one stop event: a failing loop (database blip,
 secrets trouble) logs and keeps the process alive (§27.9) so the other
@@ -34,6 +36,7 @@ from backend.monitoring.irf import IrfDeviceContext, IrfObservationLoop
 from backend.monitoring.poll import DevicePollContext
 from backend.monitoring.retention import run_retention
 from backend.monitoring.scheduler import DevicePollScheduler
+from backend.reporting.schedule import WeeklyReportLoop
 from backend.secrets import SecretsError, load_secrets
 
 logger = logging.getLogger(__name__)
@@ -177,17 +180,23 @@ def main() -> None:
         name="retention",
         daemon=True,
     )
+    report_loop = WeeklyReportLoop(session_factory, settings.report_dir)
+    reporter = threading.Thread(
+        target=report_loop.run_loop, args=(stop,), name="weekly-report", daemon=True
+    )
 
     heartbeat.start()
     poller.start()
     irf_observer.start()
     retention.start()
+    reporter.start()
     stop.wait()
     # Give the loops a moment to notice the stop event before exit.
     heartbeat.join(timeout=5)
     poller.join(timeout=5)
     irf_observer.join(timeout=5)
     retention.join(timeout=5)
+    reporter.join(timeout=5)
     logger.info("worker %s stopped", settings.worker_id)
 
 

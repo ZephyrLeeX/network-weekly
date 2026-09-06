@@ -3,12 +3,425 @@
 ## Current execution
 
 ```text
-Current Wave: W02 — CLOSED (engineering gate PASS revalidated after W02-AUDIT-2, merged to main)
-Current Task: none ready — Wave 3 not started (owner decision required)
-Branch: work/wave-02-audit-fix-2 merged into main (952db0a2d330e87a64da04882a9b129bc80edb45)
+Current Wave: W04 — Login and Operations Web (started per Owner Decision
+  2026-09-06)
+Current Task: W04-T001 (single administrator + salted scrypt password)
+Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
+  Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
+  to the Release Gate (W05-GATE):
+  - W03-T010 stays BLOCKED — REAL_WEEK_DATA_PENDING, but now blocks
+    W05-GATE only (no longer Wave 4 / W03-GATE).
+  - W03-GATE = PASS — engineering gate (real-report manual check
+    deferred to W05-GATE; acceptance must not be fabricated).
+  - W01-T007 stays BLOCKED — FIELD_VALIDATION_PENDING, still blocking
+    W05-GATE.
+  - W04-T004 depends on the REVIEW_PASSED regenerate service
+    implementation (reporting/jobs.py::request_regenerate), NOT on the
+    W03-T010 real-data acceptance.
+Branch: work/wave-04 (from main after the work/wave-03 merge)
 ```
 
-## Wave 2 checkpoint ledger
+## Wave 3 checkpoint ledger
+
+```text
+W03-T001: 3fffeb6e582dd8ec88d0c9cb862ff224caecbc9e — REVIEW_PASSED
+          (reporting/period.py: half-open [Mon 00:00, next Mon 00:00)
+          Asia/Shanghai periods; ISO week-year codes 2026-W36; 53-week
+          years; cross-week overlap membership; 15 unit tests)
+W03-T002: bfd213458a377002444f934bd79c65dcab06d79f — REVIEW_PASSED
+          (reporting/resources.py: avg/max/P95 via PostgreSQL
+          percentile_cont(0.95); interface Top 10 by per-sample
+          max(in,out) then per-interface P95; single statistical
+          implementation; missing data None-not-0; 8 integration tests)
+W03-T003: 253a51491d829bc04bffb13597e889ba9c8d9433 — REVIEW_PASSED
+          (reporting/incidents.py: weekly device + priority-interface
+          incident summaries from long-term records; cross-week and
+          ongoing-at-period-end semantics for §19; 7 integration tests)
+W03-T004: 5d10c5249eb0b3e58c48fc6773b8a5a41eae3233 — REVIEW_PASSED
+          (reporting/irf_summary.py: per-fabric weekly summary — expected/
+          current members, missing windows with reappearance, missing-at-
+          period-end, reliable role changes; observation-less week is
+          数据缺失, never member loss; 8 integration tests)
+W03-T005: f6098039b75d2875c62b8b44568833577894f97a — REVIEW_PASSED
+          (reporting/counters_coverage.py: reset-safe weekly CRC/error/
+          drop deltas via forward-only lag-window increments — resets
+          contribute nothing, never-reported columns are NULL-数据缺失;
+          §18 Coverage expected=2016-cycle grid, (SUCCESS+PARTIAL)/
+          expected*100, PARTIAL separate, <95% = 数据完整性不足;
+          observation-only status; 10 integration tests)
+W03-T006: ea60349d4bc1e6e18a0b896e756d8990fe67e0a2 — REVIEW_PASSED
+          (reporting/service.py: build_weekly_report_data composes
+          T002..T005 + sustained-high via W02-T007 implementation +
+          deterministic §19 正常/关注/异常 rules + deterministic Chinese
+          summary text; CRC/Error/Drop never change status; 11
+          integration tests)
+W03-T007: fa788731e2956201be602e8b1e2267bc2d449486 — REVIEW_PASSED
+          (tests/integration/test_w03_golden_scenarios.py: 12 golden
+          scenarios covering every IMPLEMENTATION_PLAN golden case —
+          half-open boundary, ISO year boundary W2026-01, cross-week
+          down, missing-sample continuity break, percentile_cont P95
+          pinned, Top10 algorithm, counter reset no-fake-delta, PARTIAL
+          coverage, <95% warning, whole-week no data, threshold override)
+W03-T008: 0562ab01ff42b5ba61eebbaaff929c3be27a931f — REVIEW_PASSED
+          (reporting/docx.py: python-docx renderer, fixed 8 sections,
+          table-first, 数据缺失 explicit, blank editable 本周处理问题,
+          temp file -> save -> reopen validation -> os.replace atomic;
+          10 unit tests + 1 end-to-end integration test)
+W03-T009: 23819aa406bfce97a54588fb10f790d91a304742 — REVIEW_PASSED
+          (migration 0008 report_jobs + weekly_reports; partial unique
+          index uq_report_jobs_active_week = one ACTIVE job per week;
+          Monday 00:10 = period end + 10 min persistent scheduling;
+          10-minute retry with sanitized last_error; worker-restart
+          recovery; reporting/schedule.py WeeklyReportLoop as worker
+          thread; 13 integration tests)
+W03-T010: 557165cee396361984a7b9c63e597d43cea60be8 — engineering acceptance
+          REVIEW_PASSED, real-report acceptance BLOCKED (below)
+W03-GATE: 557165cee396361984a7b9c63e597d43cea60be8 — BLOCKED/STOPPED evidence
+          (engineering verification green; NOT PASS; no merge)
+W03-AUDIT: 936b1583f46376cf043d28286910952e711a49d7 — REVIEW_PASSED
+          (audit hotfix, no schema change / no migration: 1) report-job
+          recovery re-runs on every loop pass and a lost terminal
+          success/failure update requeues the job with the 10-minute
+          next_retry_at — no permanent `running` stall without restart;
+          2) a truly 0-device database renders 未配置设备/数据缺失 +
+          数据完整性不足 with overall 关注 — never 正常, never 数据完整性
+          满足要求; 3) counter Top 10 excludes total_delta-None interfaces
+          while a genuine 0 total stays eligible; 4) an IRF week without a
+          successful observation states IRF 成员状态数据缺失, never 无缺失,
+          status still §19+Coverage; 12 new tests)
+W03-AUDIT-2: 5bdc22e138950940146de87d84c65184bacaa75c — REVIEW_PASSED
+          (audit follow-up, no schema change / no migration: a regenerate
+          attempt renders a separate validated candidate DOCX and never
+          touches the current report; the weekly_reports success commit
+          precedes the atomic switch, so any DB failure leaves the old
+          bytes untouched; a lost-update commit installs its candidate,
+          and interrupted installs / abandoned candidates are resolved by
+          reconcile_report_files on every loop pass; 6 new integration
+          tests + 2 new unit tests)
+W03-AUDIT-3: e5a9396b9b357b2106157401b0c91e935158b850 — REVIEW_PASSED
+          (audit follow-up, no schema change / no migration: candidate
+          DOCXs are job-bound (…docx.candidate.<job_id>) and
+          reconcile_report_files installs a candidate only for the exact
+          succeeded job behind the week's CURRENT success row
+          (generated_at == finished_at) — an older success never
+          authorizes a failed attempt's candidate and a superseded
+          candidate never overwrites a newer success; a lost success
+          reply resolves to SUCCEEDED (no FAILED downgrade, no retry); an
+          install failure after the commit is diagnosable on job
+          last_error with a succeeded_install_pending outcome and is
+          completed by the next pass; 2 new + 4 rewritten integration
+          tests, 1 rewritten + 1 extended unit test)
+W03-AUDIT-4: 760bdd61ee328049f22fe9677aeecfedfd3097e1 — REVIEW_PASSED
+          (audit follow-up, no schema change / no migration: 1) a
+          success-commit state that cannot be determined (database
+          unreachable for the verification query, recovered right after)
+          resolves to commit_unknown — the job-bound candidate is kept,
+          nothing is recorded, nothing is scheduled, the row keeps its
+          state, the next pass's recovery/reconciliation arbitrates; the
+          landed success can never be degraded to FAILED + 10-min retry
+          again, and _mark_failure refuses to downgrade a succeeded job
+          as a hard guard; 2) reconcile_report_files clears a stale
+          install-pending last_error strictly from DB + directory when
+          the job is the week's current success with its DOCX on disk
+          and no candidate left, or a newer success superseded the job —
+          the diagnosable state cannot outlive its lost clearing commit;
+          2 new integration tests, 1 updated)
+```
+
+## W03-T010 / W03-GATE item (2026-09-05 instruction, superseded by Owner Decision 2026-09-06)
+
+```text
+W03-T010 — real weekly report manually checked against source samples:
+  BLOCKED — REAL_WEEK_DATA_PENDING (unchanged). The regenerate service
+  acceptance is implemented and tested; the real-report verification is
+  impossible in this environment (no reachable real H3C device, dev
+  database verified: 0 devices / 0 poll_runs / 0 metrics — same root
+  cause as W01-T007). Owner instruction 2026-09-05: no fabricated
+  acceptance; mark BLOCKED.
+Owner Decision 2026-09-06 (supersedes the 2026-09-05 gate stop):
+  Wave 3 engineering side passed W03-AUDIT-4; Wave 4 may proceed; the
+  real weekly data manual DOCX check is deferred to W05-GATE.
+  - W03-T010 now blocks W05-GATE only (no longer Wave 4).
+  - W03-GATE = PASS — engineering gate (evidence below; the real-report
+    manual check is carried by W03-T010 into W05-GATE).
+  - W04-T004 depends on the REVIEW_PASSED regenerate service
+    implementation, not on the real-data acceptance.
+W03-GATE — PASS (engineering gate), re-verified green on work/wave-03 at
+  ffe98d8 (post W03-AUDIT-4 docs commit): pytest 252 unit + 170
+  integration PASS on migrated PostgreSQL 0001→0008; ruff clean; mypy
+  clean (100 files); alembic upgrade head idempotent at 0008; dev compose
+  smoke: web healthy (/health database ok), worker heartbeat fresh,
+  device-poll + IRF + retention + weekly-report loops alive.
+Deferred to W05-GATE: the real weekly data manual DOCX check (with
+  W01-T007). It must NOT be recorded as passed anywhere before the real
+  data exists.
+```
+
+## W03-AUDIT hotfix (2026-09-06)
+
+```text
+W03-AUDIT — REVIEW_PASSED (checkpoint 936b1583f46376cf043d28286910952e711a49d7,
+work/wave-03). Four audit items fixed; no schema change, no migration:
+  1. Report job running 卡死: WeeklyReportLoop now recovers stranded
+     `running` jobs at the start of EVERY pass (a failed recovery — e.g.
+     database briefly down at boot — is retried by the following passes,
+     §4.2/§27.9). When the terminal success/failure update itself is lost
+     to a database outage, execute_report_job requeues the job as pending
+     with next_retry_at = now + 10 min instead of leaving it `running`
+     forever; if even the requeue fails, the next pass's recovery collects
+     the stranded row. Worker keeps retrying every 10 minutes without a
+     restart (§4.3). Tests: success-update lost → recorded failure; both
+     terminal updates lost → requeued pending; requeue lost → recovered by
+     a later pass; recovery failure → retried on next pass.
+  2. Truly 0-device empty database: CoverageSummary treats an empty
+     deployment as below-target (no coverage evidence can claim integrity);
+     the summary states 未配置设备/数据缺失 + 数据完整性不足, the DOCX
+     basic-info row shows the same, overall status is 关注 — never 正常 and
+     never 数据完整性满足要求 (§6.2/§18.3). Coverage stays 数据缺失 (None),
+     not 0%. Disabled devices with planned cycles keep the existing
+     semantics (unchanged). Tests: 0-device service + unit DOCX + e2e DOCX.
+  3. Counter Top 10: counter_delta_top_entries drops interfaces whose
+     total_delta is None (no valid counter interval — 数据缺失 is not a
+     rankable observation); a genuine total of 0 (constant counters) stays
+     eligible. Corrected the old test that let a None-total interface fill
+     a slot; added true-zero and fewer-than-10-rankable boundary tests.
+  4. IRF 数据缺失摘要: a fabric with no successful in-week observation now
+     yields the summary clause IRF 成员状态数据缺失（<devices>） instead of
+     IRF 成员无缺失; mixed weeks report both 期末缺失 and 数据缺失 clauses;
+     missing IRF evidence is still NOT an §19 异常 condition — overall
+     status follows §19 + Coverage. Tests: service + unit DOCX + e2e DOCX.
+Evidence: pytest 250 unit + 160 integration PASS on migrated PostgreSQL
+(0001→0008); ruff clean; mypy clean (99 files); `alembic upgrade head`
+idempotent at 0008 (no migration); image rebuilt + compose smoke: web
+healthy (/health database ok), worker heartbeat persisted and fresh,
+weekly-report loop + retention alive (dev secrets-missing cycle contained
+per §27.9 as designed); live manual regenerate of 2026-W35 through the
+§4.4 service inside the worker container produced the atomic 8-section
+DOCX with the empty deployment honestly rendered (当前总体状态 关注,
+Monitoring Coverage 摘要 = 未配置设备/数据缺失…数据完整性不足, no
+数据完整性满足要求, no 正常).
+W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
+started; W01-T007 still FIELD_VALIDATION_PENDING.
+```
+
+## W03-AUDIT-2 follow-up hotfix (2026-09-06)
+
+```text
+W03-AUDIT-2 — REVIEW_PASSED (checkpoint 5bdc22e138950940146de87d84c65184bacaa75c,
+work/wave-03). One audit item fixed; no schema change, no migration:
+
+Regenerate 文件/数据库一致性 (§4.4/§5): the old flow replaced the current
+DOCX via os.replace BEFORE the success update; a database failure there
+left the DB describing report A while the disk already held report B.
+The flow is now two-phase and DB-first:
+  1. render_report_candidate renders + validates (reopen + 8-heading
+     check) a candidate DOCX under the deterministic side name
+     network-weekly-report-<week>.docx.candidate in the same directory —
+     the current report of the week is never touched by rendering;
+  2. the weekly_reports success upsert (file_path = the current-report
+     path) and the report_jobs terminal success commit;
+  3. install_report atomically switches the candidate onto the current
+     path (same-filesystem os.replace, §5) — only after a committed
+     success, so ANY database failure happens while the previous bytes
+     are still intact.
+Failure handling:
+  - success-update failure: the candidate is discarded (no failed
+    attempt leaves files behind) — unless the row already carries this
+    attempt's generated_at, i.e. the commit landed but its confirmation
+    was lost to the same outage; then the candidate is the only copy of
+    the succeeded report and is installed. When the database is still
+    unreachable the candidate is left for reconciliation.
+  - switch failure after the commit: the success stays terminal, the
+    candidate survives, and reconcile_report_files (run at EVERY
+    WeeklyReportLoop pass, before scheduling) completes the switch from
+    the DB row — or discards candidates that have no success row.
+  - ordinary render failure: no candidate ever exists; the old report
+    and its success row are untouched (unchanged behavior, now pinned).
+First generation (no old report), 10-minute retry cadence, one current
+DOCX per week, atomic replace and one-active-job-per-week semantics are
+unchanged.
+Tests: tests/integration/test_report_file_consistency.py (+6): the
+required end-to-end scenario (A success → regenerate → candidate B →
+simulated success-update DB failure → job FAILED, weekly_reports still
+A, current bytes == A, no candidate/temp residue → retry → bytes become
+B only after the retry succeeds); lost success-reply commit still
+installs its committed report; interrupted switch completed by the next
+loop pass without duplicate scheduling; first-generation DB failure
+leaves no files and retry creates the first DOCX; render failure keeps
+the old report without a candidate; reconcile completes success rows
+and discards/ignores non-report files. tests/unit/test_reporting_docx.py
+(+2): candidate→install two-phase layout and candidate_week_code round
+trip.
+Evidence: pytest 252 unit + 166 integration PASS on migrated PostgreSQL
+(0001→0008); ruff clean; mypy clean (100 files); `alembic upgrade head`
+idempotent at 0008 (no migration); image rebuilt + compose smoke: web
+healthy (/health database ok), worker heartbeat persisted and fresh,
+IRF + weekly-report loops alive with zero errors; live manual regenerate
+of 2026-W35 through the §4.4 service inside the worker container on the
+new candidate flow: succeeded, 8 validated sections, exactly one current
+DOCX in the reports volume (no candidate/temp residue), registry row
+success pointing at it, empty deployment still rendered honestly (当前
+总体状态 关注, 未配置设备/数据缺失, 数据完整性不足, no 数据完整性满足要求).
+W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
+started; W01-T007 still FIELD_VALIDATION_PENDING.
+```
+
+## W03-AUDIT-3 follow-up hotfix (2026-09-06)
+
+```text
+W03-AUDIT-3 — REVIEW_PASSED (checkpoint e5a9396b9b357b2106157401b0c91e935158b850,
+work/wave-03). One audit item fixed: report candidate/attempt consistency.
+No schema change, no migration (the existing report_jobs.last_error field
+carries the new diagnosable state).
+
+1. Candidate 必须绑定具体 job/attempt (§4.4/§5, W03-AUDIT-3): the old
+   deterministic per-week side name
+   network-weekly-report-<week>.docx.candidate allowed ANY candidate of a
+   week to be installed against ANY success row of that week — so after a
+   database outage that swallowed an uncommitted regenerate's terminal
+   update, the next pass's reconciliation installed the failed attempt's
+   candidate over the still-current previous success A while the row kept
+   describing A. Candidates are now job-bound:
+   network-weekly-report-<week>.docx.candidate.<job_id>
+   (render_report_candidate/render_report_docx take a required job_id),
+   and reconcile_report_files authorizes an install only when ALL hold:
+   the bound ReportJob exists, job.week_code == the candidate's week,
+   job.status == succeeded, the weekly_reports row is the week's current
+   success (status success, file_path set) AND row.generated_at ==
+   job.finished_at — the exact pair _mark_success commits in one
+   transaction. Therefore: a previous success A can never authorize a
+   failed/running regeneration B's candidate; a candidate superseded by a
+   newer success of the week is discarded, never installed over it; an
+   unbound legacy candidate (pre-AUDIT-3 layout) and a candidate whose
+   job row disappeared are discarded; foreign *.candidate files are
+   still ignored. A discarded/installed succeeded job's install-pending
+   last_error is cleared (nothing owed anymore).
+2. lost-success-reply 修复: when _mark_success raised AFTER its commit
+   landed (reply lost to the same outage), execute_report_job now
+   verifies the attempt's exact commit (job succeeded with finished_at ==
+   now AND the week's success row generated_at == now) and resolves the
+   attempt to SUCCEEDED: the job's own candidate is installed, the job
+   stays succeeded, next_retry_at stays NULL, due_jobs has nothing to
+   retry — the job is never degraded back to FAILED and never given a
+   10-minute retry. When the database is still unreachable (commit state
+   undeterminable) the job-bound candidate is KEPT — safe either way,
+   because reconciliation now resolves it strictly by job binding: a
+   commit that actually landed is installed on a later pass, an
+   uncommitted attempt's candidate is discarded and the recovered job
+   re-enters the normal retry.
+3. install 失败不再假装完整成功: an os.replace failure after the committed
+   success keeps the success terminal, keeps the candidate, and is made
+   diagnosable WITHOUT a schema change: report_jobs.last_error records
+   "success committed but the current DOCX is not switched yet (install
+   pending; reconciliation will retry)" and the executor's outcome is the
+   distinct status succeeded_install_pending — the un-switched file is
+   never reported as an unqualified success. The next pass's
+   reconciliation completes the switch and clears last_error.
+Tests: tests/integration/test_report_file_consistency.py (+2 new, 4
+rewritten for job binding): the required outage scenario (A success →
+regenerate B → B's candidate rendered → _mark_success uncommitted AND the
+DB stays unreachable → candidate kept, job stuck running → next pass DB
+recovered → reconciliation does NOT install B, current bytes still A,
+registry still A, job requeued pending → B's retry succeeds and only then
+the bytes become B); lost success reply → outcome SUCCEEDED, file
+installed, job stays succeeded, next_retry_at NULL, due_jobs empty;
+install OSError after the DB success → outcome succeeded_install_pending,
+current still A, candidate kept, job.last_error diagnosable, no retry →
+next pass reconcile installs B and clears last_error; stale candidate of
+a superseded success discarded, newer success untouched; strict per-job
+reconcile matrix (authorized install / superseded / never-committed /
+orphaned job id / unbound legacy / foreign file); plus the retained
+AUDIT-2 scenarios (success-update failure keeps old bytes until retry;
+first-generation DB failure leaves no files; render failure leaves no
+candidate). tests/unit/test_reporting_docx.py: candidate two-phase +
+parsing tests updated/extended for job-bound names (parse_candidate_name,
+is_unbound_candidate_name).
+Evidence: pytest 252 unit + 168 integration PASS on migrated PostgreSQL
+(0001→0008); ruff clean; mypy clean (100 files); `alembic upgrade head`
+idempotent at 0008 (no migration); image rebuilt + compose smoke: web
+healthy (/health database ok), worker heartbeat persisted and fresh
+(24 s), poll/IRF/weekly-report loops alive (dev secrets-missing cycle
+contained per §27.9 as designed); live manual regenerate of 2026-W35
+inside the worker container on the job-bound candidate flow: succeeded,
+8 validated sections, exactly one current DOCX in the reports volume (no
+candidate/temp residue), registry row success pointing at it, job row
+succeeded with last_error NULL.
+W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
+started; W01-T007 still FIELD_VALIDATION_PENDING.
+```
+
+## W03-AUDIT-4 follow-up hotfix (2026-09-06)
+
+```text
+W03-AUDIT-4 — REVIEW_PASSED (checkpoint 760bdd61ee328049f22fe9677aeecfedfd3097e1,
+work/wave-03). Two audit items fixed; no schema change, no migration.
+
+1. unknown → FAILED 竞态修复 (§4.4): after a failed success update,
+   execute_report_job classified the attempt via _success_commit_state
+   (committed / absent / unknown) — but the "unknown" branch (database
+   still unreachable for the verification query) STILL fell through to
+   _record_failed_attempt. If the database recovered before the failure
+   recorder ran while the success commit had actually landed (lost
+   reply), the succeeded job was downgraded to FAILED + 10-minute retry.
+   The state machine is now strict:
+     committed  → install the candidate → SUCCEEDED / INSTALL_PENDING
+     absent     → discard the candidate → FAILED + 10-min retry
+     unknown    → keep the candidate, record NOTHING (no FAILED), schedule
+                  NOTHING (no retry), leave the row in its current state —
+                  the next pass's recovery (a stranded `running` row
+                  re-enters the retry) and reconciliation (a landed
+                  success gets its candidate installed) arbitrate.
+   The unresolved attempt is reported as the distinct outcome status
+   commit_unknown (never an ordinary FAILED, never an unqualified
+   SUCCEEDED). Additionally _mark_failure now refuses to downgrade a
+   succeeded job (logs and returns untouched) — a terminal success can
+   never lose to a late failure record even if future call sites change.
+
+2. install-pending 残留清理 (§4.4): the switch and the marker-clearing
+   are two separate commits, so a database failure between them (the
+   candidate's os.replace already succeeded, the last_error-clearing
+   commit lost) left a succeeded job whose candidate is gone while the
+   row still claims a switch is owed — and with no candidate left,
+   candidate-based reconciliation could never see it again. The next
+   pass's reconcile_report_files now also sweeps stale markers strictly
+   from the database and the directory: a succeeded job carrying the
+   install-pending last_error is cleared when the week's success row is
+   exactly this job's commit (generated_at == finished_at) AND its
+   recorded current DOCX exists on disk AND no candidate bound to the
+   job remains — or when a strictly newer success of the week superseded
+   the job (nothing can be owed anymore). A missing current DOCX keeps
+   the marker: there the diagnosis is still true.
+
+Tests: tests/integration/test_report_file_consistency.py (+2, 1 updated):
+the required unknown-state scenario (A success → regenerate B → B's
+success commit LANDS with a lost reply → exactly the commit-state query
+hits a windowed database outage (commit state unknown) → the failure
+recorder's database is already recovered → job still succeeded, finished_at
+intact, next_retry_at NULL, no FAILED last_error, not in due_jobs,
+candidate kept → a direct _mark_failure call is refused by the guard →
+next pass reconcile installs B, current bytes change, registry still B's
+commit, no duplicate job); the required residue scenario (install
+OSError → diagnosable install-pending → reconcile completes the switch
+but its marker-clearing commit is lost → current bytes are B with no
+candidate while the row still says install pending → next healthy pass
+clears the stale marker, bytes/registry untouched, nothing scheduled);
+the outage-kept-candidate test now pins the unresolved commit_unknown
+outcome with nothing recorded and nothing scheduled.
+Evidence: pytest 252 unit + 170 integration PASS on migrated PostgreSQL
+(0001→0008); ruff clean; mypy clean (100 files); `alembic upgrade head`
+idempotent at 0008 (no migration); image rebuilt (docker build;
+compose build is a silent no-op in this environment) + compose smoke:
+web healthy (/health database ok), worker heartbeat persisted and fresh
+(11 s), poll/IRF/weekly-report loops alive with zero errors; live manual
+regenerate of 2026-W35 through the §4.4 service inside the worker
+container on the new code: succeeded, 8 validated sections, exactly one
+current DOCX in the reports volume (no candidate/temp residue), registry
+row success pointing at it, job row succeeded with last_error NULL,
+reconcile pass clean, empty deployment still rendered honestly (当前总体
+状态 关注, 未配置设备/数据缺失, 数据完整性不足).
+W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
+started; W01-T007 still FIELD_VALIDATION_PENDING.
+```
 
 ```text
 W02-T001: 9e1601de5e691f903810abe837935cc616649d2f — REVIEW_PASSED
@@ -97,31 +510,83 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
-W02-AUDIT-2 (Wave 2 audit follow-up hotfix) — REVIEW_PASSED:
-  1. Scheduler overlap race fixed: `_in_flight` holds ONLY real poll
-     futures. Previously the skip-recording future replaced the poll
-     future and finished instantly, so the NEXT cycle saw the device as
-     free and started a second poll overlapping the first. Now the skip
-     recording is submitted but never stored: a poll spanning consecutive
-     5-minute cycles records one FAILED/overlap row per skipped cycle and
-     is never started twice (§27.11 + §8). Unit test covers a poll
-     spanning 2+ cycles.
-  2. Interfaces DEGRADED strictened: the group check ('any column of the
-     group delivered = complete') is replaced by per-field checks over
-     oper_state, speed, in_octets, out_octets, in_errors, out_errors,
-     in_discards, out_discards — HC variant and 32-bit fallback count as
-     the same field. Any required field with no data at all degrades the
-     section (poll run PARTIAL) while collected samples still persist.
-     ifAdminStatus stays informational (§13 reads oper_state only). Unit
-     tests pin single-column and single-direction failures.
-Evidence: pytest 223 unit + 77 integration PASS on migrated PostgreSQL
-(0007); ruff clean; mypy clean (78 files); alembic upgrade head idempotent
-at 0007 (no migration needed); compose rebuild + smoke: web healthy
-(/health database ok), worker heartbeat persisted, device-poll scheduler +
-IRF loop + retention alive, no errors.
+W03-AUDIT-4 (audit follow-up: unknown-commit-state race + install-pending
+residue) — REVIEW_PASSED:
+  1. A success-commit state that cannot be determined (database
+     unreachable for the verification query, recovered right after) no
+     longer falls through to the failure recorder: the attempt resolves
+     to commit_unknown — candidate kept, no FAILED recorded, no retry
+     scheduled, row state untouched; the next pass's recovery/
+     reconciliation arbitrates. _mark_failure refuses to downgrade a
+     succeeded job as a hard guard.
+  2. reconcile_report_files clears a stale install-pending last_error
+     strictly from DB + directory (the job is the week's current success
+     with its DOCX on disk and no candidate left, or a newer success
+     superseded the job) — the diagnosable state cannot outlive its lost
+     clearing commit.
+See "W03-AUDIT-4 follow-up hotfix (2026-09-06)" above for full evidence.
 ```
 
 ## Previous completed task
+
+```text
+W03-AUDIT-3 (audit follow-up: report candidate/attempt consistency) —
+REVIEW_PASSED:
+  Candidate DOCXs are job-bound (…docx.candidate.<job_id>) and
+  reconciliation installs a candidate only for the exact succeeded job
+  behind the week's current success — an older success never authorizes
+  a failed attempt's candidate; a lost success reply resolves to
+  SUCCEEDED (no FAILED downgrade, no retry); an install failure after
+  the commit is diagnosable (job last_error + succeeded_install_pending
+  outcome) and is completed by the next pass.
+See "W03-AUDIT-3 follow-up hotfix (2026-09-06)" above for full evidence.
+```
+
+## Older completed task
+
+```text
+W03-AUDIT-2 (audit follow-up: regenerate file/DB consistency) —
+REVIEW_PASSED:
+  A regenerate attempt now renders a separate validated candidate DOCX
+  and the current file is switched only after the weekly_reports success
+  commit — any database failure leaves the previous bytes untouched; a
+  lost-update commit installs its candidate; interrupted installs and
+  abandoned candidates are resolved by per-pass reconciliation.
+See "W03-AUDIT-2 follow-up hotfix (2026-09-06)" above for full evidence.
+```
+
+## Earlier completed task
+
+```text
+W03-AUDIT (Wave 3 audit hotfix) — REVIEW_PASSED:
+  1. Report job running 卡死: per-pass recovery retry + requeue on a lost
+     terminal success/failure update; no permanent `running` stall without
+     a restart; the 10-minute retry cadence survives database outages.
+  2. Truly 0-device database: 未配置设备/数据缺失 + 数据完整性不足, overall
+     关注 — never 正常, never 数据完整性满足要求; Coverage 数据缺失, not 0%.
+  3. Counter Top 10: total_delta-None interfaces excluded; genuine 0 kept.
+  4. IRF summary: no-observation weeks state IRF 成员状态数据缺失, never
+     IRF 成员无缺失; overall status unchanged per §19 + Coverage.
+See "W03-AUDIT hotfix (2026-09-06)" above for full evidence.
+```
+
+## Earlier completed task (W03-T010 engineering scope)
+
+```text
+W03-T010 (engineering scope) — regenerate service REVIEW_PASSED:
+  request_regenerate is idempotent (one active job per week; repeated
+  submissions return the same job), refuses incomplete weeks, and runs
+  through execute_report_job: the previous successful DOCX stays current
+  and downloadable until a successful attempt atomically replaces the
+  single per-week file (§4.4/§5); failures persist status + readable
+  error and never touch the old file.
+  Tests: test_manual_regenerate.py (replace-one-DOCX, double-submit
+  idempotency, failure visibility + retryability).
+  The REAL-report acceptance of this task is BLOCKED — see the W03-T010/
+  W03-GATE BLOCKED item above.
+```
+
+## Earlier completed task (Wave 2)
 
 ```text
 W02-AUDIT (Wave 2 audit hotfix) — REVIEW_PASSED:
@@ -150,6 +615,20 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W03-AUDIT-4 checkpoint: 760bdd61ee328049f22fe9677aeecfedfd3097e1 (work/wave-03)
+W03-AUDIT-3 checkpoint: e5a9396b9b357b2106157401b0c91e935158b850 (work/wave-03)
+W03-AUDIT-2 checkpoint: 5bdc22e138950940146de87d84c65184bacaa75c (work/wave-03)
+W03-AUDIT checkpoint: 936b1583f46376cf043d28286910952e711a49d7 (work/wave-03)
+W03-T010 checkpoint: 557165cee396361984a7b9c63e597d43cea60be8 (work/wave-03)
+W03-T009 checkpoint: 23819aa406bfce97a54588fb10f790d91a304742 (work/wave-03)
+W03-T008 checkpoint: 0562ab01ff42b5ba61eebbaaff929c3be27a931f (work/wave-03)
+W03-T007 checkpoint: fa788731e2956201be602e8b1e2267bc2d449486 (work/wave-03)
+W03-T006 checkpoint: ea60349d4bc1e6e18a0b896e756d8990fe67e0a2 (work/wave-03)
+W03-T005 checkpoint: f6098039b75d2875c62b8b44568833577894f97a (work/wave-03)
+W03-T004 checkpoint: 5d10c5249eb0b3e58c48fc6773b8a5a41eae3233 (work/wave-03)
+W03-T003 checkpoint: 253a51491d829bc04bffb13597e889ba9c8d9433 (work/wave-03)
+W03-T002 checkpoint: bfd213458a377002444f934bd79c65dcab06d79f (work/wave-03)
+W03-T001 checkpoint: 3fffeb6e582dd8ec88d0c9cb862ff224caecbc9e (work/wave-03)
 W02-AUDIT-2 checkpoint: de40bbf0e2f3e8ccd38ec5d8970e6d042f1acf0b (work/wave-02-audit-fix-2)
 W02-AUDIT checkpoint: 3a135350ca77d4a72effee3aafc21ac6c6fe67b6 (work/wave-02-audit-fix)
 W01-T003 fix checkpoint: 9c4b57bd7b0b6445b8b4b9144f1e9fdb84bc2898 (work/wave-01)
@@ -186,9 +665,15 @@ W01-GATE: PASS (engineering gate — see ledger below)
 ```text
 W01-T007: BLOCKED — FIELD_VALIDATION_PENDING. No reachable real
   S10500X/S12500 in this environment (user authorization 2026-09-04).
-  Blocks the production Release Gate (W05-GATE) only; does NOT block
-  Wave 2. Close by running W01-T007 evidence collection on real devices
-  and re-running the full gate.
+  Blocks the production Release Gate (W05-GATE) only. Close by running
+  W01-T007 evidence collection on real devices and re-running the full
+  gate.
+W03-T010: BLOCKED — REAL_WEEK_DATA_PENDING (real-report verification
+  acceptance only; the regenerate service is implemented and tested and
+  does NOT block Wave 4). Same root cause as W01-T007: no reachable real
+  device, hence no real weekly data. Blocks W05-GATE (Owner Decision
+  2026-09-06). Close by collecting one complete real week and manually
+  checking the DOCX against source samples.
 ```
 
 ## Open design gaps
@@ -205,31 +690,34 @@ backend/monitoring/interface_state.py and TASK_GRAPH W02-T006.
 ## Next ready candidates
 
 ```text
-Wave 3 (W03-T001 …) — all dependencies satisfied (W02-GATE PASS).
-Owner decision required: do NOT start Wave 3 without authorization.
+W04-T001 — single administrator + salted scrypt password (READY per
+Owner Decision 2026-09-06; W03-GATE = PASS as an engineering gate).
+Then W04-T002 -> W04-T003/T004/T005 -> W04-GATE.
+Outstanding release blockers (NOT Wave-4 blockers): W03-T010
+REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING, both
+blocking W05-GATE.
 ```
 
 ## Current Wave Gate
 
 ```text
-W02-GATE — Wave 2 Monitoring Pipeline Gate
-Status: PASS (2026-09-05). Engineering gate over W02-T001..T009,
-revalidated PASS after W02-AUDIT-2:
-  pytest 223 unit + 77 integration against migrated PostgreSQL (0007);
-  ruff clean; mypy clean; alembic upgrade head idempotent at 0007;
-  compose rebuild + smoke: web healthy, worker heartbeat + schedulers
-  persistent, no backfill on restart, per-cycle error containment, and
-  unattemptable cycles bookkept FAILED per §8 (overlap-proof _in_flight;
-  per-field interface DEGRADED).
-Covers: 5-min scheduling, no same-device overlap, restart semantics,
-SUCCESS/PARTIAL/FAILED persistence (planned-cycle completeness included),
-counter reset/rebaseline, device and priority-interface Down/Recovery
-(2-cycle rules, gap resets), sustained CPU/memory/utilization (>=80% x3
-= 15 minutes, missing breaks), IRF observation (missing/reappearance/
-reliable role change, SSH-failure records nothing), 90-day batched
-retention sparing long-term data.
-Real-device proof is NOT part of this gate: it is carried by
-W01-T007 (BLOCKED — FIELD_VALIDATION_PENDING), which blocks W05-GATE.
+W03-GATE — Weekly Report Gate: PASS (engineering gate, Owner Decision
+2026-09-06). Re-verified green on work/wave-03 at ffe98d8 after
+W03-AUDIT-4: pytest 252 unit + 170 integration PASS on migrated
+PostgreSQL (0008); ruff clean; mypy clean (100 files); alembic upgrade
+head idempotent at 0008; dev compose smoke: web healthy (/health
+database ok), worker heartbeat fresh, device-poll scheduler + IRF loop +
+retention + weekly-report loop alive. Failure/restart semantics (10-min
+retry, per-pass recovery of stranded `running` jobs, requeue on a lost
+terminal update, one active job per week at DB level, job-bound
+candidates + reconcile, regenerate keeps old DOCX until atomic replace)
+are proven by integration tests; golden scenarios cover every
+IMPLEMENTATION_PLAN golden case.
+Deferred to W05-GATE: the real weekly data manual DOCX check carried by
+W03-T010 (with W01-T007's real-device evidence). It is NOT part of this
+gate and must not be recorded as passed before real data exists.
+Current gate: W04-GATE — Operations Web Gate (login -> configure
+priority interfaces -> view/download/regenerate report workflow).
 ```
 
 ## Product baseline

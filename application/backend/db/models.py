@@ -1,4 +1,4 @@
-"""Wave 0/1/2 ORM models.
+"""Wave 0/1/2/3 ORM models.
 
 Wave 0: the foundation-required `worker_heartbeat` table (SYSTEM_SPEC.md §23).
 Wave 1: `devices`, `device_members`, `interfaces` and `aggregation_members`
@@ -7,6 +7,7 @@ Wave 2: `device_poll_runs`, `device_metrics` and `interface_metrics`
 (W02-T001, SYSTEM_SPEC.md §7.1/§8/§15/§23). Reachability/interface incident
 and IRF observation tables arrive with their own Wave 2 tasks. All business
 timestamps use TIMESTAMPTZ (§3/§23).
+Wave 3: `report_jobs` + `weekly_reports` (W03-T009, SYSTEM_SPEC.md §4/§23).
 """
 
 from datetime import datetime
@@ -21,6 +22,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
@@ -511,5 +513,88 @@ class IrfMemberObservation(Base):
     role_changed: Mapped[bool] = mapped_column(default=False, nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+
+
+# --- Wave 3: weekly reports (W03-T009) ------------------------------------------
+
+
+class ReportJob(Base):
+    """One weekly-report generation responsibility (SYSTEM_SPEC.md §4/§23).
+
+    Lifecycle: pending -> running -> succeeded | failed. A FAILED job is
+    still ACTIVE (it owns the week and is retried every 10 minutes, §4.3)
+    until one attempt succeeds. The partial unique index
+    `uq_report_jobs_active_week` (status pending/running/failed) makes
+    "同一统计周最多允许一个活跃生成任务" a database guarantee while a
+    SUCCEEDED week can still get a fresh manual job (§4.4 regenerate).
+    `last_error` holds a sanitized, readable summary (§4.3) — never
+    secret-bearing material (§22.2).
+    """
+
+    __tablename__ = "report_jobs"
+    __table_args__ = (
+        Index(
+            "uq_report_jobs_active_week",
+            "week_code",
+            unique=True,
+            postgresql_where=sa_text("status IN ('pending', 'running', 'failed')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # ISO week-year code, e.g. "2026-W36" (§3).
+    week_code: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    # Exact statistics period [start, end), Asia/Shanghai instants (§3).
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    # "scheduled" (Monday 00:10, §4.1) or "manual" (regenerate, §4.4).
+    trigger: Mapped[str] = mapped_column(Text, nullable=False, default="scheduled")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Sanitized readable summary of the last failure (§4.3); None when ok.
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # When the next retry may run (failed jobs only); NULL otherwise.
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+
+
+class WeeklyReport(Base):
+    """The one current weekly report per ISO week (SYSTEM_SPEC.md §4.4/§24).
+
+    `status='success'` rows always point at a complete DOCX on the shared
+    reports volume (`file_path`); the file is replaced only atomically
+    (§5), so `file_path` never references a half-written file. A `failed`
+    row records a generation failure for the report list (§20.2) and is
+    NEVER written over a `success` row — regenerate keeps the old file
+    downloadable until the new one succeeds (§4.4). Long-term (§24).
+    """
+
+    __tablename__ = "weekly_reports"
+    __table_args__ = (
+        Index("ix_weekly_reports_week_code", "week_code", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    week_code: Mapped[str] = mapped_column(Text, nullable=False)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # "success" (file_path set) or "failed" (last_error set).
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"
     )
