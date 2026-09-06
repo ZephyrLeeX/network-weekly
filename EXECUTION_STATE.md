@@ -5,7 +5,7 @@
 ```text
 Current Wave: W04 — Login and Operations Web (started per Owner Decision
   2026-09-06)
-Current Task: W04-T003 (report list + DOCX download)
+Current Task: W04-T004 (manual regenerate Web action)
 Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
   Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
   to the Release Gate (W05-GATE):
@@ -39,6 +39,13 @@ W04-T002: 7ed12d02fd2ac5bd3579b25c0bf632a289cb683d — REVIEW_PASSED
           POST, login/logout with fresh-token fixation defense and fixed
           no-enumeration error text, HttpOnly SameSite=Lax cookie;
           4 unit + 22 integration tests incl. timeouts/fixation/CSRF)
+W04-T003: 83faeaa1bbefeeece955eb4d64b215dbf5cc4dea — REVIEW_PASSED
+          (GET /reports list — week/period(周一至周日)/generated_at/status/
+          last_error/download, newest first, behind require_admin;
+          GET /reports/{week}/download — registry-validated only: strict
+          ISO week code, canonical file name inside resolved report dir,
+          symlink + traversal refusal, failed/missing 404;
+          15 unit + 12 integration tests)
 ```
 
 ## Wave 3 checkpoint ledger
@@ -530,6 +537,19 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W04-T003 (report list + DOCX download) — REVIEW_PASSED:
+  /reports lists the weekly registry newest-first with week, 周一至周日
+  period, generated_at (+0800), status, last_error and download; the
+  download endpoint takes an ISO week code (never a path), validates it
+  against the registry success row and the canonical file name inside the
+  resolved report directory, and refuses traversal/symlink escapes,
+  failed and missing reports with 404.
+See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
+```
+
+## Previous completed task (W04-T002)
+
+```text
 W04-T002 (server-side session + login/logout) — REVIEW_PASSED:
   sessions table in PostgreSQL (row id = opaque bearer token); valid only
   inside BOTH the 7-day absolute and the 12-hour idle bound; login issues
@@ -539,7 +559,7 @@ W04-T002 (server-side session + login/logout) — REVIEW_PASSED:
 See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
 ```
 
-## Previous completed task (W04-T001)
+## Older completed task (W04-T001)
 
 ```text
 W04-T001 (single administrator + salted scrypt password) — REVIEW_PASSED:
@@ -659,6 +679,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W04-T003 checkpoint: 83faeaa1bbefeeece955eb4d64b215dbf5cc4dea (work/wave-04)
 W04-T002 checkpoint: 7ed12d02fd2ac5bd3579b25c0bf632a289cb683d (work/wave-04)
 W04-T001 checkpoint: 620d2af3323f3b97c7349652bd138bf24dd90336 (work/wave-04)
 W03 merge into main: 131844461ade75c1517b1da91bd7d49bc1090521

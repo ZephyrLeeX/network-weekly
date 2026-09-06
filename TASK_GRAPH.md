@@ -412,10 +412,13 @@ REVIEW_PASSED
 **Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-T003 — Report list and download
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W04-T002  
 **Blocks:** W04-GATE  
-**Acceptance:** reverse chronological report list; period/status/generated time/error visible; authenticated DOCX download works.
+**Acceptance:** reverse chronological report list; period/status/generated time/error visible; authenticated DOCX download works.  
+**Implementation:** `web/reports.py` — `GET /reports` (behind `require_admin`) lists `weekly_reports` newest week first (W03-T009 `load_weekly_reports` re-used) with week, period rendered as the natural week `周一至周日` (Asia/Shanghai), generated_at in +0800, status 成功/失败, `last_error` when present, download link only on success rows, 暂无报告 for an empty registry (§20.2). `GET /reports/{week_code}/download` — the request NEVER carries a path: the ISO week code (strict `YYYY-Www` regex, then a real `period_for_iso_week` validation so impossible weeks 404) selects the registry row; the file is served only when the row is the week's `success` entry AND the stored path's name is exactly the canonical `network-weekly-report-<week>.docx` AND its resolved parent is the resolved report directory AND it is not a symlink AND the target is an existing regular file (§27.18) — tampered rows, traversal paths, symlink escapes, missing files and failed reports all 404; served as `FileResponse` attachment with the OOXML media type. Regenerate column/action arrives with W04-T004.  
+**Tests:** unit `tests/unit/test_web_reports_validation.py` (15 week-code cases + media type constant) + integration `tests/integration/test_web_reports.py` (12: unauthenticated /reports + download 303; empty registry; required columns newest-first incl. 周一至周日 period, +0800 generated time, 成功/失败, last_error visible, download link only on success; download round-trip bytes + attachment header; failed/unknown/malformed/impossible weeks 404; tampered path outside report dir 404; traversal path 404; symlink escape 404; missing file 404; page never leaks file paths). pytest 278 unit + 214 integration PASS; ruff clean; mypy clean (119 files).  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-T004 — Manual regenerate Web action
 **Status:** TODO  
