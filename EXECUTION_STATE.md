@@ -7,7 +7,27 @@ Current Wave: W05 — Deployment and Stability — engineering side
   COMPLETE (T001–T004 REVIEW_PASSED, branch work/wave-05, NOT yet merged
   to main — awaiting W05-GATE which is BLOCKED on real-environment
   acceptance; created 2026-09-06)
-Current Task: W05-AUDIT-2 — Wave 5 audit follow-up COMPLETE and
+Current Task: W05-PRE-ACCEPTANCE-HARDENING — pre-acceptance P2 cleanup
+  COMPLETE and REVIEW_PASSED (commit
+  7c79d2c49951bb322456109491f4d25240a28880, branch work/wave-05): exactly
+  three P2 fixes, no product capability, NO new migration (head stays
+  0011): (1) heartbeat no-row baseline race — the baseline now always
+  records captured_at; with no baseline row a REPLACED existing worker
+  container requires started_at after the capture instant (the old
+  container's first post-baseline tick can never pass for its
+  replacement), a legacy no-captured_at baseline fails closed, and every
+  historical baseline format still parses; (2) A09 summary — a week now
+  counts only with scheduled + succeeded AND on-time (Monday 00:10 ±5
+  min), so two consecutive late successes are no longer reported as the
+  A09 shape; (3) update.sh — every failure past `alembic upgrade head`
+  (including the POST worker-container-identity query) routes through the
+  schema-aware post_migration_failure path. W05-AUDIT stays
+  REVIEW_FAILED — superseded; W05-AUDIT-2 stays REVIEW_PASSED.
+  W05-T001..T004 REVIEW_PASSED; W05-T005 IN_PROGRESS —
+  REAL_ENVIRONMENT_EVIDENCE_PENDING (A01–A16 PENDING, formal two-week
+  acceptance timing NOT started); W01-T007 / W03-T010 BLOCKED; W05-GATE
+  BLOCKED; main NOT merged.
+Previous task: W05-AUDIT-2 — Wave 5 audit follow-up COMPLETE and
   REVIEW_PASSED (commit 78f4e3b2ef64daaab6ca39993aa28068294e499d, branch
   work/wave-05): (1) heartbeat verifier race fixed — the verdict is now
   bound to the worker's real Docker container identity: a REPLACED
@@ -18,10 +38,7 @@ Current Task: W05-AUDIT-2 — Wave 5 audit follow-up COMPLETE and
   report_jobs history; plus the two ACCEPTANCE.md typos (A12/A13→A15/A16,
   A15's 证据来源 A13→A15). W05-AUDIT = REVIEW_FAILED — superseded by
   W05-AUDIT-2 (its retention-evidence and rollback-guidance fixes stand,
-  its heartbeat fix is resolved here). W05-T001..T004 REVIEW_PASSED,
-  revalidated; W05-T005 stays IN_PROGRESS —
-  REAL_ENVIRONMENT_EVIDENCE_PENDING; W05-GATE stays BLOCKED; no formal
-  two-week acceptance timing started; main NOT merged.
+  its heartbeat fix is resolved here).
 Previous task: W05-T005 — Real-environment stability acceptance:
   scaffolding COMPLETE (docs/ACCEPTANCE.md A01–A16 + templates,
   scripts/acceptance_evidence.sh, docs/evidence/); acceptance itself
@@ -51,6 +68,75 @@ W01-T007 = BLOCKED — FIELD_VALIDATION_PENDING (blocks W05-GATE only).
 ## Wave 5 checkpoint ledger
 
 ```text
+W05-PRE-ACCEPTANCE-HARDENING: 7c79d2c49951bb322456109491f4d25240a28880 —
+          REVIEW_PASSED (pre-acceptance P2 cleanup, no new capability, NO
+          new migration — head stays 0011:
+          (1) heartbeat no-row baseline + existing-worker replacement
+          (W05-T002/T003): a baseline of {} made the FIRST fresh row pass
+          as "fresh install", but an EXISTING worker container that had
+          not ticked yet looks identical — its first-ever post-baseline
+          tick could pass for its replacement. The baseline always records
+          captured_at now; with no baseline row the verifier branches on
+          the PRE identity: fresh install ("" → new) passes on the first
+          fresh row (unchanged); a replaced existing container requires
+          started_at strictly AFTER captured_at ("old container wrote
+          after the baseline but the replacement worker has not"); a
+          legacy baseline without captured_at cannot attribute the row and
+          FAILS closed; a no-row baseline with the container UNCHANGED
+          still passes on the first fresh row; baselines WITH a row keep
+          the W05-AUDIT-2 rules unchanged. parse_baseline accepts every
+          historical format ({}, {last_heartbeat, started_at},
+          {captured_at}, full) — rollback targets never crash on the new
+          field; the lib.sh inline fallback baseline emits captured_at and
+          the fallback verifier implements the same rules verbatim;
+          (2) A09 summary false positive (W05-T005):
+          scheduled_succeeded_weeks() counted any succeeded scheduled job
+          — two consecutive LATE (00:20) successes were summarized as the
+          A09 shape, contradicting docs/ACCEPTANCE.md. Now
+          scheduled_on_time_succeeded_weeks(): scheduled + succeeded AND
+          is_on_schedule (Monday 00:10 ±5 min); summary lines "weeks with
+          an on-time succeeded scheduled job: …" / "two consecutive
+          on-time scheduled+succeeded weeks (A09): yes/no"; per-row
+          evidence stays honest (on_schedule=no); weekly_reports stays
+          corroboration only;
+          (3) update.sh POST container-ID query failure after a committed
+          migration used a bare die 19 — now EVERY failure past
+          `alembic upgrade head` (baseline capture, PRE identity, restart
+          17, POST identity, missing POST identity, health 18, heartbeat
+          19) routes through post_migration_failure; migration failure
+          keeps .env restore + old stack untouched + die 14;
+          tests: 340 unit + 266 integration PASS (new: no-row replacement
+          reject/PASS pairs, legacy fail-closed + parsing matrix, corrupt
+          partial baselines, no-row same-container PASS; A09 two-late /
+          mixed / two-on-time / late-shadow / failed-on-time / ISO-wrap;
+          deploy-script no-bare-die-after-migration + fallback no-row
+          invariants; real-PostgreSQL no-row race sequence and stepped-
+          clock real-CLI baseline/verify); ruff clean; mypy clean
+          (136 files); alembic upgrade head idempotent at 0011;
+          smokes (staging roots, throwaway stack, hardened image +
+          re-tag + raising-0012 variant): fresh install exit 0 (baseline
+          {"captured_at": …} → pre <none> → "fresh install" PASS);
+          same-image update exit 0 ("worker kept running"); re-tagged
+          update exit 0 ("replacement worker, started_at advanced");
+          CRITICAL no-row race with real containers: row deleted under a
+          running worker → no-row baseline → old worker's genuine first
+          post-baseline tick → silent sleep-3600 replacement → verifier
+          FAIL exit 1 "old container wrote after the baseline … started_at
+          <= captured_at"; legacy {} baseline FAIL closed; same-container
+          contrast PASS; real worker restored → own tick PASS exit 0;
+          A09 on the staging stack: two late successes → no; one on-time +
+          one late → no; two consecutive on-time → yes (W36 -> W37); two
+          on-time MANUAL successes → no scheduled evidence; manual
+          regenerate moved generated_at ~3 h20m with the scheduled row and
+          collector output unchanged; update.sh injections: raising-0012 →
+          exit 14, .env restored, container IDs unchanged; docker inspect
+          failure after a committed migration at the POST identity capture
+          → exit 19 with the schema-aware block, ZERO "rollback with:"
+          lines (same injection from the start → PRE capture → 19
+          schema-aware); heartbeat writes blocked by trigger after a
+          committed migration → restart + health OK then exit 19
+          schema-aware; trigger removed → normal update exit 0, schema
+          still 0011)
 W05-AUDIT-2: 78f4e3b2ef64daaab6ca39993aa28068294e499d — REVIEW_PASSED
           (audit follow-up, no new capability, NO new migration — head
           stays 0011; supersedes the W05-AUDIT heartbeat fix:
@@ -1019,6 +1105,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W05-PRE-ACCEPTANCE-HARDENING checkpoint: 7c79d2c49951bb322456109491f4d25240a28880 (work/wave-05)
 W05-AUDIT-2 checkpoint: 78f4e3b2ef64daaab6ca39993aa28068294e499d (work/wave-05)
 W05-AUDIT checkpoint: 838b5b613f80ed60999018ca8e061b798e81a51e (work/wave-05) — REVIEW_FAILED, superseded by W05-AUDIT-2
 W04-AUDIT checkpoint: 4a14b4ce022fae2e83bedb869d2161cc0961793d (work/wave-04-audit)
