@@ -7,12 +7,19 @@ Current Wave: W05 — Deployment and Stability — engineering side
   COMPLETE (T001–T004 REVIEW_PASSED, branch work/wave-05, NOT yet merged
   to main — awaiting W05-GATE which is BLOCKED on real-environment
   acceptance; created 2026-09-06)
-Current Task: W05-AUDIT — Wave 5 audit hotfix COMPLETE and REVIEW_PASSED
-  (commit 838b5b613f80ed60999018ca8e061b798e81a51e, branch work/wave-05):
-  (1) heartbeat verifier false positive fixed (baseline state machine);
-  (2) acceptance evidence oldest-row MAX→MIN fixed; (3) post-migration
-  rollback guidance made schema-aware. W05-T001..T004 REVIEW_PASSED,
-  revalidated by W05-AUDIT; W05-T005 stays IN_PROGRESS —
+Current Task: W05-AUDIT-2 — Wave 5 audit follow-up COMPLETE and
+  REVIEW_PASSED (commit 78f4e3b2ef64daaab6ca39993aa28068294e499d, branch
+  work/wave-05): (1) heartbeat verifier race fixed — the verdict is now
+  bound to the worker's real Docker container identity: a REPLACED
+  container additionally requires started_at past the baseline, so the
+  old worker's post-baseline final tick can never pass as "replacement
+  worker healthy"; (2) A09 evidence moved from weekly_reports.generated_at
+  (overwritten by manual regenerate) to the append-only scheduled
+  report_jobs history; plus the two ACCEPTANCE.md typos (A12/A13→A15/A16,
+  A15's 证据来源 A13→A15). W05-AUDIT = REVIEW_FAILED — superseded by
+  W05-AUDIT-2 (its retention-evidence and rollback-guidance fixes stand,
+  its heartbeat fix is resolved here). W05-T001..T004 REVIEW_PASSED,
+  revalidated; W05-T005 stays IN_PROGRESS —
   REAL_ENVIRONMENT_EVIDENCE_PENDING; W05-GATE stays BLOCKED; no formal
   two-week acceptance timing started; main NOT merged.
 Previous task: W05-T005 — Real-environment stability acceptance:
@@ -44,9 +51,88 @@ W01-T007 = BLOCKED — FIELD_VALIDATION_PENDING (blocks W05-GATE only).
 ## Wave 5 checkpoint ledger
 
 ```text
-W05-AUDIT: 838b5b613f80ed60999018ca8e061b798e81a51e — REVIEW_PASSED
-          (three audit fixes, no new capability, NO new migration —
-          head stays 0011:
+W05-AUDIT-2: 78f4e3b2ef64daaab6ca39993aa28068294e499d — REVIEW_PASSED
+          (audit follow-up, no new capability, NO new migration — head
+          stays 0011; supersedes the W05-AUDIT heartbeat fix:
+          (1) heartbeat verifier race (W05-T002/T003): the W05-AUDIT
+          baseline state machine had no container-identity input — the OLD
+          worker keeps running after the baseline is captured, so its final
+          tick (last_heartbeat > baseline, seconds fresh) passed as
+          "replacement worker healthy" while the replacement worker never
+          started. Now the verdict is bound to real Docker container
+          identity: lib.sh worker_container_id() (full docker inspect ID,
+          ""=no running worker, query failure=error); install.sh/update.sh
+          capture baseline + PRE id before up -d --wait and POST id after;
+          backend/ops/heartbeat_verify.py CLI
+          `verify <baseline> <pre-id> <post-id>` — replaced container ⇒
+          started_at must ALSO advance past the baseline (old worker's
+          post-baseline final tick = FAIL "the old container's final
+          tick"); same-container re-verify needs only a new tick
+          (started_at may stay put — never an unconditional condition);
+          fresh install ({} baseline) passes on the first fresh row;
+          missing post-start identity ⇒ FAIL (exit 19), never a
+          same-container default; capability probe routes pre-W05-AUDIT-2
+          images (usage exit 2 / missing module) to the inline fallback,
+          which applies the SAME rules verbatim;
+          (2) A09 evidence (W05-T005): docs/ACCEPTANCE.md proved "连续 2 个
+          周一 00:10 自动报告" from weekly_reports.generated_at — the
+          registry is the CURRENT success per week and a manual regenerate
+          overwrites it, and WeeklyReport cannot prove trigger=scheduled.
+          New backend/ops/report_job_evidence.py + read-only collector
+          section "scheduled weekly report jobs": recent report_jobs rows
+          WHERE trigger='scheduled' with week/trigger/status/attempts/
+          expected (period end + 10 min = Monday 00:10 +08)/created/
+          started/finished (Asia/Shanghai), on_schedule ±5 min annotation,
+          weeks-with-succeeded-scheduled-job + two-consecutive summary
+          (ISO wrap aware); manual jobs and error texts never printed;
+          A09 now judges from report_jobs.created_at history
+          (append-only), weekly_reports/DOCX corroboration only;
+          (3) ACCEPTANCE.md typos: 人工核对类条目（A12/A13）→（A15/A16）;
+          A15 证据来源 "A13 模板人工核对记录" → "A15 模板人工核对记录";
+          tests: 329 unit + 261 integration PASS (new: race scenario both
+          directions + replaced-requires-started_at-advance + same-container
+          PASS with unmoved started_at + identity decision matrix +
+          5-argv CLI shapes; fallback text invariants; race DATA sequence
+          on real PostgreSQL incl. the same-container false-positive
+          contrast + real-CLI verdict; manual-regenerate-does-not-destroy-
+          scheduled-evidence, manual-only/failed-scheduled/consecutive
+          weeks/ISO wrap); ruff clean; mypy clean (136 files); alembic
+          upgrade head idempotent at 0011;
+          smokes (staging roots, throwaway stack; images from this tree,
+          from 838b5b6, and a raising-0012 variant): fresh install exit 0
+          (baseline {} → pre <none> → post full ID → "first heartbeat"
+          PASS); same-image update exit 0 (PRE==POST → "worker kept
+          running", started_at legitimately unmoved); REAL image update
+          head→v1 exit 0 (container replaced; target predates the new
+          signature ⇒ capability probe routed to the inline fallback which
+          produced the exact replacement-worker verdict); rollback to head
+          exit 0 via the tested module ("started_at advanced past …");
+          CRITICAL RACE with real containers: baseline → old worker's
+          genuine post-baseline tick (40 s) PASSed same-container (the
+          false-positive enabler, demonstrated) → worker force-recreated
+          into a SILENT container (sleep 3600, new ID) → verifier FAIL
+          exit 1 "old worker wrote after the baseline but the replacement
+          worker has not" → real worker recreated, own tick → PASS exit 0
+          "by the replacement worker"; with fresh rows for 'worker' AND
+          'other-worker' the verifier as 'deploy-other' FAILs "no
+          heartbeat row" (foreign rows never stand in); raising-0012 image
+          → exit 14, .env restored, container IDs unchanged, /health ok;
+          REAL exit-19 injection (heartbeat writes blocked by a trigger
+          after a committed idempotent migration) → update.sh printed the
+          mandated schema-aware block, ZERO "rollback with:" lines; block
+          removed → update.sh exit 0; A09 on the dev stack: collector
+          lists only scheduled rows (manual jobs absent), off-schedule
+          honestly on_schedule=no; REAL manual regenerate of 2026-W35
+          moved weekly_reports.generated_at ~2.4 h while the scheduled
+          report_jobs row kept its original created_at/succeeded and the
+          collector output was unchanged; full collector run exit 0)
+W05-AUDIT: 838b5b613f80ed60999018ca8e061b798e81a51e — REVIEW_FAILED
+          (superseded by W05-AUDIT-2; history preserved: WAS REVIEW_PASSED
+          on 2026-09-06 — fix (2) retention evidence and fix (3)
+          schema-aware rollback guidance stand; fix (1) heartbeat baseline
+          state machine is resolved by W05-AUDIT-2 above)
+          (original 2026-09-06 record, preserved: three audit fixes, no
+          new capability, NO new migration — head stays 0011:
           (1) heartbeat verifier false positive (W05-T002/T003):
           wait_heartbeat accepted ANY fresh worker_heartbeat row — a stale
           row left by the previous worker passed as "new worker healthy".
@@ -933,6 +1019,8 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W05-AUDIT-2 checkpoint: 78f4e3b2ef64daaab6ca39993aa28068294e499d (work/wave-05)
+W05-AUDIT checkpoint: 838b5b613f80ed60999018ca8e061b798e81a51e (work/wave-05) — REVIEW_FAILED, superseded by W05-AUDIT-2
 W04-AUDIT checkpoint: 4a14b4ce022fae2e83bedb869d2161cc0961793d (work/wave-04-audit)
 W04-GATE verification: bc98a3600eece2add11ad05358ca005ea4707e0d (work/wave-04)
 W04-T005 checkpoint: 8715fab0cace43fe270ee5ea92ec550dbcf3913d (work/wave-04)
