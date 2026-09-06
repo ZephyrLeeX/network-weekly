@@ -65,6 +65,11 @@ W04-T005: 8715fab0cace43fe270ee5ea92ec550dbcf3913d — REVIEW_PASSED
           POST /interfaces/{id}/monitored — CSRF toggle via set_monitored
           with NO cascade (aggregate ≠ members), transaction owned by the
           route; unknown interface 404; 9 integration tests)
+W04-GATE: bc98a3600eece2add11ad05358ca005ea4707e0d — PASS (engineering
+          gate, 2026-09-06; full evidence in the TASK_GRAPH W04-GATE
+          entry: 278 unit + 233 integration, ruff/mypy clean, alembic at
+          0010, live login→priority-interface→list→download→regenerate→
+          logout flow against the running container, no secret leakage)
 ```
 
 ## Wave 3 checkpoint ledger
@@ -722,6 +727,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W04-GATE verification: bc98a3600eece2add11ad05358ca005ea4707e0d (work/wave-04)
 W04-T005 checkpoint: 8715fab0cace43fe270ee5ea92ec550dbcf3913d (work/wave-04)
 W04-T004 checkpoint: 9c535b486ec047d5257503b33808333d4d26f9c3 (work/wave-04)
 W04-T003 checkpoint: 83faeaa1bbefeeece955eb4d64b215dbf5cc4dea (work/wave-04)

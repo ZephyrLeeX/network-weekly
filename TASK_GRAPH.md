@@ -455,7 +455,8 @@ REVIEW_PASSED
   6. **regenerate**: live POST of the list's regenerate form → 303, one new `manual` pending job (id 7); the worker's report loop executed it within one pass → `succeeded`, registry `generated_at` updated, exactly ONE current DOCX in the reports volume, no candidate/temp residue (§4.4/§5).
   7. **logout**: live POST → 303 /login; replaying the captured cookie → 303 to /login; `sessions` table empty — the server-side row was destroyed (§21).
 - Unauthenticated requests to /, /reports, /interfaces, download and regenerate are all denied (303 to /login) — live-checked and pinned by tests; all state-changing POSTs CSRF-checked first (missing/forged → 403).
-- Remaining release blockers (NOT gate-blocking): W03-T010 REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING, both carried to W05-GATE.
+- Remaining release blockers (NOT gate-blocking): W03-T010 REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING, both carried to W05-GATE.  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger (W04-GATE verification commit).
 
 ---
 
