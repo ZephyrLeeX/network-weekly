@@ -17,11 +17,14 @@ existing report for the week stays intact until the new one is complete.
 Generation and installation are two separate steps
 (`render_report_candidate` + `install_report`; `render_report_docx` is
 their one-shot composition): a regenerate first produces a fully
-validated *candidate* DOCX under a deterministic side name and only the
-explicit install atomically moves it onto the current report path. The
-report job commits its database success between the two steps, so any
-database failure leaves the previous DOCX bytes untouched (§4.4) and an
-interrupted install can be completed from the surviving candidate.
+validated *candidate* DOCX under a side name that binds it to its
+generation (`...docx.candidate.<job_id>`) and only the explicit install
+atomically moves it onto the current report path. The report job commits
+its database success between the two steps, so any database failure
+leaves the previous DOCX bytes untouched (§4.4) and an interrupted
+install can be completed from the surviving candidate — which
+`reconcile_report_files` may install only for the exact job whose
+committed success it carries, never for an older success of the week.
 """
 
 import logging
@@ -70,42 +73,72 @@ class DocxRenderError(RuntimeError):
 # Deterministic side name of the not-yet-installed report (§4.4): same
 # directory and filesystem as the current DOCX, so installing it stays a
 # same-filesystem atomic rename. It never matches the §5 current-report
-# name, so it is not downloadable/report-visible state.
+# name, so it is not downloadable/report-visible state. The name binds the
+# candidate to the exact `report_jobs` id whose generation produced it —
+# a candidate may be installed only for that job's own committed success,
+# never for an older success of the same week (W03-AUDIT-3).
 CANDIDATE_SUFFIX = ".candidate"
 
 
-def candidate_file_name(period: ReportPeriod) -> str:
-    """The deterministic file name of one week's pending candidate (§4.4)."""
+def candidate_file_name(period: ReportPeriod, job_id: int) -> str:
+    """The deterministic file name of one attempt's pending candidate (§4.4).
 
-    return f"{report_file_name(period)}{CANDIDATE_SUFFIX}"
+    Unique per generation: `<current-report name>.candidate.<job_id>`.
+    """
+
+    return f"{report_file_name(period)}{CANDIDATE_SUFFIX}.{job_id}"
 
 
-# Candidate names are the §5 current-report name plus CANDIDATE_SUFFIX;
-# the week code inside follows ReportPeriod.week_code (`YYYY-Www`).
+# Candidate names are the §5 current-report name plus CANDIDATE_SUFFIX and
+# the owning report job's id; the week code inside follows
+# ReportPeriod.week_code (`YYYY-Www`).
 _CANDIDATE_NAME_PATTERN = re.compile(
-    r"^network-weekly-report-(\d{4}-W\d{2})\.docx" + re.escape(CANDIDATE_SUFFIX) + r"$"
+    r"^network-weekly-report-(\d{4}-W\d{2})\.docx"
+    + re.escape(CANDIDATE_SUFFIX) + r"\.(\d+)$"
 )
+# A candidate left by an older version (no job binding) can never be
+# authorized against a job; reconciliation only ever discards it.
+_LEGACY_UNBOUND_CANDIDATE_PATTERN = re.compile(
+    r"^network-weekly-report-\d{4}-W\d{2}\.docx" + re.escape(CANDIDATE_SUFFIX) + r"$"
+)
+
+
+def parse_candidate_name(file_name: str) -> tuple[str, int] | None:
+    """The (week_code, job_id) of a candidate name, None when it is not ours."""
+
+    match = _CANDIDATE_NAME_PATTERN.match(file_name)
+    if match is None:
+        return None
+    return match.group(1), int(match.group(2))
+
+
+def is_unbound_candidate_name(file_name: str) -> bool:
+    """True for a legacy candidate name that carries no job binding."""
+
+    return _LEGACY_UNBOUND_CANDIDATE_PATTERN.match(file_name) is not None
 
 
 def candidate_week_code(file_name: str) -> str | None:
     """The week code of a candidate file name, None when it is not ours."""
 
-    match = _CANDIDATE_NAME_PATTERN.match(file_name)
-    return match.group(1) if match else None
+    parsed = parse_candidate_name(file_name)
+    return parsed[0] if parsed else None
 
 
 @dataclass(frozen=True)
 class RenderedReport:
     """The artifact rendered for one week (one current DOCX per week, §4.4).
 
-    `candidate` is where the validated bytes sit right now; `path` is the
-    final current-report location that `weekly_reports.file_path` records
-    and that `install_report` atomically moves the candidate onto.
+    `candidate` is where the validated bytes sit right now, bound to the
+    generating `job_id`; `path` is the final current-report location that
+    `weekly_reports.file_path` records and that `install_report` atomically
+    moves the candidate onto.
     """
 
     path: Path
     week_code: str
     candidate: Path
+    job_id: int
 
 
 def _fmt_dt(moment: datetime | None, timezone: ZoneInfo) -> str:
@@ -552,11 +585,13 @@ def _validate_document(path: Path) -> None:
         )
 
 
-def render_report_candidate(data: WeeklyReportData, output_dir: Path) -> RenderedReport:
+def render_report_candidate(
+    data: WeeklyReportData, output_dir: Path, *, job_id: int
+) -> RenderedReport:
     """Render and validate the weekly DOCX as a candidate, §5 (§4.4).
 
     The temporary file lives in `output_dir` itself, so the rename to the
-    deterministic candidate path is an atomic same-filesystem move. The
+    job-bound candidate path is an atomic same-filesystem move. The
     current report of the week is NOT touched here — `install_report`
     does that as its own explicit, atomic step, so a candidate that is
     never installed can never destroy the previous report.
@@ -565,7 +600,7 @@ def render_report_candidate(data: WeeklyReportData, output_dir: Path) -> Rendere
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     target = output_dir / report_file_name(data.period)
-    candidate = output_dir / candidate_file_name(data.period)
+    candidate = output_dir / candidate_file_name(data.period, job_id)
 
     handle, temp_name = tempfile.mkstemp(
         prefix=".tmp-report-", suffix=".docx", dir=output_dir
@@ -584,7 +619,9 @@ def render_report_candidate(data: WeeklyReportData, output_dir: Path) -> Rendere
     logger.info(
         "weekly report candidate rendered: %s (week %s)", candidate.name, data.period.week_code
     )
-    return RenderedReport(path=target, week_code=data.period.week_code, candidate=candidate)
+    return RenderedReport(
+        path=target, week_code=data.period.week_code, candidate=candidate, job_id=job_id
+    )
 
 
 def install_report(rendered: RenderedReport) -> None:
@@ -598,13 +635,13 @@ def install_report(rendered: RenderedReport) -> None:
     os.replace(rendered.candidate, rendered.path)
 
 
-def render_report_docx(data: WeeklyReportData, output_dir: Path) -> RenderedReport:
+def render_report_docx(data: WeeklyReportData, output_dir: Path, *, job_id: int) -> RenderedReport:
     """Render, validate and atomically install the weekly DOCX (§5/§4.4).
 
     One-shot composition of `render_report_candidate` + `install_report`
     for callers that own the whole succeed-or-fail flow in-process.
     """
 
-    rendered = render_report_candidate(data, output_dir)
+    rendered = render_report_candidate(data, output_dir, job_id=job_id)
     install_report(rendered)
     return rendered

@@ -93,13 +93,15 @@ class WeeklyReportLoop:
     def reconcile_files(self) -> int:
         """Finish or discard candidates from interrupted installs (§4.4).
 
-        Part of every pass: a success that committed but never reached its
-        atomic file switch (crash, lost update, volume hiccup) is completed
-        here instead of being lost; abandoned candidates are removed.
+        Part of every pass: a candidate is installed only for the exact
+        job whose committed success it carries — a success that committed
+        but never reached its atomic file switch (crash, lost reply,
+        volume hiccup) is completed here instead of being lost; every
+        unauthorized or superseded candidate is removed.
         """
 
         with self._session_factory() as session:
-            resolved = reconcile_report_files(session, self._output_dir)
+            resolved = reconcile_report_files(session, self._output_dir, now=self._clock())
         if resolved:
             logger.info("resolved %d report candidate(s)", resolved)
         return resolved

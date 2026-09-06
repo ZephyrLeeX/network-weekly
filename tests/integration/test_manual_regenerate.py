@@ -103,7 +103,7 @@ def test_regenerate_failure_visible_then_success_recovers(
         job = request_regenerate(session, PERIOD, now=NOW)
         job_id = job.id
 
-    def failing_render(data: object, output_dir: Path) -> object:
+    def failing_render(data: object, output_dir: Path, *, job_id: int) -> object:
         raise RuntimeError("no space left on device")
 
     outcome = execute_report_job(

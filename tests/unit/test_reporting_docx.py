@@ -32,6 +32,8 @@ from backend.reporting.docx import (
     candidate_file_name,
     candidate_week_code,
     install_report,
+    is_unbound_candidate_name,
+    parse_candidate_name,
     render_report_candidate,
     render_report_docx,
 )
@@ -102,7 +104,7 @@ def _report(
 
 
 def test_renderer_produces_fixed_eight_sections(tmp_path: Path) -> None:
-    path = render_report_docx(_report(), tmp_path).path
+    path = render_report_docx(_report(), tmp_path, job_id=7).path
     assert path.name == report_file_name(PERIOD)
     assert path.exists()
 
@@ -117,7 +119,7 @@ def test_renderer_produces_fixed_eight_sections(tmp_path: Path) -> None:
 
 
 def test_basic_info_section_contains_required_fields(tmp_path: Path) -> None:
-    path = render_report_docx(_report(), tmp_path).path
+    path = render_report_docx(_report(), tmp_path, job_id=7).path
     document = Document(str(path))
     tables = document.tables
     first = tables[0]
@@ -148,7 +150,7 @@ def test_missing_values_render_as_data_missing(tmp_path: Path) -> None:
             ),
         ),
     )
-    path = render_report_docx(report, tmp_path).path
+    path = render_report_docx(report, tmp_path, job_id=7).path
     document = Document(str(path))
     # Section 4 table (index 1 overall: table 0 = basic info): CPU/memory row.
     cpu_table = document.tables[1]
@@ -189,7 +191,7 @@ def test_incident_tables_and_counter_rows_render(tmp_path: Path) -> None:
         device_incidents=(device_summary,),
         counter_top10=(delta,),
     )
-    path = render_report_docx(report, tmp_path).path
+    path = render_report_docx(report, tmp_path, job_id=7).path
     document = Document(str(path))
 
     # Section 2: device incident table.
@@ -247,7 +249,7 @@ def test_irf_and_open_questions_sections(tmp_path: Path) -> None:
         role_changes=(),
     )
     report = _report(status=STATUS_ABNORMAL, irf_summaries=(fabric,))
-    path = render_report_docx(report, tmp_path).path
+    path = render_report_docx(report, tmp_path, job_id=7).path
     document = Document(str(path))
     irf_table = next(
         table for table in document.tables if table.rows[0].cells[0].text == "成员编号"
@@ -273,7 +275,7 @@ def test_zero_device_coverage_renders_missing_not_healthy(tmp_path: Path) -> Non
         summary_text="2026-W36 周报总体状态：关注。未配置设备/数据缺失；数据完整性不足。",
         coverage=CoverageSummary(devices=()),
     )
-    path = render_report_docx(report, tmp_path).path
+    path = render_report_docx(report, tmp_path, job_id=7).path
     document = Document(str(path))
     cells = {(row.cells[0].text, row.cells[1].text) for row in document.tables[0].rows}
     assert ("当前总体状态", STATUS_ATTENTION) in cells  # never 正常 over an empty DB
@@ -318,7 +320,7 @@ def test_irf_data_missing_fabric_renders_missing_not_loss(tmp_path: Path) -> Non
         summary_text="2026-W36 周报总体状态：关注。IRF 成员状态数据缺失（irf-core）。",
         irf_summaries=(fabric,),
     )
-    path = render_report_docx(report, tmp_path).path
+    path = render_report_docx(report, tmp_path, job_id=7).path
     document = Document(str(path))
     all_text = "\n".join(p.text for p in document.paragraphs)
     assert "本周无成功观察，成员状态数据缺失" in all_text  # IRF section header
@@ -343,7 +345,7 @@ def test_top10_table_renders_rank_and_utilization(tmp_path: Path) -> None:
         p95=80.25,
     )
     report = _report(interface_top10=(entry,))
-    path = render_report_docx(report, tmp_path).path
+    path = render_report_docx(report, tmp_path, job_id=7).path
     document = Document(str(path))
     top_table = next(
         table for table in document.tables if table.rows[0].cells[0].text == "排名"
@@ -357,21 +359,23 @@ def test_top10_table_renders_rank_and_utilization(tmp_path: Path) -> None:
 
 
 def test_atomic_replace_leaves_exactly_one_file_per_week(tmp_path: Path) -> None:
-    first = render_report_docx(_report(), tmp_path)
+    first = render_report_docx(_report(), tmp_path, job_id=7)
     assert [p.name for p in tmp_path.iterdir()] == [first.path.name]
     # Regenerate over the same week: one current file, no temp leftovers.
-    second = render_report_docx(_report(), tmp_path)
+    second = render_report_docx(_report(), tmp_path, job_id=7)
     assert second.path == first.path
     assert [p.name for p in tmp_path.iterdir()] == [first.path.name]
 
 
 def test_candidate_then_install_is_two_phase(tmp_path: Path) -> None:
-    """§4.4: the candidate is a complete validated DOCX; the current report
-    appears only when the install explicitly switches it."""
+    """§4.4: the candidate is a complete validated DOCX bound to its
+    generating job; the current report appears only when the install
+    explicitly switches it."""
 
-    rendered = render_report_candidate(_report(), tmp_path)
+    rendered = render_report_candidate(_report(), tmp_path, job_id=42)
     assert rendered.path.name == report_file_name(PERIOD)
-    assert rendered.candidate.name == report_file_name(PERIOD) + ".candidate"
+    assert rendered.job_id == 42
+    assert rendered.candidate.name == candidate_file_name(PERIOD, 42)
     # The candidate holds the complete document; the current report of the
     # week was not touched by the render.
     assert rendered.candidate.exists() and not rendered.path.exists()
@@ -388,12 +392,19 @@ def test_candidate_then_install_is_two_phase(tmp_path: Path) -> None:
 
 
 def test_candidate_week_code_round_trip() -> None:
-    name = candidate_file_name(PERIOD)
+    name = candidate_file_name(PERIOD, 12)
     assert candidate_week_code(name) == "2026-W36"
-    # Only candidate files parse; current reports and foreign names do not.
+    assert parse_candidate_name(name) == ("2026-W36", 12)
+    # Only job-bound candidate files parse; current reports and foreign
+    # names do not — and a legacy unbound candidate never parses either.
     assert candidate_week_code(report_file_name(PERIOD)) is None
-    assert candidate_week_code("network-weekly-report-2026-W366.docx.candidate") is None
+    assert candidate_week_code("network-weekly-report-2026-W36.docx.candidate") is None
+    assert candidate_week_code("network-weekly-report-2026-W366.docx.candidate.1") is None
+    assert candidate_week_code("network-weekly-report-2026-W36.docx.candidate.1x") is None
     assert candidate_week_code("someone-elses-file.candidate") is None
+    assert is_unbound_candidate_name("network-weekly-report-2026-W36.docx.candidate")
+    assert not is_unbound_candidate_name(name)
+    assert not is_unbound_candidate_name("someone-elses-file.candidate")
 
 
 def test_invalid_document_fails_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -404,7 +415,7 @@ def test_invalid_document_fails_validation(tmp_path: Path, monkeypatch: pytest.M
 
     monkeypatch.setattr(docx_module, "_build_document", broken_build)
     with pytest.raises(RuntimeError, match="boom"):
-        render_report_docx(_report(), tmp_path)
+        render_report_docx(_report(), tmp_path, job_id=7)
     assert list(tmp_path.iterdir()) == []  # no partial artifacts
 
 

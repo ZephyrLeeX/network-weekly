@@ -20,10 +20,23 @@ Invariants (§27):
   an attempt renders a separate, validated candidate DOCX and the
   current file is replaced only after the database recorded the success,
   so ANY database failure leaves the previous bytes untouched (§4.4/§5);
+- every candidate is bound to its own generation: its name carries the
+  `report_jobs` id (`...docx.candidate.<job_id>`), and only that exact
+  job can ever authorize its install (W03-AUDIT-3);
 - the committed success and the file switch are crash-consistent: a
   success row always names the current path, and a candidate left behind
   by an interrupted install is completed (or discarded) by
-  `reconcile_report_files` on the next loop pass;
+  `reconcile_report_files` on the next loop pass — installed only when
+  the bound job is the one behind the week's CURRENT success
+  (job succeeded and its `finished_at` equals the row's `generated_at`),
+  never for an older success of the week;
+- a lost success reply (the commit landed, the caller saw an error)
+  resolves to SUCCEEDED: the job's own candidate is installed and no
+  retry is scheduled — the job is never degraded back to FAILED;
+- an install failure after the committed success is a diagnosable
+  non-terminal state: the success stays, the candidate survives, the
+  job row records the pending switch in `last_error`, and reconciliation
+  completes (and clears) it on a later pass;
 - report statistics read only persisted data (§27.10) — the executor
   never contacts a device.
 
@@ -48,8 +61,9 @@ from backend.db.models import ReportJob, WeeklyReport
 from backend.reporting.docx import (
     CANDIDATE_SUFFIX,
     RenderedReport,
-    candidate_week_code,
     install_report,
+    is_unbound_candidate_name,
+    parse_candidate_name,
     render_report_candidate,
 )
 from backend.reporting.period import (
@@ -58,7 +72,7 @@ from backend.reporting.period import (
     is_complete,
     period_for_iso_week,
 )
-from backend.reporting.service import WeeklyReportData, build_weekly_report_data
+from backend.reporting.service import build_weekly_report_data
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +90,12 @@ STATUS_FAILED = "failed"
 STATUS_SUCCEEDED = "succeeded"
 ACTIVE_STATUSES = (STATUS_PENDING, STATUS_RUNNING, STATUS_FAILED)
 
+# Outcome of one execution attempt. STATUS_INSTALL_PENDING marks the
+# crash-consistency recovery window: the success IS committed, but the
+# current DOCX is not switched yet (reconciliation owns the switch) — it
+# must never be reported as an unqualified full success (W03-AUDIT-3).
+STATUS_INSTALL_PENDING = "succeeded_install_pending"
+
 TRIGGER_SCHEDULED = "scheduled"
 TRIGGER_MANUAL = "manual"
 
@@ -86,6 +106,13 @@ _MAX_ERROR_LENGTH = 500
 # Database error text can embed SQL or DSN details; the persisted summary
 # stays generic — full detail goes to the (secret-redacted) worker log.
 _DATABASE_ERROR_TEXT = "database error during report generation (see worker logs)"
+# Persisted on the job row while the committed success's file switch is
+# still owed (no schema change — the existing job error field carries it);
+# cleared by reconciliation once the switch completes.
+_INSTALL_PENDING_ERROR = (
+    "success committed but the current DOCX is not switched yet "
+    "(install pending; reconciliation will retry)"
+)
 
 
 class ReportJobError(RuntimeError):
@@ -355,70 +382,116 @@ def _record_failure(
         return False
 
 
-def _install_committed(rendered: RenderedReport, job_id: int) -> None:
+def _install_committed(
+    session_factory: sessionmaker, rendered: RenderedReport, job_id: int, *, now: datetime
+) -> bool:
     """Switch the current DOCX after the success commit (§4.4/§5).
 
     A switch failure here (e.g. a volume hiccup) does NOT undo the
     terminal success: the validated candidate survives on disk and
     `reconcile_report_files` completes the switch on a later pass, so the
-    committed success never outlives its file bytes.
+    committed success never outlives its file bytes. The unfinished
+    switch is made diagnosable on the job row (`last_error`, existing
+    field — no schema change); returns True only when the file actually
+    switched.
     """
 
     try:
         install_report(rendered)
-    except OSError:
+        return True
+    except OSError as exc:
         logger.error(
-            "report job %d: switching the current DOCX %s failed; the validated "
+            "report job %d: switching the current DOCX %s failed (%s); the validated "
             "candidate stays for the next reconciliation pass",
             job_id,
             rendered.path.name,
+            type(exc).__name__,
         )
+        _record_install_pending(session_factory, job_id, rendered, exc, now=now)
+        return False
 
 
-def _resolve_abandoned_candidate(
-    session_factory: sessionmaker, rendered: RenderedReport, job_id: int, *, now: datetime
+def _record_install_pending(
+    session_factory: sessionmaker,
+    job_id: int,
+    rendered: RenderedReport,
+    exc: OSError,
+    *,
+    now: datetime,
 ) -> None:
-    """Dispose of the candidate after the success update failed (§4.4).
+    """Persist the owed file switch on the job row (best effort, §4.4).
 
-    Normally the success never committed and the candidate is garbage: it
-    is deleted, so a failed attempt leaves no files behind and the
-    current report keeps its old bytes. The one exception is a commit
-    whose confirmation was lost to the same database outage — the success
-    row already carries this attempt's `generated_at`, making the
-    candidate the only copy of the succeeded report, so it is installed.
-    When not even that can be determined (database still down), the
-    candidate is left for `reconcile_report_files`, which resolves it
-    from the persisted row state.
+    The job stays `succeeded` — the success is terminal and reconciliation
+    owns the retry — but the row says plainly that the current DOCX is not
+    switched yet, so the state is never mistaken for fully complete.
     """
 
     try:
         with session_factory() as session:
+            job = session.get(ReportJob, job_id)
+            if job is None:
+                return
+            job.last_error = (
+                f"{_INSTALL_PENDING_ERROR} (candidate {rendered.candidate.name} kept; "
+                f"last switch error: {type(exc).__name__})"
+            )[:_MAX_ERROR_LENGTH]
+            job.updated_at = now
+            session.commit()
+    except SQLAlchemyError:
+        logger.error(
+            "report job %d: could not persist the install-pending state; "
+            "reconciliation still retries the switch from the candidate",
+            job_id,
+        )
+
+
+def _success_commit_state(
+    session_factory: sessionmaker, job_id: int, week_code: str, *, now: datetime
+) -> str:
+    """Whether THIS attempt's success is durably committed ("committed"),
+    verifiably not ("absent"), or undeterminable because the database is
+    still unreachable ("unknown") — after the success update raised (§4.4).
+
+    "committed" requires the exact pair `_mark_success` writes in one
+    transaction: the job `succeeded` with `finished_at == now` AND the
+    week's `weekly_reports` success row with `generated_at == now`. An
+    older success of the week never satisfies this — a failed attempt's
+    candidate must not be authorized by it (W03-AUDIT-3).
+    """
+
+    try:
+        with session_factory() as session:
+            job = session.get(ReportJob, job_id)
+            if (
+                job is None
+                or job.status != STATUS_SUCCEEDED
+                or job.finished_at is None
+                or job.finished_at != now
+            ):
+                return "absent"
             row = session.execute(
-                select(WeeklyReport).where(WeeklyReport.week_code == rendered.week_code)
+                select(WeeklyReport).where(WeeklyReport.week_code == week_code)
             ).scalar_one_or_none()
-            committed = (
+            if (
                 row is not None
                 and row.status == REPORT_STATUS_SUCCESS
                 and row.generated_at is not None
                 and row.generated_at == now
-            )
+            ):
+                return "committed"
+            return "absent"
     except SQLAlchemyError:
-        logger.warning(
-            "report job %d: candidate %s kept (database still unavailable); "
-            "reconciliation will resolve it",
-            job_id,
-            rendered.candidate.name,
-        )
-        return
-    if committed:
-        logger.warning(
-            "report job %d: success commit for %s landed despite the lost update; "
-            "installing its candidate",
-            job_id,
-            rendered.week_code,
-        )
-        _install_committed(rendered, job_id)
-        return
+        return "unknown"
+
+
+def _discard_candidate(rendered: RenderedReport, job_id: int) -> None:
+    """Remove the candidate of a verifiably uncommitted attempt (§4.4).
+
+    A failed attempt leaves no files behind and the current report keeps
+    its old bytes. If the discard itself fails the candidate survives on
+    disk — job-bound, so reconciliation discards it on a later pass.
+    """
+
     try:
         rendered.candidate.unlink(missing_ok=True)
         logger.info(
@@ -434,36 +507,104 @@ def _resolve_abandoned_candidate(
         )
 
 
-def reconcile_report_files(session: Session, output_dir: Path) -> int:
+def _candidate_authorizes_install(
+    job: ReportJob | None, week_code: str, row: WeeklyReport | None
+) -> bool:
+    """True only when `job` is the generation behind the week's CURRENT
+    success — the only authority that may install its candidate (§4.4).
+
+    Requires the job to exist, to belong to the candidate's week, to be
+    `succeeded`, and the week's success row to be exactly this job's
+    commit (`generated_at == job.finished_at`, the pair `_mark_success`
+    writes in one transaction). A previous success of the week therefore
+    never authorizes a failed/running regeneration's candidate, and a
+    candidate superseded by a newer success is never installed over it
+    (W03-AUDIT-3).
+    """
+
+    return (
+        job is not None
+        and job.week_code == week_code
+        and job.status == STATUS_SUCCEEDED
+        and job.finished_at is not None
+        and row is not None
+        and row.status == REPORT_STATUS_SUCCESS
+        and row.file_path is not None
+        and row.generated_at is not None
+        and row.generated_at == job.finished_at
+    )
+
+
+def reconcile_report_files(
+    session: Session, output_dir: Path, *, now: datetime | None = None
+) -> int:
     """Complete or discard candidate DOCXs left by an interrupted install.
 
     A crash (or a lost terminal update) between the committed success and
     the atomic file switch leaves the validated candidate beside the
-    current report. The database decides what happens to it: a success
-    row gets its candidate installed — completing the interrupted switch,
-    including for a first generation that has no current file yet (§4.4) —
-    and anything else is garbage that is removed, never left behind.
-    Returns how many candidates were resolved. Safe to run at every pass:
-    with no candidates present it is a directory listing only.
+    current report. Each candidate is resolved strictly through its bound
+    job: installed only when the job it names is the one behind the
+    week's CURRENT success (succeeded job, `generated_at == finished_at`
+    on the success row) — completing the interrupted switch, including
+    for a first generation that has no current file yet (§4.4).
+    Anything else is not authorized to become current and is removed,
+    never left behind and never installed over a newer success:
+
+    - a candidate whose job never committed (failed/running/recovered
+      attempt, e.g. after a database outage);
+    - a candidate superseded by a newer success of the week;
+    - an unbound legacy candidate (no job binding to verify);
+    - a candidate whose job row disappeared.
+
+    An installed candidate clears the job's install-pending `last_error`
+    (the owed switch is done); a discarded one clears it too (nothing is
+    owed anymore). Returns how many candidates were resolved. Safe to run
+    at every pass: with no candidates present it is a directory listing
+    only.
     """
 
     output_dir = Path(output_dir)
     resolved = 0
-    for candidate in sorted(output_dir.glob("*" + CANDIDATE_SUFFIX)):
-        week_code = candidate_week_code(candidate.name)
-        if week_code is None:
-            logger.warning("ignoring unrecognized report candidate %s", candidate.name)
+    changed = False
+    for candidate in sorted(output_dir.glob("*" + CANDIDATE_SUFFIX + "*")):
+        parsed = parse_candidate_name(candidate.name)
+        if parsed is None:
+            if not is_unbound_candidate_name(candidate.name):
+                logger.warning("ignoring unrecognized report candidate %s", candidate.name)
+                continue
+            logger.warning(
+                "discarding unbound legacy report candidate %s (no job to authorize it)",
+                candidate.name,
+            )
+            candidate.unlink(missing_ok=True)
+            resolved += 1
             continue
+        week_code, job_id = parsed
+        job = session.get(ReportJob, job_id)
         row = session.execute(
             select(WeeklyReport).where(WeeklyReport.week_code == week_code)
         ).scalar_one_or_none()
-        if row is not None and row.status == REPORT_STATUS_SUCCESS and row.file_path:
-            logger.info("installing interrupted report candidate for %s", week_code)
+        if _candidate_authorizes_install(job, week_code, row):
+            assert row is not None and row.file_path is not None  # authorized above
+            logger.info(
+                "installing committed report candidate %s for job %d", candidate.name, job_id
+            )
             os.replace(candidate, Path(row.file_path))
         else:
-            logger.info("discarding abandoned report candidate %s", candidate.name)
+            logger.info(
+                "discarding report candidate %s (job %d is not the week's committed "
+                "success)",
+                candidate.name,
+                job_id,
+            )
             candidate.unlink(missing_ok=True)
+        if job is not None and job.status == STATUS_SUCCEEDED and job.last_error is not None:
+            job.last_error = None
+            job.updated_at = now or datetime.now(UTC)
+            changed = True
         resolved += 1
+    if changed:
+        session.commit()
     return resolved
 
 
@@ -473,17 +614,22 @@ def execute_report_job(
     output_dir: Path,
     *,
     now: datetime | None = None,
-    render: Callable[[WeeklyReportData, Path], RenderedReport] = render_report_candidate,
+    render: Callable[..., RenderedReport] = render_report_candidate,
 ) -> ReportOutcome:
     """Run one report job end-to-end (§4/§5/§27.10).
 
     Marks the job running, builds the statistics from persisted data,
-    renders the DOCX as a validated candidate (§4.4), commits the
-    database success and only THEN atomically installs the candidate as
-    the current report. The order is the consistency guarantee: any
+    renders the DOCX as a validated, job-bound candidate (§4.4), commits
+    the database success and only THEN atomically installs the candidate
+    as the current report. The order is the consistency guarantee: any
     database failure happens while the previous report bytes are still
     untouched (§4.4/§5), and a failed attempt records a sanitized error
     with a 10-minute `next_retry_at` (§4.3).
+
+    A success commit whose reply was lost resolves to SUCCEEDED — the
+    job's own candidate is installed and nothing is retried; an install
+    failure keeps the success terminal but reports
+    STATUS_INSTALL_PENDING until reconciliation switches the file.
     """
 
     at = now or datetime.now(UTC)
@@ -508,7 +654,7 @@ def execute_report_job(
             assert job is not None
             period = _load_period(job)
             data = build_weekly_report_data(session, period, generated_at=at)
-        rendered = render(data, Path(output_dir))
+        rendered = render(data, Path(output_dir), job_id=job_id)
     except Exception as exc:  # noqa: BLE001 — every failure must be recorded (§4.3)
         return _record_failed_attempt(session_factory, job_id, week_code, exc, now=at)
 
@@ -516,18 +662,49 @@ def execute_report_job(
         with session_factory() as session:
             _mark_success(session, job_id, rendered, now=at)
     except Exception as exc:  # noqa: BLE001 — every failure must be recorded (§4.3)
-        # The current DOCX was never touched; resolve the candidate (a
-        # lost-update commit installs it, anything else discards it), then
-        # record the failed attempt with its retry time.
-        _resolve_abandoned_candidate(session_factory, rendered, job_id, now=at)
+        # The current DOCX was never touched. First establish what the
+        # database actually holds for THIS attempt: a commit that landed
+        # despite the lost reply is terminal — install this job's own
+        # candidate and report success (never FAILED, never a retry,
+        # W03-AUDIT-3). Otherwise the candidate belongs to a failed
+        # attempt: discarded when that is verifiable, kept job-bound for
+        # reconciliation when the database is still unreachable.
+        commit_state = _success_commit_state(session_factory, job_id, week_code, now=at)
+        if commit_state == "committed":
+            logger.warning(
+                "report job %d: success commit for %s landed despite the lost reply; "
+                "installing its candidate",
+                job_id,
+                week_code,
+            )
+            installed = _install_committed(session_factory, rendered, job_id, now=at)
+            return ReportOutcome(
+                job_id=job_id,
+                week_code=week_code,
+                status=STATUS_SUCCEEDED if installed else STATUS_INSTALL_PENDING,
+                error=None if installed else _INSTALL_PENDING_ERROR,
+                report_path=str(rendered.path),
+            )
+        if commit_state == "unknown":
+            logger.warning(
+                "report job %d: candidate %s kept (database still unavailable); "
+                "reconciliation will resolve it against job %d",
+                job_id,
+                rendered.candidate.name,
+                job_id,
+            )
+        else:
+            _discard_candidate(rendered, job_id)
         return _record_failed_attempt(session_factory, job_id, week_code, exc, now=at)
 
-    _install_committed(rendered, job_id)
-    logger.info("report job %d succeeded: %s", job_id, rendered.path.name)
+    installed = _install_committed(session_factory, rendered, job_id, now=at)
+    if installed:
+        logger.info("report job %d succeeded: %s", job_id, rendered.path.name)
     return ReportOutcome(
         job_id=job_id,
         week_code=week_code,
-        status=STATUS_SUCCEEDED,
+        status=STATUS_SUCCEEDED if installed else STATUS_INSTALL_PENDING,
+        error=None if installed else _INSTALL_PENDING_ERROR,
         report_path=str(rendered.path),
     )
 

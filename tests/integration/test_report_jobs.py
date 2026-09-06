@@ -133,7 +133,7 @@ def test_execute_failure_then_retry_after_ten_minutes(
 
     attempts = 0
 
-    def failing_render(data: object, output_dir: Path) -> RenderedReport:
+    def failing_render(data: object, output_dir: Path, *, job_id: int) -> RenderedReport:
         nonlocal attempts
         attempts += 1
         raise RuntimeError("render exploded")
@@ -203,7 +203,7 @@ def test_regeneration_failure_keeps_previous_success(
         regenerate_id = job.id
         assert job_id is not None and regenerate_id != job_id
 
-    def failing_render(data: object, output_dir: Path) -> RenderedReport:
+    def failing_render(data: object, output_dir: Path, *, job_id: int) -> RenderedReport:
         raise RuntimeError("regenerate boom")
 
     outcome = execute_report_job(

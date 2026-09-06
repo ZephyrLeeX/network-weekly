@@ -78,7 +78,7 @@ def test_report_chain_renders_valid_docx_with_missing_data(
         generated = datetime(2026, 9, 7, 0, 12, tzinfo=UTC)
         data = build_weekly_report_data(session, PERIOD, generated_at=generated)
 
-    rendered = render_report_docx(data, tmp_path)
+    rendered = render_report_docx(data, tmp_path, job_id=7)
     assert rendered.path.name == "network-weekly-report-2026-W36.docx"
 
     document = Document(str(rendered.path))
@@ -120,7 +120,7 @@ def test_zero_device_database_renders_missing_configuration(
         data = build_weekly_report_data(session, PERIOD, generated_at=generated)
 
     assert data.overall_status == STATUS_ATTENTION  # never 正常 over an empty DB
-    rendered = render_report_docx(data, tmp_path)
+    rendered = render_report_docx(data, tmp_path, job_id=7)
     document = Document(str(rendered.path))
     assert [p.text for p in document.paragraphs if p.style and p.style.name == "Heading 1"] == (
         list(SECTION_TITLES)
@@ -179,7 +179,7 @@ def test_irf_data_missing_week_renders_missing_not_loss(
 
     assert data.irf_summaries[0].data_missing
     assert data.overall_status == STATUS_ATTENTION  # §19 + Coverage, not 异常
-    rendered = render_report_docx(data, tmp_path)
+    rendered = render_report_docx(data, tmp_path, job_id=7)
     document = Document(str(rendered.path))
 
     body_text = "\n".join(p.text for p in document.paragraphs)
