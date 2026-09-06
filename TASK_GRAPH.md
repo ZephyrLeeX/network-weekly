@@ -439,10 +439,23 @@ REVIEW_PASSED
 **Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-GATE — Operations Web Gate
-**Status:** TODO  
+**Status:** PASS（engineering gate, 2026-09-06）  
 **Depends On:** W04-T003, W04-T004, W04-T005  
 **Blocks:** Wave 5  
-**Gate:** login -> configure priority interfaces -> view/download/regenerate report workflow passes.
+**Gate:** login -> configure priority interfaces -> view/download/regenerate report workflow passes.  
+**Verification evidence (work/wave-04, migrated PostgreSQL 0001→0010):**
+- pytest 278 unit + 233 integration PASS; ruff clean; mypy clean (122 files); `alembic upgrade head` idempotent at 0010.
+- Image rebuilt (docker build; compose build is a silent no-op in this environment) + compose smoke on the new image: web healthy (/health database ok), worker heartbeat persisted and fresh (28 s), device-poll loop alive (dev secrets-missing cycle contained per §27.9 as designed — the only ERROR lines in logs, expected for a no-secrets dev deployment).
+- **Live end-to-end flow against the running web container (curl, HTTP-level):**
+  1. `python -m backend.admin_cli init admin` inside the container → single `users` row with `scrypt$16384$8…` hash, `singleton=t`; password absent from argv/stdout and from web+worker logs (grep count 0).
+  2. **login**: GET /login → CSRF cookie+field; POST /login → 303, `Set-Cookie nw_session … HttpOnly; Max-Age=604800; SameSite=lax` + rotated CSRF cookie; GET / renders the authenticated home; wrong-password POST renders the fixed error with no session (covered by tests).
+  3. **configure priority interface**: /interfaces lists the device, then per §12 the overview shows Bridge-Aggr1 + both members with descriptions, admin/oper and both relationship directions; live POST toggle `monitored=true` on the AGGREGATE → DB `monitored=t` while both members stay `f` (§11 no cascade, live-verified); a member then toggled independently (`t`) with the aggregate staying `t`.
+  4. **report list**: /reports shows 2026-W35 (period `2026-08-24 ~ 2026-08-30`, generated `+0800`, status 成功, download + regenerate columns).
+  5. **download**: /reports/2026-W35/download → 200, `content-type` OOXML, `content-disposition attachment`, bytes are a valid DOCX (zip integrity OK) with exactly the 8 fixed sections (§6).
+  6. **regenerate**: live POST of the list's regenerate form → 303, one new `manual` pending job (id 7); the worker's report loop executed it within one pass → `succeeded`, registry `generated_at` updated, exactly ONE current DOCX in the reports volume, no candidate/temp residue (§4.4/§5).
+  7. **logout**: live POST → 303 /login; replaying the captured cookie → 303 to /login; `sessions` table empty — the server-side row was destroyed (§21).
+- Unauthenticated requests to /, /reports, /interfaces, download and regenerate are all denied (303 to /login) — live-checked and pinned by tests; all state-changing POSTs CSRF-checked first (missing/forged → 403).
+- Remaining release blockers (NOT gate-blocking): W03-T010 REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING, both carried to W05-GATE.
 
 ---
 

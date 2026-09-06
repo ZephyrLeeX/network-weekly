@@ -3,9 +3,14 @@
 ## Current execution
 
 ```text
-Current Wave: W04 — Login and Operations Web (started per Owner Decision
-  2026-09-06)
-Current Task: W04-GATE (Operations Web Gate verification)
+Current Wave: W04 — Login and Operations Web — COMPLETE, W04-GATE PASS
+  (engineering gate, 2026-09-06)
+Current Task: none — Wave 4 done; Wave 5 not started (per instruction)
+Live gate flow verified against the running compose stack: login ->
+configure priority interface (no aggregation/member cascade) -> report
+list -> download (valid 8-section DOCX) -> regenerate (web job executed
+by the worker loop) -> logout (session destroyed server-side). See the
+W04-GATE entry in TASK_GRAPH.md for the full evidence.
 Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
   Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
   to the Release Gate (W05-GATE):
@@ -798,33 +803,32 @@ backend/monitoring/interface_state.py and TASK_GRAPH W02-T006.
 ## Next ready candidates
 
 ```text
-W04-T002 — server-side session + login/logout (W04-T001 REVIEW_PASSED).
-Then W04-T003/T004/T005 -> W04-GATE.
-Outstanding release blockers (NOT Wave-4 blockers): W03-T010
-REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING, both
-blocking W05-GATE.
+None started — Wave 4 is COMPLETE (W04-GATE PASS); Wave 5 was NOT
+started per instruction. When authorized: W05-T001/W05-T004 depend on
+W04-GATE (now PASS).
+Outstanding release blockers (W05-GATE): W03-T010
+REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING.
 ```
 
 ## Current Wave Gate
 
 ```text
-W03-GATE — Weekly Report Gate: PASS (engineering gate, Owner Decision
-2026-09-06). Re-verified green on work/wave-03 at ffe98d8 after
-W03-AUDIT-4: pytest 252 unit + 170 integration PASS on migrated
-PostgreSQL (0008); ruff clean; mypy clean (100 files); alembic upgrade
-head idempotent at 0008; dev compose smoke: web healthy (/health
-database ok), worker heartbeat fresh, device-poll scheduler + IRF loop +
-retention + weekly-report loop alive. Failure/restart semantics (10-min
-retry, per-pass recovery of stranded `running` jobs, requeue on a lost
-terminal update, one active job per week at DB level, job-bound
-candidates + reconcile, regenerate keeps old DOCX until atomic replace)
-are proven by integration tests; golden scenarios cover every
-IMPLEMENTATION_PLAN golden case.
-Deferred to W05-GATE: the real weekly data manual DOCX check carried by
-W03-T010 (with W01-T007's real-device evidence). It is NOT part of this
-gate and must not be recorded as passed before real data exists.
-Current gate: W04-GATE — Operations Web Gate (login -> configure
-priority interfaces -> view/download/regenerate report workflow).
+W04-GATE — Operations Web Gate: PASS (engineering gate, 2026-09-06).
+pytest 278 unit + 233 integration PASS on migrated PostgreSQL (0001→0010);
+ruff clean; mypy clean (122 files); alembic upgrade head idempotent at
+0010; image rebuilt + compose smoke on the new image: web healthy
+(/health database ok), worker heartbeat persisted and fresh, device-poll
+loop alive. Live end-to-end flow against the running web container:
+login (HttpOnly/SameSite=Lax session cookie) -> priority-interface
+configuration with live no-cascade verification (aggregate=t, members=f;
+then a member=t independently) -> report list (2026-W35) -> download
+(valid 8-section DOCX, attachment headers) -> regenerate (web form POST
+created one manual job; the worker loop executed it to succeeded with
+one current DOCX, no residue) -> logout (303; cookie replay 303; the
+sessions row destroyed). Password grep count in web+worker logs: 0.
+W03-GATE remains PASS (engineering gate); W03-T010
+REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING remain
+BLOCKED and block W05-GATE only.
 ```
 
 ## Product baseline
