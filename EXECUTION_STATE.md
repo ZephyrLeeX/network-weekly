@@ -5,7 +5,8 @@
 ```text
 Current Wave: W05 — Deployment and Stability — IN PROGRESS (branch
   work/wave-05, created 2026-09-06)
-Current Task: W05-T003 — update.sh (next; T001/T002 REVIEW_PASSED)
+Current Task: W05-T004 — Logging, retention scheduling and operator
+  runbook (next; T001/T002/T003 REVIEW_PASSED)
 W04-AUDIT merge into main: 872b1631f64ad83d02bff7088679cc5d6accf2e9
   (post-merge re-check on main: 278 unit + 241 integration PASS, ruff
   clean, mypy clean in 122 files, alembic upgrade head idempotent at
@@ -53,6 +54,17 @@ W05-T002: fe493667724b5d6eea9c889ef68f73170542fc35 — REVIEW_PASSED
           Debian 13 roots-override host — 10 devices, admin scrypt-
           verifies, 0 password hits in logs, re-run preserved .env+admin,
           exit 12/13 failure paths)
+W05-T003: 7b382e7ff9667ca072f3feabe232fe5a75d6941e — REVIEW_PASSED
+          (deploy/update.sh: target image resolved + checked locally,
+          previous .env kept as .env.bak, alembic on the NEW image,
+          up -d --wait, wait_health/wait_heartbeat now return-status
+          helpers; migration failure → .env restored + exit 14 with
+          nothing restarted; restart/health/heartbeat failure → 17/18/19
+          + exact rollback command; never touches /data or /etc; same-
+          image re-run verifies in place; smoke: REAL 0009→0011 update
+          from a W04-T001-commit-built image to a HEAD-built image, 10
+          devices + 1 admin intact, raising-0012 image → exit 14 with old
+          stack still healthy, missing image → exit 12, re-run idempotent)
 ```
 
 ## Wave 4 checkpoint ledger

@@ -499,10 +499,15 @@ REVIEW_PASSED
 **Checkpoint:** see EXECUTION_STATE.md Wave 5 checkpoint ledger.
 
 ## W05-T003 — update.sh
-**Status:** TODO  
+**Status:** REVIEW_PASSED（2026-09-06, branch work/wave-05）  
 **Depends On:** W05-T002  
 **Blocks:** W05-T005  
-**Acceptance:** target image update + Alembic migration + service restart + health/heartbeat verification succeeds.
+**Acceptance:** target image update + Alembic migration + service restart + health/heartbeat verification succeeds.  
+**Implementation:**
+- `deploy/update.sh`: resolves the target image (`--image TAG` / exported `NETWORK_REPORT_APP_IMAGE` / installed `.env`), requires it locally (offline; prod compose `pull_policy: never`), keeps the previous `.env` as `.env.bak` (0600), switches the image reference, runs `alembic upgrade head` **on the target image**, recreates web+worker (`up -d --wait`), then verifies `/health` and worker heartbeat. Failure semantics are explicit: a failed migration restores the previous `.env` and exits **14** with NOTHING restarted (the old containers keep serving the old image); a failed restart/health/heartbeat exits **17/18/19** printing the exact rollback command (`update.sh --image <previous>`); usage errors exit 2. Never touches `/data/network-report` (DB + DOCX) or `/etc/network-report` (devices.toml + secrets.env) — host bind mounts outside the managed application directory. Idempotent re-run detects target==current and re-verifies in place. `lib.sh` `wait_health`/`wait_heartbeat` now return on timeout so each caller selects its exit code.
+**Tests:** `tests/unit/test_deploy_scripts.py` (+2 net): update.sh bash syntax + fail-fast + no network verbs; §26.3 flow pinned (check_images → alembic → up --wait → wait_health → wait_heartbeat → `.env.bak`), migration-failure `.env` restore required, and no `rm` anywhere in the update path. Suite: 297 unit + 241 integration PASS, ruff clean, mypy clean (124 files).  
+**Smoke evidence (real migration-carrying update, all images built locally):** fresh install on an image built from the W04-T001 commit (schema 0009) → `update.sh --image <HEAD-built image>` executed **0009→0010→0011 for real**, recreated both containers on the target image, `/health` ok, heartbeat fresh; 10 devices + 1 admin intact across the update; previous image recorded in `.env.bak`. A broken-migration image (raising `0012`) → exit **14**, `.env` restored to the last good image, previous containers verified still running and healthy. Missing image → exit **12** with nothing changed. Same-image re-run → in-place re-verification, heartbeat fresh. (Smoke-script lesson recorded: an exported `NETWORK_REPORT_APP_IMAGE` overrides the installed `.env` for compose calls — install/update scripts set it deliberately; test drivers must too.)  
+**Checkpoint:** see EXECUTION_STATE.md Wave 5 checkpoint ledger.
 
 ## W05-T004 — Logging, retention scheduling and operator runbook
 **Status:** TODO  
