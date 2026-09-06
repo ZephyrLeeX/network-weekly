@@ -10,8 +10,9 @@ idle) or destroyed session.
 """
 
 from datetime import UTC, datetime
+from typing import Annotated
 
-from fastapi import Request
+from fastapi import Depends, Request
 from fastapi.responses import RedirectResponse
 
 from backend.auth.sessions import SESSION_COOKIE_NAME, get_valid_session
@@ -42,3 +43,8 @@ def require_admin(request: Request) -> User:
                 if admin is not None:
                     return admin
     raise LoginRequired
+
+
+# FastAPI dependency annotation for "the authenticated administrator"
+# (module-level so `Depends` is not called in argument defaults).
+AdminDep = Annotated[User, Depends(require_admin)]

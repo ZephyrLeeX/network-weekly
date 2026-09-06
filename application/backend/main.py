@@ -24,6 +24,7 @@ from backend.config import load_settings
 from backend.db.engine import get_engine
 from backend.log import setup_logging
 from backend.web.deps import LoginRequired, login_required_redirect
+from backend.web.reports import router as reports_router
 from backend.web.routes import router as web_router
 
 
@@ -45,6 +46,7 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 app.include_router(web_router)
+app.include_router(reports_router)
 app.add_exception_handler(LoginRequired, login_required_redirect)
 
 

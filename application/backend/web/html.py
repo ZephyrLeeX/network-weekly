@@ -57,3 +57,22 @@ def hidden_csrf(csrf_token: str) -> str:
     """The hidden CSRF field every state-changing form must carry (§20.4)."""
 
     return f'<input type="hidden" name="csrf_token" value="{esc(csrf_token)}">'
+
+
+_NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
+    ("/", "首页", "home"),
+    ("/reports", "报告列表", "reports"),
+    ("/interfaces", "重点接口配置", "interfaces"),
+)
+
+
+def nav(active: str) -> str:
+    """The shared navigation bar; `active` is rendered bold, not linked."""
+
+    links = []
+    for href, label, key in _NAV_ITEMS:
+        if key == active:
+            links.append(f"<strong>{esc(label)}</strong>")
+        else:
+            links.append(f'<a href="{esc(href)}">{esc(label)}</a>')
+    return "<p>" + " | ".join(links) + "</p>"

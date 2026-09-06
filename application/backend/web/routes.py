@@ -20,9 +20,8 @@ error message.
 """
 
 from datetime import UTC, datetime
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
@@ -36,16 +35,11 @@ from backend.auth.sessions import (
     session_cookie_max_age,
 )
 from backend.db.engine import get_session_factory
-from backend.db.models import User
-from backend.web.deps import require_admin
+from backend.web.deps import AdminDep
 from backend.web.pages import csrf_error_page, home_page, login_page
 from backend.web.security import CSRF_COOKIE_NAME, CSRF_FORM_FIELD, csrf_valid, issue_csrf_token
 
 router = APIRouter()
-
-# FastAPI dependency annotation for "the authenticated administrator"
-# (module-level so `Depends` is not called in argument defaults).
-AdminDep = Annotated[User, Depends(require_admin)]
 
 # Fixed error text for credential failures — deliberately identical for an
 # unknown username and a wrong password (no account enumeration, §21).
