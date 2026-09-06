@@ -6,11 +6,13 @@ One pass, every minute:
 1. recover `running` jobs stranded by a previous worker or by a terminal
    update lost to a database outage (§4.2/§27.1) — a failed recovery is
    simply retried on the next pass, so recovery itself never gets stuck;
-2. if `now >= last Monday 00:00 + 10 min` (== Monday 00:10 Asia/Shanghai,
+2. reconcile report files: complete (or discard) candidate DOCXs whose
+   committed success never reached its atomic file switch (§4.4/§5);
+3. if `now >= last Monday 00:00 + 10 min` (== Monday 00:10 Asia/Shanghai,
    §4.1), idempotently ensure the persistent job for the just-completed
    week exists (§4.2: the responsibility is the DB row, so a worker that
    was down at 00:10 creates the job on its next pass);
-3. run every due job — pending, or failed with `next_retry_at <= now`
+4. run every due job — pending, or failed with `next_retry_at <= now`
    (the 10-minute retry, §4.3) — one at a time, oldest first (§27: never
    two concurrent generations; the loop thread runs them inline).
 
@@ -36,6 +38,7 @@ from backend.reporting.jobs import (
     due_jobs,
     ensure_scheduled_job,
     execute_report_job,
+    reconcile_report_files,
     recover_stale_running_jobs,
 )
 from backend.reporting.period import BUSINESS_TIMEZONE, previous_period
@@ -87,6 +90,20 @@ class WeeklyReportLoop:
             logger.info("recovered %d interrupted report job(s)", recovered)
         return recovered
 
+    def reconcile_files(self) -> int:
+        """Finish or discard candidates from interrupted installs (§4.4).
+
+        Part of every pass: a success that committed but never reached its
+        atomic file switch (crash, lost update, volume hiccup) is completed
+        here instead of being lost; abandoned candidates are removed.
+        """
+
+        with self._session_factory() as session:
+            resolved = reconcile_report_files(session, self._output_dir)
+        if resolved:
+            logger.info("resolved %d report candidate(s)", resolved)
+        return resolved
+
     def ensure_scheduled(self) -> bool:
         """Ensure the completed week's job exists once past Monday 00:10."""
 
@@ -125,6 +142,7 @@ class WeeklyReportLoop:
 
         try:
             self.recover_once()
+            self.reconcile_files()
             self.ensure_scheduled()
             self.run_due()
         except Exception as exc:  # noqa: BLE001 — keep the loop alive

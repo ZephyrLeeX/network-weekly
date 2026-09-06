@@ -29,6 +29,10 @@ from backend.reporting.docx import (
     DocxRenderError,
     _fmt_duration,
     _validate_document,
+    candidate_file_name,
+    candidate_week_code,
+    install_report,
+    render_report_candidate,
     render_report_docx,
 )
 from backend.reporting.incidents import DeviceIncidentSummary, IncidentEpisode  # noqa: E402
@@ -359,6 +363,37 @@ def test_atomic_replace_leaves_exactly_one_file_per_week(tmp_path: Path) -> None
     second = render_report_docx(_report(), tmp_path)
     assert second.path == first.path
     assert [p.name for p in tmp_path.iterdir()] == [first.path.name]
+
+
+def test_candidate_then_install_is_two_phase(tmp_path: Path) -> None:
+    """§4.4: the candidate is a complete validated DOCX; the current report
+    appears only when the install explicitly switches it."""
+
+    rendered = render_report_candidate(_report(), tmp_path)
+    assert rendered.path.name == report_file_name(PERIOD)
+    assert rendered.candidate.name == report_file_name(PERIOD) + ".candidate"
+    # The candidate holds the complete document; the current report of the
+    # week was not touched by the render.
+    assert rendered.candidate.exists() and not rendered.path.exists()
+    assert [p.name for p in tmp_path.iterdir()] == [rendered.candidate.name]
+    document = Document(str(rendered.candidate))
+    headings = [
+        p.text for p in document.paragraphs if p.style is not None and p.style.name == "Heading 1"
+    ]
+    assert headings == list(SECTION_TITLES)
+
+    install_report(rendered)
+    assert rendered.path.exists() and not rendered.candidate.exists()
+    assert [p.name for p in tmp_path.iterdir()] == [rendered.path.name]
+
+
+def test_candidate_week_code_round_trip() -> None:
+    name = candidate_file_name(PERIOD)
+    assert candidate_week_code(name) == "2026-W36"
+    # Only candidate files parse; current reports and foreign names do not.
+    assert candidate_week_code(report_file_name(PERIOD)) is None
+    assert candidate_week_code("network-weekly-report-2026-W366.docx.candidate") is None
+    assert candidate_week_code("someone-elses-file.candidate") is None
 
 
 def test_invalid_document_fails_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

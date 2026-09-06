@@ -13,10 +13,20 @@ File writing follows §5 exactly:
 
 so a failed generation can never leave a half-written file behind, and an
 existing report for the week stays intact until the new one is complete.
+
+Generation and installation are two separate steps
+(`render_report_candidate` + `install_report`; `render_report_docx` is
+their one-shot composition): a regenerate first produces a fully
+validated *candidate* DOCX under a deterministic side name and only the
+explicit install atomically moves it onto the current report path. The
+report job commits its database success between the two steps, so any
+database failure leaves the previous DOCX bytes untouched (§4.4) and an
+interrupted install can be completed from the surviving candidate.
 """
 
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -30,7 +40,7 @@ from docx.shared import Pt
 from docx.table import Table, _Row
 from docx.text.paragraph import Paragraph
 
-from backend.reporting.period import report_file_name
+from backend.reporting.period import ReportPeriod, report_file_name
 from backend.reporting.service import (
     WeeklyReportData,
 )
@@ -57,12 +67,45 @@ class DocxRenderError(RuntimeError):
     """Raised when the generated document fails validation (§5)."""
 
 
+# Deterministic side name of the not-yet-installed report (§4.4): same
+# directory and filesystem as the current DOCX, so installing it stays a
+# same-filesystem atomic rename. It never matches the §5 current-report
+# name, so it is not downloadable/report-visible state.
+CANDIDATE_SUFFIX = ".candidate"
+
+
+def candidate_file_name(period: ReportPeriod) -> str:
+    """The deterministic file name of one week's pending candidate (§4.4)."""
+
+    return f"{report_file_name(period)}{CANDIDATE_SUFFIX}"
+
+
+# Candidate names are the §5 current-report name plus CANDIDATE_SUFFIX;
+# the week code inside follows ReportPeriod.week_code (`YYYY-Www`).
+_CANDIDATE_NAME_PATTERN = re.compile(
+    r"^network-weekly-report-(\d{4}-W\d{2})\.docx" + re.escape(CANDIDATE_SUFFIX) + r"$"
+)
+
+
+def candidate_week_code(file_name: str) -> str | None:
+    """The week code of a candidate file name, None when it is not ours."""
+
+    match = _CANDIDATE_NAME_PATTERN.match(file_name)
+    return match.group(1) if match else None
+
+
 @dataclass(frozen=True)
 class RenderedReport:
-    """The artifact written for one week (one current DOCX per week, §4.4)."""
+    """The artifact rendered for one week (one current DOCX per week, §4.4).
+
+    `candidate` is where the validated bytes sit right now; `path` is the
+    final current-report location that `weekly_reports.file_path` records
+    and that `install_report` atomically moves the candidate onto.
+    """
 
     path: Path
     week_code: str
+    candidate: Path
 
 
 def _fmt_dt(moment: datetime | None, timezone: ZoneInfo) -> str:
@@ -509,17 +552,20 @@ def _validate_document(path: Path) -> None:
         )
 
 
-def render_report_docx(data: WeeklyReportData, output_dir: Path) -> RenderedReport:
-    """Render, validate and atomically install the weekly DOCX (§5/§4.4).
+def render_report_candidate(data: WeeklyReportData, output_dir: Path) -> RenderedReport:
+    """Render and validate the weekly DOCX as a candidate, §5 (§4.4).
 
-    The temporary file lives in `output_dir` itself, so the final
-    ``os.replace`` is an atomic same-filesystem rename: readers can only
-    ever see the complete previous or the complete new document.
+    The temporary file lives in `output_dir` itself, so the rename to the
+    deterministic candidate path is an atomic same-filesystem move. The
+    current report of the week is NOT touched here — `install_report`
+    does that as its own explicit, atomic step, so a candidate that is
+    never installed can never destroy the previous report.
     """
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     target = output_dir / report_file_name(data.period)
+    candidate = output_dir / candidate_file_name(data.period)
 
     handle, temp_name = tempfile.mkstemp(
         prefix=".tmp-report-", suffix=".docx", dir=output_dir
@@ -530,10 +576,35 @@ def render_report_docx(data: WeeklyReportData, output_dir: Path) -> RenderedRepo
         document = _build_document(data)
         document.save(str(temp_path))
         _validate_document(temp_path)
-        os.replace(temp_path, target)
+        os.replace(temp_path, candidate)
     finally:
         if temp_path.exists():
             temp_path.unlink()
 
-    logger.info("weekly report rendered: %s (week %s)", target.name, data.period.week_code)
-    return RenderedReport(path=target, week_code=data.period.week_code)
+    logger.info(
+        "weekly report candidate rendered: %s (week %s)", candidate.name, data.period.week_code
+    )
+    return RenderedReport(path=target, week_code=data.period.week_code, candidate=candidate)
+
+
+def install_report(rendered: RenderedReport) -> None:
+    """Atomically make the candidate the current report of the week (§5).
+
+    Same-directory rename: readers can only ever see the complete previous
+    or the complete new document, and the previous bytes stay intact until
+    this replace succeeds.
+    """
+
+    os.replace(rendered.candidate, rendered.path)
+
+
+def render_report_docx(data: WeeklyReportData, output_dir: Path) -> RenderedReport:
+    """Render, validate and atomically install the weekly DOCX (§5/§4.4).
+
+    One-shot composition of `render_report_candidate` + `install_report`
+    for callers that own the whole succeed-or-fail flow in-process.
+    """
+
+    rendered = render_report_candidate(data, output_dir)
+    install_report(rendered)
+    return rendered
