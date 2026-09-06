@@ -6,7 +6,8 @@ submissions, and the job state visible on the report list.
 """
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from html import escape
 from pathlib import Path
 
 import httpx
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 from backend.auth.admin import initialize_admin
 from backend.db.models import ReportJob, User, UserSession, WeeklyReport
 from backend.main import app
+from backend.reporting.jobs import _INSTALL_PENDING_ERROR
 from backend.reporting.period import period_for_iso_week
 
 pytestmark = pytest.mark.integration
@@ -110,6 +112,37 @@ def _job_rows(db_engine: Engine, week_code: str) -> list[ReportJob]:
                 select(ReportJob).where(ReportJob.week_code == week_code)
             ).scalars()
         )
+
+
+def _seed_job(
+    db_engine: Engine,
+    week_code: str,
+    *,
+    status: str,
+    last_error: str | None = None,
+    minutes_ago: int = 0,
+) -> int:
+    """One report job row as a worker attempt would have left it."""
+
+    year, week = week_code.split("-W")
+    period = period_for_iso_week(int(year), int(week))
+    created = datetime.now(UTC) - timedelta(minutes=minutes_ago)
+    with Session(db_engine) as session:
+        job = ReportJob(
+            week_code=week_code,
+            period_start=period.start,
+            period_end=period.end,
+            status=status,
+            trigger="manual",
+            attempts=1,
+            last_error=last_error,
+            created_at=created,
+            updated_at=created,
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        return job.id
 
 
 def test_regenerate_creates_one_manual_job(
@@ -214,3 +247,93 @@ def test_report_list_renders_regenerate_form_with_csrf(
     assert 'action="/reports/2026-W35/regenerate"' in page.text
     assert 'name="csrf_token"' in page.text
     assert "重新生成" in page.text
+
+
+def test_install_pending_job_is_visible_on_the_report_list(
+    client: TestClient, db_engine: Engine, report_dir: Path
+) -> None:
+    """W04-AUDIT: success A → regenerate B → the job is succeeded with the
+    install-pending last_error. The week must NOT read as a plain 成功/—
+    row: the owed file switch is diagnosed on the list and the previous
+    report stays downloadable until the switch completes (§4.4)."""
+
+    _seed_success_report(db_engine, "2026-W35", report_dir)
+    _seed_job(
+        db_engine,
+        "2026-W35",
+        status="succeeded",
+        last_error=(
+            f"{_INSTALL_PENDING_ERROR} (candidate "
+            "network-weekly-report-2026-W35.docx.candidate.7 kept; "
+            "last switch error: OSError)"
+        ),
+    )
+
+    page = client.get("/reports")
+
+    assert page.status_code == 200
+    assert "新报告已提交，但文件切换待恢复；当前下载仍可能是上一份成功报告" in page.text
+    # The install-pending diagnostic itself is visible, not swallowed.
+    assert "success committed but the current DOCX is not switched yet" in page.text
+    # The previous success remains downloadable while the switch is owed.
+    assert 'href="/reports/2026-W35/download"' in page.text
+
+
+def test_failed_job_error_is_visible_and_escaped(
+    client: TestClient, db_engine: Engine, report_dir: Path
+) -> None:
+    """W04-AUDIT: a failed regenerate surfaces `ReportJob.last_error` on the
+    list — HTML-escaped, so an injected payload in the error stays text."""
+
+    _seed_success_report(db_engine, "2026-W35", report_dir)
+    error = 'render failed: <script>alert("x")</script> & <img onerror=alert(1)>'
+    _seed_job(db_engine, "2026-W35", status="failed", last_error=error)
+
+    page = client.get("/reports")
+
+    assert page.status_code == 200
+    assert "重新生成失败，等待自动重试" in page.text
+    assert escape(error, quote=True) in page.text
+    assert "<script>" not in page.text
+    assert "<img onerror=alert(1)>" not in page.text
+
+
+def test_latest_job_of_the_week_drives_the_list_note(
+    client: TestClient, db_engine: Engine, report_dir: Path
+) -> None:
+    """The list reads each week's MOST RECENT job, not an older one: a fresh
+    pending regeneration supersedes an older attempt's install-pending note."""
+
+    _seed_success_report(db_engine, "2026-W35", report_dir)
+    _seed_job(
+        db_engine,
+        "2026-W35",
+        status="succeeded",
+        last_error=f"{_INSTALL_PENDING_ERROR} (candidate x kept; last switch error: OSError)",
+        minutes_ago=30,
+    )
+    _seed_job(db_engine, "2026-W35", status="pending", minutes_ago=5)
+
+    page = client.get("/reports")
+
+    assert page.status_code == 200
+    assert "重新生成排队中" in page.text
+    assert "新报告已提交" not in page.text
+    assert "success committed but the current DOCX is not switched yet" not in page.text
+
+
+def test_clean_succeeded_job_renders_no_job_note(
+    client: TestClient, db_engine: Engine, report_dir: Path
+) -> None:
+    """A fully-delivered succeeded job adds no noise to a 成功 row."""
+
+    _seed_success_report(db_engine, "2026-W35", report_dir)
+    _seed_job(db_engine, "2026-W35", status="succeeded", last_error=None)
+
+    page = client.get("/reports")
+
+    assert page.status_code == 200
+    assert "重新生成排队中" not in page.text
+    assert "重新生成进行中" not in page.text
+    assert "重新生成失败" not in page.text
+    assert "新报告已提交" not in page.text
