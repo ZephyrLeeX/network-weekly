@@ -4,11 +4,13 @@
 
 ```text
 Current Wave: W03 — implementation COMPLETE, GATE BLOCKED (real week data)
-Current Task: W03-GATE stopped per owner instruction 2026-09-05 — W03-T010's
-  real-report verification has no real weekly data in this environment, so
-  the gate is NOT judged PASS and work/wave-03 is NOT merged into main.
-Branch: work/wave-03 (engineering verification all green; merge deferred
-  until the W03-T010 real-data acceptance closes)
+Current Task: W03-AUDIT (audit hotfix) REVIEW_PASSED on work/wave-03.
+  W03-GATE stays BLOCKED — REAL_WEEK_DATA_PENDING per owner instruction
+  2026-09-05 — W03-T010's real-report verification has no real weekly data
+  in this environment, so the gate is NOT judged PASS and work/wave-03 is
+  NOT merged into main.
+Branch: work/wave-03 (engineering verification all green after W03-AUDIT;
+  merge deferred until the W03-T010 real-data acceptance closes)
 ```
 
 ## Wave 3 checkpoint ledger
@@ -68,6 +70,17 @@ W03-T010: 557165cee396361984a7b9c63e597d43cea60be8 — engineering acceptance
           REVIEW_PASSED, real-report acceptance BLOCKED (below)
 W03-GATE: 557165cee396361984a7b9c63e597d43cea60be8 — BLOCKED/STOPPED evidence
           (engineering verification green; NOT PASS; no merge)
+W03-AUDIT: 936b1583f46376cf043d28286910952e711a49d7 — REVIEW_PASSED
+          (audit hotfix, no schema change / no migration: 1) report-job
+          recovery re-runs on every loop pass and a lost terminal
+          success/failure update requeues the job with the 10-minute
+          next_retry_at — no permanent `running` stall without restart;
+          2) a truly 0-device database renders 未配置设备/数据缺失 +
+          数据完整性不足 with overall 关注 — never 正常, never 数据完整性
+          满足要求; 3) counter Top 10 excludes total_delta-None interfaces
+          while a genuine 0 total stays eligible; 4) an IRF week without a
+          successful observation states IRF 成员状态数据缺失, never 无缺失,
+          status still §19+Coverage; 12 new tests)
 ```
 
 ## W03-T010 / W03-GATE BLOCKED item (2026-09-05)
@@ -90,6 +103,53 @@ W03-GATE — STOPPED (NOT PASS) per owner instruction: engineering
   gate after one real collection week exists.
 Merge: work/wave-03 NOT merged into main (merge is conditioned on
   W03-GATE PASS). Wave 4 not started.
+```
+
+## W03-AUDIT hotfix (2026-09-06)
+
+```text
+W03-AUDIT — REVIEW_PASSED (checkpoint 936b1583f46376cf043d28286910952e711a49d7,
+work/wave-03). Four audit items fixed; no schema change, no migration:
+  1. Report job running 卡死: WeeklyReportLoop now recovers stranded
+     `running` jobs at the start of EVERY pass (a failed recovery — e.g.
+     database briefly down at boot — is retried by the following passes,
+     §4.2/§27.9). When the terminal success/failure update itself is lost
+     to a database outage, execute_report_job requeues the job as pending
+     with next_retry_at = now + 10 min instead of leaving it `running`
+     forever; if even the requeue fails, the next pass's recovery collects
+     the stranded row. Worker keeps retrying every 10 minutes without a
+     restart (§4.3). Tests: success-update lost → recorded failure; both
+     terminal updates lost → requeued pending; requeue lost → recovered by
+     a later pass; recovery failure → retried on next pass.
+  2. Truly 0-device empty database: CoverageSummary treats an empty
+     deployment as below-target (no coverage evidence can claim integrity);
+     the summary states 未配置设备/数据缺失 + 数据完整性不足, the DOCX
+     basic-info row shows the same, overall status is 关注 — never 正常 and
+     never 数据完整性满足要求 (§6.2/§18.3). Coverage stays 数据缺失 (None),
+     not 0%. Disabled devices with planned cycles keep the existing
+     semantics (unchanged). Tests: 0-device service + unit DOCX + e2e DOCX.
+  3. Counter Top 10: counter_delta_top_entries drops interfaces whose
+     total_delta is None (no valid counter interval — 数据缺失 is not a
+     rankable observation); a genuine total of 0 (constant counters) stays
+     eligible. Corrected the old test that let a None-total interface fill
+     a slot; added true-zero and fewer-than-10-rankable boundary tests.
+  4. IRF 数据缺失摘要: a fabric with no successful in-week observation now
+     yields the summary clause IRF 成员状态数据缺失（<devices>） instead of
+     IRF 成员无缺失; mixed weeks report both 期末缺失 and 数据缺失 clauses;
+     missing IRF evidence is still NOT an §19 异常 condition — overall
+     status follows §19 + Coverage. Tests: service + unit DOCX + e2e DOCX.
+Evidence: pytest 250 unit + 160 integration PASS on migrated PostgreSQL
+(0001→0008); ruff clean; mypy clean (99 files); `alembic upgrade head`
+idempotent at 0008 (no migration); image rebuilt + compose smoke: web
+healthy (/health database ok), worker heartbeat persisted and fresh,
+weekly-report loop + retention alive (dev secrets-missing cycle contained
+per §27.9 as designed); live manual regenerate of 2026-W35 through the
+§4.4 service inside the worker container produced the atomic 8-section
+DOCX with the empty deployment honestly rendered (当前总体状态 关注,
+Monitoring Coverage 摘要 = 未配置设备/数据缺失…数据完整性不足, no
+数据完整性满足要求, no 正常).
+W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
+started; W01-T007 still FIELD_VALIDATION_PENDING.
 ```
 
 ## Wave 2 checkpoint ledger
@@ -181,6 +241,21 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W03-AUDIT (Wave 3 audit hotfix) — REVIEW_PASSED:
+  1. Report job running 卡死: per-pass recovery retry + requeue on a lost
+     terminal success/failure update; no permanent `running` stall without
+     a restart; the 10-minute retry cadence survives database outages.
+  2. Truly 0-device database: 未配置设备/数据缺失 + 数据完整性不足, overall
+     关注 — never 正常, never 数据完整性满足要求; Coverage 数据缺失, not 0%.
+  3. Counter Top 10: total_delta-None interfaces excluded; genuine 0 kept.
+  4. IRF summary: no-observation weeks state IRF 成员状态数据缺失, never
+     IRF 成员无缺失; overall status unchanged per §19 + Coverage.
+See "W03-AUDIT hotfix (2026-09-06)" above for full evidence.
+```
+
+## Previous completed task
+
+```text
 W03-T010 (engineering scope) — regenerate service REVIEW_PASSED:
   request_regenerate is idempotent (one active job per week; repeated
   submissions return the same job), refuses incomplete weeks, and runs
@@ -194,7 +269,7 @@ W03-T010 (engineering scope) — regenerate service REVIEW_PASSED:
   W03-GATE BLOCKED item above.
 ```
 
-## Previous completed task
+## Earlier completed task
 
 ```text
 W02-AUDIT (Wave 2 audit hotfix) — REVIEW_PASSED:
@@ -223,8 +298,8 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
-W03 gate-verification commit: (this commit, work/wave-03 — see git log)
-W03-T010 checkpoint: (this commit, work/wave-03)
+W03-AUDIT checkpoint: 936b1583f46376cf043d28286910952e711a49d7 (work/wave-03)
+W03-T010 checkpoint: 557165cee396361984a7b9c63e597d43cea60be8 (work/wave-03)
 W03-T009 checkpoint: 23819aa406bfce97a54588fb10f790d91a304742 (work/wave-03)
 W03-T008 checkpoint: 0562ab01ff42b5ba61eebbaaff929c3be27a931f (work/wave-03)
 W03-T007 checkpoint: fa788731e2956201be602e8b1e2267bc2d449486 (work/wave-03)
@@ -309,20 +384,24 @@ verification and merge work/wave-03 into main.
 ```text
 W03-GATE — Weekly Report Gate
 Status: BLOCKED — REAL_WEEK_DATA_PENDING (STOPPED per owner 2026-09-05;
-NOT PASS). Engineering verification fully green on work/wave-03:
-  pytest 248 unit + 150 integration PASS on migrated PostgreSQL (0008);
+NOT PASS). Engineering verification fully green on work/wave-03 and
+re-validated green after W03-AUDIT (checkpoint 936b1583f46376cf043d2828
+6910952e711a49d7):
+  pytest 250 unit + 160 integration PASS on migrated PostgreSQL (0008);
   ruff clean; mypy clean (99 files); alembic upgrade head idempotent at
-  0008; compose image rebuilt (docker build; compose build is a silent
-  no-op in this environment) + smoke: web healthy (/health database ok),
-  worker heartbeat persisted, device-poll scheduler + IRF loop +
-  retention + weekly-report loop alive; the report loop live-created and
-  executed the 2026-W35 scheduled job (catch-up per §4.2), producing one
-  atomic, revalidated 8-section DOCX in the reports volume with honest
-  数据缺失 rendering for an empty deployment.
+  0008 (no new migration); compose image rebuilt (docker build; compose
+  build is a silent no-op in this environment) + smoke: web healthy
+  (/health database ok), worker heartbeat persisted and fresh, device-poll
+  scheduler + IRF loop + retention + weekly-report loop alive; a live
+  manual regenerate of the 2026-W35 job through the §4.4 service produced
+  one atomic, revalidated 8-section DOCX in the reports volume with the
+  empty deployment honestly rendered (关注 / 未配置设备/数据缺失) after
+  W03-AUDIT.
 Golden scenarios cover every IMPLEMENTATION_PLAN golden case; failure/
-restart semantics (10-min retry, worker restart recovery, one active job
-per week at DB level, regenerate keeps old DOCX until atomic replace)
-are proven by integration tests.
+restart semantics (10-min retry, per-pass recovery of stranded `running`
+jobs, requeue on a lost terminal update, one active job per week at DB
+level, regenerate keeps old DOCX until atomic replace) are proven by
+integration tests.
 Missing for PASS: one DOCX generated from REAL persisted weekly data,
 manually checked against source samples (blocked with W01-T007's root
 cause). Real-device proof remains carried by W01-T007 for W05-GATE.
