@@ -475,10 +475,16 @@ REVIEW_PASSED
 # Wave 5 — Deployment and Stability
 
 ## W05-T001 — Production directory and configuration layout
-**Status:** IN_PROGRESS (2026-09-06, branch work/wave-05)  
+**Status:** REVIEW_PASSED（2026-09-06, branch work/wave-05）  
 **Depends On:** W04-GATE, W00-T005  
 **Blocks:** W05-T002  
-**Acceptance:** `/opt`, `/data`, `/etc` layout documented; secrets permission checked; DB and DOCX files survive application-container replacement.
+**Acceptance:** `/opt`, `/data`, `/etc` layout documented; secrets permission checked; DB and DOCX files survive application-container replacement.  
+**Implementation:**
+- `deploy/docker-compose.prod.yml`: services fixed to `web / worker / postgres` (§25) on ONE pre-built application image (`NETWORK_REPORT_APP_IMAGE`, no `build:` sections, `postgres:17-alpine` pinned — offline install, nothing pulled at runtime). No named volumes: PostgreSQL data binds from `/data/network-report/postgres`, DOCX reports bind from `/data/network-report/reports` into `/var/lib/network-report/reports`, so DB + DOCX survive replacement of any container. `devices.toml` (non-sensitive, §22.1) bind-mounted read-only into web+worker (web needs it for install-time inventory sync); `secrets.env` bind-mounted read-only into the worker ONLY and required to be mode `0600` owned by the deployment service account (container uid 1000 — §22.2 allows that owner; the backend already refuses wider permissions, `backend/secrets.py`). Worker additionally receives `NETWORK_REPORT_RETENTION_DAYS` (default 90). Postgres is NOT published to the host in production (dev-only loopback publish stays in the dev compose).
+- `deploy/README.md`: documents `/opt/network-report` (compose + 0600 `.env`), `/data/network-report` (postgres/, reports/), `/etc/network-report` (devices.toml 0644, secrets.env 0600 uid-1000), persistence guarantees, offline requirements and the one-time copy out of the dev `reports` named volume — fixing the dev-volume vs `/data/network-report` difference.
+**Tests:** `tests/unit/test_production_compose.py` (12) pin the service set, shared image/no-build, bind-mount persistence, secrets isolation (web never sees secrets.env), restart policies, real web/postgres healthchecks, no named volumes, published-port absence and README coverage; pyyaml override added for mypy. Suite: 290 unit PASS, ruff clean, mypy clean (123 files).  
+**Smoke evidence (throwaway roots mirroring `/opt` `/data` `/etc`, image `network-weekly-app:0.1.0` rebuilt from this commit):** fresh DB migrated 0001→0011 inside the image; inventory sync created 10 devices; probe DOCX written to the reports bind; **every container force-recreated** → 10 device rows intact, probe file intact, `/health` = `{"status":"ok",…,"environment":"production","database":"ok"}`, worker heartbeat fresh (10 s), worker loaded the 0600 secrets file with 0 load failures; `docker compose config -q` clean.  
+**Checkpoint:** see EXECUTION_STATE.md Wave 5 checkpoint ledger.
 
 ## W05-T002 — install.sh
 **Status:** TODO  

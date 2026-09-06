@@ -5,8 +5,7 @@
 ```text
 Current Wave: W05 — Deployment and Stability — IN PROGRESS (branch
   work/wave-05, created 2026-09-06)
-Current Task: W05-T001 — Production directory and configuration layout
-  (IN_PROGRESS)
+Current Task: W05-T002 — install.sh (next; T001 REVIEW_PASSED)
 W04-AUDIT merge into main: 872b1631f64ad83d02bff7088679cc5d6accf2e9
   (post-merge re-check on main: 278 unit + 241 integration PASS, ruff
   clean, mypy clean in 122 files, alembic upgrade head idempotent at
@@ -26,6 +25,21 @@ Wave 5 discipline (Owner instruction 2026-09-06):
   - W05-GATE stays BLOCKED until W05-T005 + W01-T007 + W03-T010 close.
 W03-T010 = BLOCKED — REAL_WEEK_DATA_PENDING (blocks W05-GATE only).
 W01-T007 = BLOCKED — FIELD_VALIDATION_PENDING (blocks W05-GATE only).
+```
+
+## Wave 5 checkpoint ledger
+
+```text
+W05-T001: 64e827cc4eff04d126234256749fcd1ca0f74365 — REVIEW_PASSED
+          (deploy/docker-compose.prod.yml: web/worker/postgres only, one
+          pre-built app image, no build/no named volumes, DB + DOCX on
+          /data/network-report bind mounts, devices.toml ro to web+worker,
+          secrets.env ro to worker only + 0600 uid-1000, postgres not
+          published; deploy/README.md layout + dev-volume one-time copy;
+          12 compose-structure unit tests; smoke: throwaway /opt /data /etc
+          roots, migration 0001→0011, 10-device inventory sync, probe DOCX,
+          force-recreate of ALL containers → rows+file intact, /health ok,
+          heartbeat fresh 10 s, 0600 secrets loaded with 0 failures)
 ```
 
 ## Wave 4 checkpoint ledger
