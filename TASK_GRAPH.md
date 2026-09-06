@@ -531,10 +531,12 @@ REVIEW_PASSED
 - `scripts/acceptance_evidence.sh`: read-only evidence collector run on the production host (host facts, image/log config, compose ps, /health, heartbeat age, inventory, per-device 24 h poll-run counts, oldest-raw-data retention check, weekly-report registry vs disk, secrets permission bits — secret CONTENT is never read); honors the `NETWORK_REPORT_*_ROOT` staging overrides.
 - `docs/evidence/README.md`: evidence-file placement rules (real records only).
 **Tool verification (NOT acceptance evidence, synthetic staging stack):** fresh install at staging roots + collector run — exit 0, all 12 sections, 10 devices classified, `file_on_disk=True` for the auto-generated W35 report, secrets shown as `600 1000` bits only. The placeholder-secrets FAILED poll runs in that output are the expected honest state without real devices.  
-**Outstanding (blocking REVIEW_PASSED):** all of A01–A16 pending real-environment execution; W01-T007 and W03-T010 stay BLOCKED — FIELD_VALIDATION_PENDING / REAL_WEEK_DATA_PENDING; W05-GATE stays BLOCKED.
+**Outstanding (blocking REVIEW_PASSED):** all of A01–A16 pending real-environment execution; W01-T007 and W03-T010 stay BLOCKED — FIELD_VALIDATION_PENDING / REAL_WEEK_DATA_PENDING; W05-GATE stays BLOCKED.  
+**Checkpoint:** see EXECUTION_STATE.md Wave 5 checkpoint ledger.
 
 ## W05-GATE — Release Gate
-**Status:** TODO  
+**Status:** BLOCKED（2026-09-06 — W05-T005 awaiting real-environment evidence; W01-T007 FIELD_VALIDATION_PENDING; W03-T010 REAL_WEEK_DATA_PENDING。不得伪造两周运行/真机/真实周报 evidence）  
 **Depends On:** W05-T005, W01-T007, W03-T010（Owner Decision 2026-09-06：真实周报人工 DOCX 核对从 W03-GATE 延期至此，作为明确依赖）  
 **Blocks:** release  
-**Required:** report correctness/reliability PASS; monitoring semantics PASS; login/download/priority-interface PASS; install/update PASS; no known P0/P1 blocker; **W01-T007 real-device field validation CLOSED (standalone S10500X + S10500X IRF + S12500 IRF)**; **W03-T010 real weekly report manually checked against source samples CLOSED (真实周数据人工核对)**.
+**Required:** report correctness/reliability PASS; monitoring semantics PASS; login/download/priority-interface PASS; install/update PASS; no known P0/P1 blocker; **W01-T007 real-device field validation CLOSED (standalone S10500X + S10500X IRF + S12500 IRF)**; **W03-T010 real weekly report manually checked against source samples CLOSED (真实周数据人工核对)**.  
+**Engineering side ready (2026-09-06):** W05-T001–T004 REVIEW_PASSED on work/wave-05 (production layout, install.sh, update.sh, logging/retention/runbook); acceptance procedure and evidence tooling ready per docs/ACCEPTANCE.md (A01–A16).

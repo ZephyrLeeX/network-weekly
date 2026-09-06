@@ -3,8 +3,10 @@
 ## Current execution
 
 ```text
-Current Wave: W05 — Deployment and Stability — IN PROGRESS (branch
-  work/wave-05, created 2026-09-06)
+Current Wave: W05 — Deployment and Stability — engineering side
+  COMPLETE (T001–T004 REVIEW_PASSED, branch work/wave-05, NOT yet merged
+  to main — awaiting W05-GATE which is BLOCKED on real-environment
+  acceptance; created 2026-09-06)
 Current Task: W05-T005 — Real-environment stability acceptance:
   scaffolding COMPLETE (docs/ACCEPTANCE.md A01–A16 + templates,
   scripts/acceptance_evidence.sh, docs/evidence/); acceptance itself
@@ -79,7 +81,8 @@ W05-T004: 134ff1fe8101d9943d9c2f642cea432873614474 — REVIEW_PASSED
           DEVICE_POLL PARTIAL/FAILED + failed_sections, SNMP/SSH, capacity,
           secrets perms, redaction; no secret values) pinned by
           test_operations_runbook.py; 300 unit + 243 integration PASS)
-W05-T005: scaffolding commit (see checkpoint ledger) — NO REVIEW_PASSED
+W05-T005: 1565c1005e616228181f6bff3109595d9aa256df — scaffolding only,
+          NO REVIEW_PASSED
           (docs/ACCEPTANCE.md: items A01–A16 with pass criteria +
           evidence/manual-check templates, A15 closes W03-T010, A16
           closes W01-T007; scripts/acceptance_evidence.sh read-only
