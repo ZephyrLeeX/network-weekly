@@ -42,6 +42,16 @@ def test_missing_images_never_trigger_a_registry_pull() -> None:
         assert service["pull_policy"] == "never", name
 
 
+def test_container_logs_are_bounded_and_rotating() -> None:
+    # W05-T004: no service may write unbounded logs onto the host disk.
+    for name, service in _load()["services"].items():
+        logging_config = service["logging"]
+        assert logging_config["driver"] == "json-file", name
+        options = logging_config["options"]
+        assert options["max-size"] == "10m", name
+        assert options["max-file"] == "3", name
+
+
 def test_no_named_volumes_anything_persistent_is_a_host_bind() -> None:
     compose = _load()
     # The development `reports` named volume must not reappear here: every

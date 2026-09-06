@@ -20,6 +20,8 @@
 #     1000, SYSTEM_SPEC.md §22.2): the backend refuses to load a
 #     wider-permission file, and the non-root container process must be able
 #     to read it.
+#   - Every service logs to bounded json-file rotation (10 MB x 3 per
+#     service, W05-T004): container logs can never fill the host disk.
 
 services:
   web:
@@ -44,6 +46,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    logging: &bounded_logs
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       # Real /health request (W00-T005): the web app must actually respond.
       test: ["CMD", "python", "-c", "import json, sys, urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3); d = json.load(r); sys.exit(0 if r.status == 200 and d.get('status') == 'ok' else 1)"]
@@ -74,6 +81,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    logging: *bounded_logs
 
   postgres:
     image: postgres:17-alpine
@@ -85,6 +93,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
     volumes:
       - ${NETWORK_REPORT_DATA_DIR:?set NETWORK_REPORT_DATA_DIR in .env}/postgres:/var/lib/postgresql/data
+    logging: *bounded_logs
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
