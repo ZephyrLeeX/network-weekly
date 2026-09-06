@@ -1,9 +1,10 @@
 """Web application entrypoint, served by uvicorn in the web container.
 
-Wave 0 scope: the ASGI application plus the /health endpoint. Login, report
-pages and the priority-interface page are added by later waves
-(SYSTEM_SPEC.md §20/§25). The interactive API docs are disabled because the
-web interface is an internal operations UI, not a public API.
+Wave 0: the ASGI application plus the /health endpoint. Wave 4 (SYSTEM_SPEC.md
+§20/§21): the authenticated operations web — login/logout with server-side
+sessions, the report pages and the priority-interface page hang off the
+backend.web router. The interactive API docs are disabled because the web
+interface is an internal operations UI, not a public API.
 
 The health response states that the web application itself is running and
 reports database connectivity as a separate field. It never exposes secrets
@@ -22,6 +23,10 @@ from backend import __version__
 from backend.config import load_settings
 from backend.db.engine import get_engine
 from backend.log import setup_logging
+from backend.web.deps import LoginRequired, login_required_redirect
+from backend.web.interfaces import router as interfaces_router
+from backend.web.reports import router as reports_router
+from backend.web.routes import router as web_router
 
 
 @asynccontextmanager
@@ -41,6 +46,10 @@ app = FastAPI(
     openapi_url=None,
     lifespan=_lifespan,
 )
+app.include_router(web_router)
+app.include_router(reports_router)
+app.include_router(interfaces_router)
+app.add_exception_handler(LoginRequired, login_required_redirect)
 
 
 def database_reachable() -> bool:

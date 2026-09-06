@@ -394,40 +394,69 @@ REVIEW_PASSED
 # Wave 4 — Login and Operations Web
 
 ## W04-T001 — Single administrator and password storage
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W03-GATE（PASS — engineering gate; READY per Owner Decision 2026-09-06）  
 **Blocks:** W04-T002  
-**Acceptance:** one local administrator can be initialized; salted scrypt hash stored; plaintext password never persisted.
+**Acceptance:** one local administrator can be initialized; salted scrypt hash stored; plaintext password never persisted.  
+**Implementation:** migration `0009` — `users` (username unique, `password_hash`, singleton, TIMESTAMPTZ audit columns) with the UNIQUE index `uq_users_single_admin` on the always-true `singleton` flag making §21 "系统只有一个本地管理员账号" a database guarantee. `auth/passwords.py` — self-describing salted scrypt hashes `scrypt$N$r$p$<salt hex>$<digest hex>` (stdlib `hashlib.scrypt`, n=2¹⁴/r=8/p=1, 16-byte `secrets` salt per password, `hmac.compare_digest` verification; malformed stored hashes verify False, never raise). `auth/admin.py` — `initialize_admin` (create-or-reinitialize, idempotent for install flows; validation rejects empty credentials before any DB use), `get_admin`, `verify_admin_login` (unknown username indistinguishable from wrong password — both `None`, with a timing-balancing hash burn), `set_admin_password` (rotation with a fresh salt). `admin_cli.py` — `python -m backend.admin_cli init [USERNAME]` reads the password from `NETWORK_REPORT_ADMIN_PASSWORD` (install.sh path) or getpass with confirmation; never in argv/stdout/logs; registers the value with the secret-redaction log filter (§22.2). Plaintext exists only as function arguments (§21).  
+**Tests:** unit `tests/unit/test_auth_passwords.py` (8: scrypt format + cost, random salt, correct/wrong verification, plaintext never in the stored hash incl. hex form, unicode round trip, malformed-hash → False, empty inputs) + integration `tests/integration/test_auth_admin.py` (8: single-account creation, persisted column is scrypt hash not plaintext, reinitialize-in-place keeps one row, correct/wrong/unknown login indistinguishability, password rotation invalidates old, empty credentials rejected before DB, database-level second-admin rejection via `uq_users_single_admin`, migration 0009 schema shape incl. TIMESTAMPTZ + both unique indexes). pytest 260 unit + 8 auth/migration integration PASS; ruff clean; mypy clean (106 files).  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-T002 — Server-side session and login/logout
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W04-T001  
 **Blocks:** W04-T003, W04-T004, W04-T005  
-**Acceptance:** 7-day absolute and 12-hour idle timeout; HttpOnly/SameSite cookie; unauthenticated protected requests denied; login/logout tests pass.
+**Acceptance:** 7-day absolute and 12-hour idle timeout; HttpOnly/SameSite cookie; unauthenticated protected requests denied; login/logout tests pass.  
+**Implementation:** migration `0010` — `sessions` (row id IS the opaque bearer token, FK users CASCADE, TIMESTAMPTZ `created_at`/`last_seen_at`/`expires_at`, index on `expires_at`). `auth/sessions.py` — server-side persistence in PostgreSQL (survives web restarts): `create_session` (`secrets.token_urlsafe(32)`, `expires_at = now + 7d`), `get_valid_session` (valid only while `now < expires_at` AND `now < last_seen_at + 12h`; a valid lookup slides ONLY the idle anchor — the absolute bound is never extended), `destroy_session`, `purge_expired_sessions` (opportunistic housekeeping at login). Web layer (`backend/web/`): `deps.require_admin` — the single auth gate for protected pages/actions, resolving the `nw_session` cookie server-side and redirecting unauthenticated/expired requests to /login before anything renders; `security.py` CSRF double-submit cookie (`nw_csrf` HttpOnly SameSite=Lax + hidden `csrf_token` field, `hmac.compare_digest`) enforced FIRST on every state-changing POST (403 without touching state); `routes.py` — GET/POST /login (fixed identical error text for unknown username vs wrong password — no account enumeration; fresh session id + rotated CSRF at every successful login so a pre-login fixation token is never reused), POST /logout (destroys the row, clears cookies), GET / (authenticated home). Session cookie: HttpOnly + SameSite=Lax + Max-Age=7d; no `Secure` flag (plain-HTTP intranet service per §20/AGENTS). No new frontend stack — server-rendered HTML forms only (§20.4); deps `python-multipart` (runtime, form parsing) + `httpx` (dev-only, TestClient).  
+**Tests:** unit `tests/unit/test_web_security.py` (4: CSRF match/mismatch/missing/empty, token uniqueness/length, stable cookie/field names + TTL constants) + integration `tests/integration/test_auth_sessions.py` (7: create/resolve with exact 7-day anchor, unknown/empty token, idle-slide-only touch, absolute expiry incl. exact boundary, idle expiry, destroy invalidates server-side, purge removes only expired) + integration `tests/integration/test_web_auth.py` (15: unauthenticated/forged cookie denied, login page CSRF, cookie flags on success, failure shows fixed error + no session, wrong-username vs wrong-password indistinguishable, logout invalidates + replay denied, logout/login CSRF missing-forged → 403 with session intact, fixation rotation, absolute timeout, idle timeout, activity slides idle-not-absolute, password/token never in pages). pytest 264 unit + 200 integration PASS; ruff clean; mypy clean (116 files); `alembic upgrade head` idempotent at 0010.  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-T003 — Report list and download
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W04-T002  
 **Blocks:** W04-GATE  
-**Acceptance:** reverse chronological report list; period/status/generated time/error visible; authenticated DOCX download works.
+**Acceptance:** reverse chronological report list; period/status/generated time/error visible; authenticated DOCX download works.  
+**Implementation:** `web/reports.py` — `GET /reports` (behind `require_admin`) lists `weekly_reports` newest week first (W03-T009 `load_weekly_reports` re-used) with week, period rendered as the natural week `周一至周日` (Asia/Shanghai), generated_at in +0800, status 成功/失败, `last_error` when present, download link only on success rows, 暂无报告 for an empty registry (§20.2). `GET /reports/{week_code}/download` — the request NEVER carries a path: the ISO week code (strict `YYYY-Www` regex, then a real `period_for_iso_week` validation so impossible weeks 404) selects the registry row; the file is served only when the row is the week's `success` entry AND the stored path's name is exactly the canonical `network-weekly-report-<week>.docx` AND its resolved parent is the resolved report directory AND it is not a symlink AND the target is an existing regular file (§27.18) — tampered rows, traversal paths, symlink escapes, missing files and failed reports all 404; served as `FileResponse` attachment with the OOXML media type. Regenerate column/action arrives with W04-T004.  
+**Tests:** unit `tests/unit/test_web_reports_validation.py` (15 week-code cases + media type constant) + integration `tests/integration/test_web_reports.py` (12: unauthenticated /reports + download 303; empty registry; required columns newest-first incl. 周一至周日 period, +0800 generated time, 成功/失败, last_error visible, download link only on success; download round-trip bytes + attachment header; failed/unknown/malformed/impossible weeks 404; tampered path outside report dir 404; traversal path 404; symlink escape 404; missing file 404; page never leaks file paths). pytest 278 unit + 214 integration PASS; ruff clean; mypy clean (119 files).  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-T004 — Manual regenerate Web action
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W04-T002, W03-T010 regenerate service implementation（REVIEW_PASSED — `reporting/jobs.py::request_regenerate`；真实数据 acceptance 已按 Owner Decision 2026-09-06 移至 W05-GATE，不阻塞本任务）  
 **Blocks:** W04-GATE  
-**Acceptance:** CSRF-protected; duplicate submissions do not create concurrent duplicate report jobs; status becomes visible to user.
+**Acceptance:** CSRF-protected; duplicate submissions do not create concurrent duplicate report jobs; status becomes visible to user.  
+**Implementation:** `POST /reports/{week_code}/regenerate`（`web/reports.py`）— a thin adapter onto the Wave 3 `request_regenerate` service; NO job logic in the web layer. CSRF double-submit checked FIRST (403 without touching state); week code validated (regex + real ISO construction, invalid → 404); an incomplete week is refused by the service and rendered as one fixed note (`该统计周尚未结束` — the exception text is never rendered); success redirects back to the list. The report list now carries a 重新生成 column (per-row POST form with the hidden CSRF field, §20.4) and renders each week's ACTIVE job state next to the report status (`重新生成排队中/进行中/失败，等待自动重试`) — the action's effect is visible while the previous success stays downloadable (§4.4). Duplicate submissions are impossible to duplicate: service idempotency + the `uq_report_jobs_active_week` partial unique index (W03-T009) — the web route adds nothing that could bypass them.  
+**Tests:** integration `tests/integration/test_web_regenerate.py` (9: regenerate creates exactly one manual pending job; 3 duplicate submissions still yield exactly one job row; missing/forged CSRF → 403 with no job; unauthenticated POST 303 with no job; incomplete week refused with the fixed note and no job; malformed weeks denied; active job status visible on the list while the old DOCX stays downloadable; regenerate form rendered with CSRF field). pytest 278 unit + 224 integration PASS; ruff clean; mypy clean (120 files).  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-T005 — Priority interface Web page
-**Status:** TODO  
+**Status:** REVIEW_PASSED  
 **Depends On:** W04-T002, W02-T005  
 **Blocks:** W04-GATE  
-**Acceptance:** device selection; interface name/description/state; aggregation relationship; monitored toggle; aggregation toggle does not auto-toggle members.
+**Acceptance:** device selection; interface name/description/state; aggregation relationship; monitored toggle; aggregation toggle does not auto-toggle members.  
+**Implementation:** `web/interfaces.py` — `GET /interfaces`（behind `require_admin`, §20.3）renders the W02-T005 `interface_overview` read model: device selector (plain links, server-rendered — no JS), per-interface display name, description, admin/oper state (数据缺失 when absent), 聚合关系 (`聚合接口（成员：…）` / `属于聚合：…`) and the monitored state (§11/§12). `POST /interfaces/{id}/monitored` toggles via the service's single write path `set_monitored` — deliberately NO cascade in the web layer either: an aggregation toggle can never touch members, members stay independently selectable (§11); the route owns the transaction (`set_monitored` itself does not commit — the monitoring pipeline calls it inside its own transaction) and redirects back to the device page. Unknown interface → 404 page; unknown/invalid `device_id` → selection list. CSRF double-submit on the toggle form (§20.4).  
+**Tests:** integration `tests/integration/test_web_interfaces.py` (9: unauthenticated page+toggle 303; no-devices hint; device selector links; names/descriptions/admin-oper/aggregation-relationship display with default unmonitored; toggle on+off via web with redirect back to the device page; aggregation toggle selects ONLY the aggregate while a member is then independently selectable; missing/forged CSRF → 403 with no DB change; unknown interface 404; unknown/non-numeric device id renders selection list). pytest 278 unit + 233 integration PASS; ruff clean; mypy clean (122 files).  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-GATE — Operations Web Gate
-**Status:** TODO  
+**Status:** PASS（engineering gate, 2026-09-06）  
 **Depends On:** W04-T003, W04-T004, W04-T005  
 **Blocks:** Wave 5  
-**Gate:** login -> configure priority interfaces -> view/download/regenerate report workflow passes.
+**Gate:** login -> configure priority interfaces -> view/download/regenerate report workflow passes.  
+**Verification evidence (work/wave-04, migrated PostgreSQL 0001→0010):**
+- pytest 278 unit + 233 integration PASS; ruff clean; mypy clean (122 files); `alembic upgrade head` idempotent at 0010.
+- Image rebuilt (docker build; compose build is a silent no-op in this environment) + compose smoke on the new image: web healthy (/health database ok), worker heartbeat persisted and fresh (28 s), device-poll loop alive (dev secrets-missing cycle contained per §27.9 as designed — the only ERROR lines in logs, expected for a no-secrets dev deployment).
+- **Live end-to-end flow against the running web container (curl, HTTP-level):**
+  1. `python -m backend.admin_cli init admin` inside the container → single `users` row with `scrypt$16384$8…` hash, `singleton=t`; password absent from argv/stdout and from web+worker logs (grep count 0).
+  2. **login**: GET /login → CSRF cookie+field; POST /login → 303, `Set-Cookie nw_session … HttpOnly; Max-Age=604800; SameSite=lax` + rotated CSRF cookie; GET / renders the authenticated home; wrong-password POST renders the fixed error with no session (covered by tests).
+  3. **configure priority interface**: /interfaces lists the device, then per §12 the overview shows Bridge-Aggr1 + both members with descriptions, admin/oper and both relationship directions; live POST toggle `monitored=true` on the AGGREGATE → DB `monitored=t` while both members stay `f` (§11 no cascade, live-verified); a member then toggled independently (`t`) with the aggregate staying `t`.
+  4. **report list**: /reports shows 2026-W35 (period `2026-08-24 ~ 2026-08-30`, generated `+0800`, status 成功, download + regenerate columns).
+  5. **download**: /reports/2026-W35/download → 200, `content-type` OOXML, `content-disposition attachment`, bytes are a valid DOCX (zip integrity OK) with exactly the 8 fixed sections (§6).
+  6. **regenerate**: live POST of the list's regenerate form → 303, one new `manual` pending job (id 7); the worker's report loop executed it within one pass → `succeeded`, registry `generated_at` updated, exactly ONE current DOCX in the reports volume, no candidate/temp residue (§4.4/§5).
+  7. **logout**: live POST → 303 /login; replaying the captured cookie → 303 to /login; `sessions` table empty — the server-side row was destroyed (§21).
+- Unauthenticated requests to /, /reports, /interfaces, download and regenerate are all denied (303 to /login) — live-checked and pinned by tests; all state-changing POSTs CSRF-checked first (missing/forged → 403).
+- Remaining release blockers (NOT gate-blocking): W03-T010 REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING, both carried to W05-GATE.  
+**Checkpoint:** see EXECUTION_STATE.md checkpoint ledger (W04-GATE verification commit).
 
 ---
 

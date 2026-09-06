@@ -3,9 +3,14 @@
 ## Current execution
 
 ```text
-Current Wave: W04 — Login and Operations Web (started per Owner Decision
-  2026-09-06)
-Current Task: W04-T001 (single administrator + salted scrypt password)
+Current Wave: W04 — Login and Operations Web — COMPLETE, W04-GATE PASS
+  (engineering gate, 2026-09-06)
+Current Task: none — Wave 4 done; Wave 5 not started (per instruction)
+Live gate flow verified against the running compose stack: login ->
+configure priority interface (no aggregation/member cascade) -> report
+list -> download (valid 8-section DOCX) -> regenerate (web job executed
+by the worker loop) -> logout (session destroyed server-side). See the
+W04-GATE entry in TASK_GRAPH.md for the full evidence.
 Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
   Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
   to the Release Gate (W05-GATE):
@@ -18,7 +23,53 @@ Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
   - W04-T004 depends on the REVIEW_PASSED regenerate service
     implementation (reporting/jobs.py::request_regenerate), NOT on the
     W03-T010 real-data acceptance.
-Branch: work/wave-04 (from main after the work/wave-03 merge)
+W03 merge into main: 131844461ade75c1517b1da91bd7d49bc1090521
+Branch: work/wave-04 (from main at the W03 merge)
+```
+
+## Wave 4 checkpoint ledger
+
+```text
+W04-T001: 620d2af3323f3b97c7349652bd138bf24dd90336 — REVIEW_PASSED
+          (migration 0009 users + uq_users_single_admin singleton index;
+          auth/passwords.py salted scrypt scrypt$N$r$p$salt$hash with
+          hmac.compare_digest; auth/admin.py initialize_admin/get_admin/
+          verify_admin_login/set_admin_password; admin_cli.py init with
+          env-or-getpass password entry, never argv/stdout/logs;
+          plaintext never persisted; 8 unit + 8 integration tests)
+W04-T002: 7ed12d02fd2ac5bd3579b25c0bf632a289cb683d — REVIEW_PASSED
+          (migration 0010 sessions; server-side persistence with 7-day
+          absolute + 12-hour idle bounds, idle-slide-only touch;
+          backend/web: require_admin gate, CSRF double-submit on every
+          POST, login/logout with fresh-token fixation defense and fixed
+          no-enumeration error text, HttpOnly SameSite=Lax cookie;
+          4 unit + 22 integration tests incl. timeouts/fixation/CSRF)
+W04-T003: 83faeaa1bbefeeece955eb4d64b215dbf5cc4dea — REVIEW_PASSED
+          (GET /reports list — week/period(周一至周日)/generated_at/status/
+          last_error/download, newest first, behind require_admin;
+          GET /reports/{week}/download — registry-validated only: strict
+          ISO week code, canonical file name inside resolved report dir,
+          symlink + traversal refusal, failed/missing 404;
+          15 unit + 12 integration tests)
+W04-T004: 9c535b486ec047d5257503b33808333d4d26f9c3 — REVIEW_PASSED
+          (POST /reports/{week}/regenerate — thin CSRF-protected adapter
+          onto the Wave 3 request_regenerate service (no duplicated job
+          logic); duplicates yield exactly one active job (service +
+          uq_report_jobs_active_week); regenerate column + per-row CSRF
+          form on the list; active job state (排队中/进行中/等待重试)
+          rendered next to the report status; incomplete week refused
+          with one fixed note; 9 integration tests)
+W04-T005: 8715fab0cace43fe270ee5ea92ec550dbcf3913d — REVIEW_PASSED
+          (GET /interfaces — device selector + W02-T005 interface_overview
+          read model: name/description/admin-oper/聚合关系/monitored;
+          POST /interfaces/{id}/monitored — CSRF toggle via set_monitored
+          with NO cascade (aggregate ≠ members), transaction owned by the
+          route; unknown interface 404; 9 integration tests)
+W04-GATE: bc98a3600eece2add11ad05358ca005ea4707e0d — PASS (engineering
+          gate, 2026-09-06; full evidence in the TASK_GRAPH W04-GATE
+          entry: 278 unit + 233 integration, ruff/mypy clean, alembic at
+          0010, live login→priority-interface→list→download→regenerate→
+          logout flow against the running container, no secret leakage)
 ```
 
 ## Wave 3 checkpoint ledger
@@ -510,6 +561,67 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W04-T005 (priority interface Web page) — REVIEW_PASSED:
+  /interfaces selects a device, shows the W02-T005 overview read model
+  (names, descriptions, admin/oper, 聚合关系) and toggles monitored via
+  the service's single write path with CSRF; the aggregation toggle never
+  touches members and members stay independently selectable (§11).
+See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
+```
+
+## Previous completed task (W04-T004)
+
+```text
+W04-T004 (manual regenerate Web action) — REVIEW_PASSED:
+  the report list's 重新生成 form POSTs to /reports/{week}/regenerate
+  behind require_admin + CSRF; the route adapts onto request_regenerate
+  with no job logic of its own — duplicate submissions return the same
+  active job, incomplete weeks are refused with a fixed note, and the
+  active job state renders on the list while the old DOCX stays
+  downloadable.
+See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
+```
+
+## Older completed task (W04-T003)
+
+```text
+W04-T003 (report list + DOCX download) — REVIEW_PASSED:
+  /reports lists the weekly registry newest-first with week, 周一至周日
+  period, generated_at (+0800), status, last_error and download; the
+  download endpoint takes an ISO week code (never a path), validates it
+  against the registry success row and the canonical file name inside the
+  resolved report directory, and refuses traversal/symlink escapes,
+  failed and missing reports with 404.
+See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
+```
+
+## Older completed task (W04-T002)
+
+```text
+W04-T002 (server-side session + login/logout) — REVIEW_PASSED:
+  sessions table in PostgreSQL (row id = opaque bearer token); valid only
+  inside BOTH the 7-day absolute and the 12-hour idle bound; login issues
+  a fresh token (fixation defense) and rotates the CSRF cookie; logout
+  destroys the row server-side; every protected page/action sits behind
+  require_admin; every state-changing POST CSRF-checked first (403).
+See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
+```
+
+## Older completed task (W04-T001)
+
+```text
+W04-T001 (single administrator + salted scrypt password) — REVIEW_PASSED:
+  migration 0009 users with the singleton unique index (§21 as a DB
+  guarantee); auth/passwords.py self-describing salted scrypt hashes;
+  auth/admin.py create/reinitialize/login-verify/password-rotate service;
+  python -m backend.admin_cli init reading the password from env or
+  getpass — never argv/stdout/logs; plaintext never persisted.
+See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
+```
+
+## Older completed task (W03-AUDIT-4)
+
+```text
 W03-AUDIT-4 (audit follow-up: unknown-commit-state race + install-pending
 residue) — REVIEW_PASSED:
   1. A success-commit state that cannot be determined (database
@@ -527,7 +639,7 @@ residue) — REVIEW_PASSED:
 See "W03-AUDIT-4 follow-up hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Previous completed task
+## Older completed task (W03-AUDIT-3)
 
 ```text
 W03-AUDIT-3 (audit follow-up: report candidate/attempt consistency) —
@@ -542,7 +654,7 @@ REVIEW_PASSED:
 See "W03-AUDIT-3 follow-up hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Older completed task
+## Older completed task (W03-AUDIT-2)
 
 ```text
 W03-AUDIT-2 (audit follow-up: regenerate file/DB consistency) —
@@ -555,7 +667,7 @@ REVIEW_PASSED:
 See "W03-AUDIT-2 follow-up hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Earlier completed task
+## Older completed task (W03-AUDIT)
 
 ```text
 W03-AUDIT (Wave 3 audit hotfix) — REVIEW_PASSED:
@@ -615,6 +727,13 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W04-GATE verification: bc98a3600eece2add11ad05358ca005ea4707e0d (work/wave-04)
+W04-T005 checkpoint: 8715fab0cace43fe270ee5ea92ec550dbcf3913d (work/wave-04)
+W04-T004 checkpoint: 9c535b486ec047d5257503b33808333d4d26f9c3 (work/wave-04)
+W04-T003 checkpoint: 83faeaa1bbefeeece955eb4d64b215dbf5cc4dea (work/wave-04)
+W04-T002 checkpoint: 7ed12d02fd2ac5bd3579b25c0bf632a289cb683d (work/wave-04)
+W04-T001 checkpoint: 620d2af3323f3b97c7349652bd138bf24dd90336 (work/wave-04)
+W03 merge into main: 131844461ade75c1517b1da91bd7d49bc1090521
 W03-AUDIT-4 checkpoint: 760bdd61ee328049f22fe9677aeecfedfd3097e1 (work/wave-03)
 W03-AUDIT-3 checkpoint: e5a9396b9b357b2106157401b0c91e935158b850 (work/wave-03)
 W03-AUDIT-2 checkpoint: 5bdc22e138950940146de87d84c65184bacaa75c (work/wave-03)
@@ -690,34 +809,32 @@ backend/monitoring/interface_state.py and TASK_GRAPH W02-T006.
 ## Next ready candidates
 
 ```text
-W04-T001 — single administrator + salted scrypt password (READY per
-Owner Decision 2026-09-06; W03-GATE = PASS as an engineering gate).
-Then W04-T002 -> W04-T003/T004/T005 -> W04-GATE.
-Outstanding release blockers (NOT Wave-4 blockers): W03-T010
-REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING, both
-blocking W05-GATE.
+None started — Wave 4 is COMPLETE (W04-GATE PASS); Wave 5 was NOT
+started per instruction. When authorized: W05-T001/W05-T004 depend on
+W04-GATE (now PASS).
+Outstanding release blockers (W05-GATE): W03-T010
+REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING.
 ```
 
 ## Current Wave Gate
 
 ```text
-W03-GATE — Weekly Report Gate: PASS (engineering gate, Owner Decision
-2026-09-06). Re-verified green on work/wave-03 at ffe98d8 after
-W03-AUDIT-4: pytest 252 unit + 170 integration PASS on migrated
-PostgreSQL (0008); ruff clean; mypy clean (100 files); alembic upgrade
-head idempotent at 0008; dev compose smoke: web healthy (/health
-database ok), worker heartbeat fresh, device-poll scheduler + IRF loop +
-retention + weekly-report loop alive. Failure/restart semantics (10-min
-retry, per-pass recovery of stranded `running` jobs, requeue on a lost
-terminal update, one active job per week at DB level, job-bound
-candidates + reconcile, regenerate keeps old DOCX until atomic replace)
-are proven by integration tests; golden scenarios cover every
-IMPLEMENTATION_PLAN golden case.
-Deferred to W05-GATE: the real weekly data manual DOCX check carried by
-W03-T010 (with W01-T007's real-device evidence). It is NOT part of this
-gate and must not be recorded as passed before real data exists.
-Current gate: W04-GATE — Operations Web Gate (login -> configure
-priority interfaces -> view/download/regenerate report workflow).
+W04-GATE — Operations Web Gate: PASS (engineering gate, 2026-09-06).
+pytest 278 unit + 233 integration PASS on migrated PostgreSQL (0001→0010);
+ruff clean; mypy clean (122 files); alembic upgrade head idempotent at
+0010; image rebuilt + compose smoke on the new image: web healthy
+(/health database ok), worker heartbeat persisted and fresh, device-poll
+loop alive. Live end-to-end flow against the running web container:
+login (HttpOnly/SameSite=Lax session cookie) -> priority-interface
+configuration with live no-cascade verification (aggregate=t, members=f;
+then a member=t independently) -> report list (2026-W35) -> download
+(valid 8-section DOCX, attachment headers) -> regenerate (web form POST
+created one manual job; the worker loop executed it to succeeded with
+one current DOCX, no residue) -> logout (303; cookie replay 303; the
+sessions row destroyed). Password grep count in web+worker logs: 0.
+W03-GATE remains PASS (engineering gate); W03-T010
+REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING remain
+BLOCKED and block W05-GATE only.
 ```
 
 ## Product baseline

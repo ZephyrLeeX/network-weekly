@@ -8,6 +8,10 @@ Wave 2: `device_poll_runs`, `device_metrics` and `interface_metrics`
 and IRF observation tables arrive with their own Wave 2 tasks. All business
 timestamps use TIMESTAMPTZ (§3/§23).
 Wave 3: `report_jobs` + `weekly_reports` (W03-T009, SYSTEM_SPEC.md §4/§23).
+Wave 4: `users` (W04-T001, §21 single administrator) — the password lives
+only as a salted scrypt hash, never as plaintext. `sessions`
+(W04-T002, §21) — server-side login sessions with an absolute and an idle
+expiry, persisted in PostgreSQL, never in an in-memory store.
 """
 
 from datetime import datetime
@@ -598,3 +602,67 @@ class WeeklyReport(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"
     )
+
+
+# --- Wave 4: authentication (W04-T001/T002) -------------------------------------
+
+
+class User(Base):
+    """The single local administrator account (SYSTEM_SPEC.md §21, W04-T001).
+
+    `password_hash` stores a salted scrypt hash in the self-describing
+    format written by :func:`backend.auth.passwords.hash_password` — the
+    plaintext password never enters this column, a log line or an error
+    message (§21/§22.2).
+
+    The system has exactly one administrator; every row carries
+    `singleton = true`, so the unique index below makes "at most one
+    account" a database guarantee instead of a service-level convention.
+    """
+
+    __tablename__ = "users"
+    __table_args__ = (Index("uq_users_single_admin", "singleton", unique=True),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    # Always true — see the unique index above (§21: 单管理员).
+    singleton: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+
+
+class UserSession(Base):
+    """One server-side login session (SYSTEM_SPEC.md §21, W04-T002).
+
+    `id` IS the opaque bearer token carried by the HttpOnly session cookie —
+    generated with `secrets.token_urlsafe`, resolved server-side against
+    this table (服务端持久化), and never rendered into a page, a log line or
+    an error message. Expiry is doubly bounded (§21):
+
+    - `expires_at` = created + 7 days — the ABSOLUTE lifetime, never
+      extended;
+    - `last_seen_at` + 12 hours — the IDLE lifetime, slid forward on every
+      authenticated request.
+
+    A session must satisfy both bounds to be valid.
+    """
+
+    __tablename__ = "sessions"
+    __table_args__ = (Index("ix_sessions_expires_at", "expires_at"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+    # Idle anchor: updated on every authenticated request.
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Absolute anchor: created_at + 7 days, never extended.
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
