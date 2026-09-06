@@ -22,14 +22,14 @@ def _bash_syntax_ok(script: Path) -> bool:
 
 
 def test_scripts_are_valid_bash() -> None:
-    for name in ("lib.sh", "install.sh"):
+    for name in ("lib.sh", "install.sh", "update.sh"):
         script = DEPLOY / name
         assert script.exists(), name
         assert _bash_syntax_ok(script), name
 
 
 def test_scripts_are_fail_fast_and_never_touch_the_network() -> None:
-    for name in ("install.sh",):
+    for name in ("install.sh", "update.sh"):
         text = (DEPLOY / name).read_text(encoding="utf-8")
         assert "set -euo pipefail" in text, name
         for forbidden in ("curl ", "wget", "apt-get", "apt install", "docker pull", "pip install"):
@@ -67,3 +67,20 @@ def test_install_covers_the_spec_26_2_flow() -> None:
         'secrets.env must have permission 0600',
     ):
         assert needed in install, needed
+
+
+def test_update_covers_the_spec_26_3_flow_without_destroying_state() -> None:
+    update = (DEPLOY / "update.sh").read_text(encoding="utf-8")
+    for needed in (
+        "check_images",
+        "alembic upgrade head",
+        "up -d --wait",
+        "wait_health",
+        "wait_heartbeat",
+        ".env.bak",  # previous .env kept for rollback
+    ):
+        assert needed in update, needed
+    # A failed migration must restore the previous .env and restart nothing.
+    assert "migration failed — .env restored" in update
+    # Nothing in the update path may delete persistent state.
+    assert re.search(r"(?<![-\w])rm\s", update) is None

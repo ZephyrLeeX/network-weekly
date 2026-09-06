@@ -63,8 +63,9 @@ check_images() {
     done
 }
 
-# GET /health until it reports application AND database ok.
-verify_health() {
+# GET /health until it reports application AND database ok; returns 1 on
+# timeout (callers decide the exit code).
+wait_health() {
     local attempt
     for attempt in $(seq 1 24); do
         if COMPOSE exec -T web python - <<'PY' 2>/dev/null
@@ -83,11 +84,12 @@ PY
         fi
         sleep 5
     done
-    die 18 "web /health did not report ok (application+database) within 2 minutes; 'docker compose -p network-report logs web' shows why"
+    return 1
 }
 
-# Wait for a fresh worker heartbeat row (independent of web health, §25).
-verify_heartbeat() {
+# Wait for a fresh worker heartbeat row (independent of web health, §25);
+# returns 1 on timeout (callers decide the exit code).
+wait_heartbeat() {
     local attempt
     for attempt in $(seq 1 24); do
         if COMPOSE exec -T worker python - <<'PY' 2>/dev/null
@@ -114,7 +116,16 @@ PY
         fi
         sleep 5
     done
-    die 19 "worker heartbeat missing or stale; 'docker compose -p network-report logs worker' shows why"
+    return 1
+}
+
+# install.sh verifiers: fail the script with the documented exit codes.
+verify_health() {
+    wait_health || die 18 "web /health did not report ok (application+database) within 2 minutes; 'docker compose -p network-report logs web' shows why"
+}
+
+verify_heartbeat() {
+    wait_heartbeat || die 19 "worker heartbeat missing or stale; 'docker compose -p network-report logs worker' shows why"
 }
 
 # True (exit 0) when the single administrator account already exists.

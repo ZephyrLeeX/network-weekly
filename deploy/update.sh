@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# update.sh — safe upgrade of an installed stack (W05-T003, SYSTEM_SPEC.md §26.3).
+#
+# Flow: target image checked locally → .env switched (previous .env kept as
+# .env.bak) → alembic upgrade head ON THE NEW IMAGE → web+worker recreated →
+# web /health verified → worker heartbeat verified.
+#
+# Failure semantics:
+#   - The target image must exist locally (offline; nothing is pulled).
+#   - A failed migration restores the previous .env and exits 14 WITHOUT
+#     restarting anything: the old containers keep serving the old image.
+#   - A failed restart/health/heartbeat exits 17/18/19 with log commands;
+#     rollback is then `update.sh --image <previous>` (printed on failure).
+#   - Never touches /data/network-report (DB + DOCX) or /etc/network-report
+#     (devices.toml + secrets.env): those are host bind mounts outside the
+#     application directory this script manages.
+#
+# Usage: update.sh [--image TAG]   (default: NETWORK_REPORT_APP_IMAGE from
+# the environment, else the image already recorded in .env)
+# Exit codes: usage 2; otherwise see deploy/lib.sh (10..19).
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
+
+usage() {
+    echo "usage: update.sh [--image TAG]" >&2
+    exit 2
+}
+
+IMAGE_ARG=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --image|-i)
+            [[ $# -ge 2 ]] || usage
+            IMAGE_ARG=$2
+            shift 2
+            ;;
+        *) usage ;;
+    esac
+done
+
+step "installed stack"
+[[ -f $APP_DIR/docker-compose.yml && -f $APP_DIR/.env ]] \
+    || die 13 "no installed stack at $APP_DIR (docker-compose.yml + .env); run install.sh first"
+CURRENT_IMAGE=$(grep -E '^NETWORK_REPORT_APP_IMAGE=' "$APP_DIR/.env" | cut -d= -f2-)
+TARGET_IMAGE=${IMAGE_ARG:-${NETWORK_REPORT_APP_IMAGE:-$CURRENT_IMAGE}}
+echo "current image: $CURRENT_IMAGE"
+echo "target  image: $TARGET_IMAGE"
+
+step "target image present locally (offline)"
+export NETWORK_REPORT_APP_IMAGE="$TARGET_IMAGE"
+check_images
+
+if [[ $TARGET_IMAGE != "$CURRENT_IMAGE" ]]; then
+    cp "$APP_DIR/.env" "$APP_DIR/.env.bak"
+    chmod 0600 "$APP_DIR/.env.bak"
+    sed -i "s|^NETWORK_REPORT_APP_IMAGE=.*$|NETWORK_REPORT_APP_IMAGE=$TARGET_IMAGE|" "$APP_DIR/.env"
+    echo ".env updated (previous copy kept as $APP_DIR/.env.bak)"
+else
+    echo "target equals current image; re-verifying in place"
+fi
+
+step "database migration on the target image (alembic upgrade head)"
+if ! COMPOSE run --rm --no-deps web alembic upgrade head; then
+    if [[ $TARGET_IMAGE != "$CURRENT_IMAGE" ]]; then
+        cp "$APP_DIR/.env.bak" "$APP_DIR/.env"
+        echo "migration failed — .env restored to $CURRENT_IMAGE; no container was restarted"
+    fi
+    die 14 "alembic upgrade head failed on the target image; the running stack was left untouched ('docker compose -p network-report logs' shows the old services)"
+fi
+
+step "restarting web + worker on the target image"
+if ! COMPOSE up -d --wait; then
+    die 17 "service restart failed; rollback with: $SCRIPT_DIR/update.sh --image $CURRENT_IMAGE"
+fi
+
+step "verifying web /health"
+if ! wait_health; then
+    die 18 "web /health failed after the update; 'docker compose -p network-report logs web' shows why — rollback with: $SCRIPT_DIR/update.sh --image $CURRENT_IMAGE"
+fi
+
+step "verifying worker heartbeat"
+if ! wait_heartbeat; then
+    die 19 "worker heartbeat stale after the update; 'docker compose -p network-report logs worker' shows why — rollback with: $SCRIPT_DIR/update.sh --image $CURRENT_IMAGE"
+fi
+
+step "update complete"
+COMPOSE ps
+echo "previous image kept in $APP_DIR/.env.bak (rollback: $SCRIPT_DIR/update.sh --image $CURRENT_IMAGE)"
