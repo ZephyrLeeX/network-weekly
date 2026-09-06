@@ -4,13 +4,13 @@
 
 ```text
 Current Wave: W03 — implementation COMPLETE, GATE BLOCKED (real week data)
-Current Task: W03-AUDIT-2 (audit follow-up: regenerate file/DB consistency)
-  REVIEW_PASSED on work/wave-03.
+Current Task: W03-AUDIT-3 (audit follow-up: report candidate/attempt
+  consistency) REVIEW_PASSED on work/wave-03.
   W03-GATE stays BLOCKED — REAL_WEEK_DATA_PENDING per owner instruction
   2026-09-05 — W03-T010's real-report verification has no real weekly data
   in this environment, so the gate is NOT judged PASS and work/wave-03 is
   NOT merged into main.
-Branch: work/wave-03 (engineering verification all green after W03-AUDIT-2;
+Branch: work/wave-03 (engineering verification all green after W03-AUDIT-3;
   merge deferred until the W03-T010 real-data acceptance closes)
 ```
 
@@ -91,6 +91,19 @@ W03-AUDIT-2: 5bdc22e138950940146de87d84c65184bacaa75c — REVIEW_PASSED
           and interrupted installs / abandoned candidates are resolved by
           reconcile_report_files on every loop pass; 6 new integration
           tests + 2 new unit tests)
+W03-AUDIT-3: e5a9396b9b357b2106157401b0c91e935158b850 — REVIEW_PASSED
+          (audit follow-up, no schema change / no migration: candidate
+          DOCXs are job-bound (…docx.candidate.<job_id>) and
+          reconcile_report_files installs a candidate only for the exact
+          succeeded job behind the week's CURRENT success row
+          (generated_at == finished_at) — an older success never
+          authorizes a failed attempt's candidate and a superseded
+          candidate never overwrites a newer success; a lost success
+          reply resolves to SUCCEEDED (no FAILED downgrade, no retry); an
+          install failure after the commit is diagnosable on job
+          last_error with a succeeded_install_pending outcome and is
+          completed by the next pass; 2 new + 4 rewritten integration
+          tests, 1 rewritten + 1 extended unit test)
 ```
 
 ## W03-T010 / W03-GATE BLOCKED item (2026-09-05)
@@ -224,7 +237,89 @@ W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
 started; W01-T007 still FIELD_VALIDATION_PENDING.
 ```
 
-## Wave 2 checkpoint ledger
+## W03-AUDIT-3 follow-up hotfix (2026-09-06)
+
+```text
+W03-AUDIT-3 — REVIEW_PASSED (checkpoint e5a9396b9b357b2106157401b0c91e935158b850,
+work/wave-03). One audit item fixed: report candidate/attempt consistency.
+No schema change, no migration (the existing report_jobs.last_error field
+carries the new diagnosable state).
+
+1. Candidate 必须绑定具体 job/attempt (§4.4/§5, W03-AUDIT-3): the old
+   deterministic per-week side name
+   network-weekly-report-<week>.docx.candidate allowed ANY candidate of a
+   week to be installed against ANY success row of that week — so after a
+   database outage that swallowed an uncommitted regenerate's terminal
+   update, the next pass's reconciliation installed the failed attempt's
+   candidate over the still-current previous success A while the row kept
+   describing A. Candidates are now job-bound:
+   network-weekly-report-<week>.docx.candidate.<job_id>
+   (render_report_candidate/render_report_docx take a required job_id),
+   and reconcile_report_files authorizes an install only when ALL hold:
+   the bound ReportJob exists, job.week_code == the candidate's week,
+   job.status == succeeded, the weekly_reports row is the week's current
+   success (status success, file_path set) AND row.generated_at ==
+   job.finished_at — the exact pair _mark_success commits in one
+   transaction. Therefore: a previous success A can never authorize a
+   failed/running regeneration B's candidate; a candidate superseded by a
+   newer success of the week is discarded, never installed over it; an
+   unbound legacy candidate (pre-AUDIT-3 layout) and a candidate whose
+   job row disappeared are discarded; foreign *.candidate files are
+   still ignored. A discarded/installed succeeded job's install-pending
+   last_error is cleared (nothing owed anymore).
+2. lost-success-reply 修复: when _mark_success raised AFTER its commit
+   landed (reply lost to the same outage), execute_report_job now
+   verifies the attempt's exact commit (job succeeded with finished_at ==
+   now AND the week's success row generated_at == now) and resolves the
+   attempt to SUCCEEDED: the job's own candidate is installed, the job
+   stays succeeded, next_retry_at stays NULL, due_jobs has nothing to
+   retry — the job is never degraded back to FAILED and never given a
+   10-minute retry. When the database is still unreachable (commit state
+   undeterminable) the job-bound candidate is KEPT — safe either way,
+   because reconciliation now resolves it strictly by job binding: a
+   commit that actually landed is installed on a later pass, an
+   uncommitted attempt's candidate is discarded and the recovered job
+   re-enters the normal retry.
+3. install 失败不再假装完整成功: an os.replace failure after the committed
+   success keeps the success terminal, keeps the candidate, and is made
+   diagnosable WITHOUT a schema change: report_jobs.last_error records
+   "success committed but the current DOCX is not switched yet (install
+   pending; reconciliation will retry)" and the executor's outcome is the
+   distinct status succeeded_install_pending — the un-switched file is
+   never reported as an unqualified success. The next pass's
+   reconciliation completes the switch and clears last_error.
+Tests: tests/integration/test_report_file_consistency.py (+2 new, 4
+rewritten for job binding): the required outage scenario (A success →
+regenerate B → B's candidate rendered → _mark_success uncommitted AND the
+DB stays unreachable → candidate kept, job stuck running → next pass DB
+recovered → reconciliation does NOT install B, current bytes still A,
+registry still A, job requeued pending → B's retry succeeds and only then
+the bytes become B); lost success reply → outcome SUCCEEDED, file
+installed, job stays succeeded, next_retry_at NULL, due_jobs empty;
+install OSError after the DB success → outcome succeeded_install_pending,
+current still A, candidate kept, job.last_error diagnosable, no retry →
+next pass reconcile installs B and clears last_error; stale candidate of
+a superseded success discarded, newer success untouched; strict per-job
+reconcile matrix (authorized install / superseded / never-committed /
+orphaned job id / unbound legacy / foreign file); plus the retained
+AUDIT-2 scenarios (success-update failure keeps old bytes until retry;
+first-generation DB failure leaves no files; render failure leaves no
+candidate). tests/unit/test_reporting_docx.py: candidate two-phase +
+parsing tests updated/extended for job-bound names (parse_candidate_name,
+is_unbound_candidate_name).
+Evidence: pytest 252 unit + 168 integration PASS on migrated PostgreSQL
+(0001→0008); ruff clean; mypy clean (100 files); `alembic upgrade head`
+idempotent at 0008 (no migration); image rebuilt + compose smoke: web
+healthy (/health database ok), worker heartbeat persisted and fresh
+(24 s), poll/IRF/weekly-report loops alive (dev secrets-missing cycle
+contained per §27.9 as designed); live manual regenerate of 2026-W35
+inside the worker container on the job-bound candidate flow: succeeded,
+8 validated sections, exactly one current DOCX in the reports volume (no
+candidate/temp residue), registry row success pointing at it, job row
+succeeded with last_error NULL.
+W03-T010 / W03-GATE stay BLOCKED — REAL_WEEK_DATA_PENDING; Wave 4 not
+started; W01-T007 still FIELD_VALIDATION_PENDING.
+```
 
 ```text
 W02-T001: 9e1601de5e691f903810abe837935cc616649d2f — REVIEW_PASSED
@@ -313,6 +408,21 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W03-AUDIT-3 (audit follow-up: report candidate/attempt consistency) —
+REVIEW_PASSED:
+  Candidate DOCXs are job-bound (…docx.candidate.<job_id>) and
+  reconciliation installs a candidate only for the exact succeeded job
+  behind the week's current success — an older success never authorizes
+  a failed attempt's candidate; a lost success reply resolves to
+  SUCCEEDED (no FAILED downgrade, no retry); an install failure after
+  the commit is diagnosable (job last_error + succeeded_install_pending
+  outcome) and is completed by the next pass.
+See "W03-AUDIT-3 follow-up hotfix (2026-09-06)" above for full evidence.
+```
+
+## Previous completed task
+
+```text
 W03-AUDIT-2 (audit follow-up: regenerate file/DB consistency) —
 REVIEW_PASSED:
   A regenerate attempt now renders a separate validated candidate DOCX
@@ -323,7 +433,7 @@ REVIEW_PASSED:
 See "W03-AUDIT-2 follow-up hotfix (2026-09-06)" above for full evidence.
 ```
 
-## Previous completed task
+## Older completed task
 
 ```text
 W03-AUDIT (Wave 3 audit hotfix) — REVIEW_PASSED:
@@ -383,6 +493,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W03-AUDIT-3 checkpoint: e5a9396b9b357b2106157401b0c91e935158b850 (work/wave-03)
 W03-AUDIT-2 checkpoint: 5bdc22e138950940146de87d84c65184bacaa75c (work/wave-03)
 W03-AUDIT checkpoint: 936b1583f46376cf043d28286910952e711a49d7 (work/wave-03)
 W03-T010 checkpoint: 557165cee396361984a7b9c63e597d43cea60be8 (work/wave-03)
