@@ -4,13 +4,22 @@
 
 ```text
 Current Wave: W04 — Login and Operations Web — COMPLETE, W04-GATE PASS
-  (engineering gate, 2026-09-06)
-Current Task: none — Wave 4 done; Wave 5 not started (per instruction)
-Live gate flow verified against the running compose stack: login ->
-configure priority interface (no aggregation/member cascade) -> report
-list -> download (valid 8-section DOCX) -> regenerate (web job executed
-by the worker loop) -> logout (session destroyed server-side). See the
-W04-GATE entry in TASK_GRAPH.md for the full evidence.
+  (engineering gate, 2026-09-06; revalidated PASS after W04-AUDIT)
+Current Task: W04-AUDIT — REVIEW_PASSED (2026-09-06, branch
+  work/wave-04-audit; NOT merged into main — awaiting audit review)
+  1. Stored XSS fixed: aggregation/member names esc()ed item by item in
+     the relationship cell (web/pages.py).
+  2. Report job / install-pending Web observability fixed: the list joins
+     each week's MOST RECENT ReportJob of any status — pending/running/
+     failed + ReportJob.last_error, succeeded + install-pending note
+     新报告已提交，但文件切换待恢复；当前下载仍可能是上一份成功报告 +
+     diagnostic (web/reports.py + web/pages.py, read-model only).
+  3. Single-admin DB invariant fixed: migration 0011 CHECK (singleton IS
+     TRUE) + kept UNIQUE(singleton); ORM mirrors it; pre-existing admin
+     still logs in (verified live).
+  W04-GATE revalidated PASS; Wave 5 NOT started.
+  W03-T010 = BLOCKED — REAL_WEEK_DATA_PENDING (blocks W05-GATE only).
+  W01-T007 = BLOCKED — FIELD_VALIDATION_PENDING (blocks W05-GATE only).
 Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
   Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
   to the Release Gate (W05-GATE):
@@ -27,12 +36,20 @@ W03 merge into main: 131844461ade75c1517b1da91bd7d49bc1090521
 W04 merge into main: 398204eb265091a211644ad772bc29a2ba878fa8
   (post-merge re-check on main: 278 unit PASS, ruff/mypy clean, alembic
   at 0010)
-Branch: work/wave-04 (merged); main carries Wave 4
+Branch: work/wave-04-audit (pushed, unmerged); main carries Wave 4
 ```
 
 ## Wave 4 checkpoint ledger
 
 ```text
+W04-AUDIT: 4a14b4ce022fae2e83bedb869d2161cc0961793d — REVIEW_PASSED
+          (Stored XSS: aggregation_members/member_of esc()ed item by item
+          in the relationship cell; report list joins the week's LATEST
+          ReportJob of any status — pending/running/failed + job error,
+          succeeded + install-pending note + diagnostic (read-model only,
+          no Wave 3 state machine change); migration 0011 CHECK (singleton
+          IS TRUE) + kept UNIQUE(singleton), ORM mirrored; 8 new
+          integration tests)
 W04-T001: 620d2af3323f3b97c7349652bd138bf24dd90336 — REVIEW_PASSED
           (migration 0009 users + uq_users_single_admin singleton index;
           auth/passwords.py salted scrypt scrypt$N$r$p$salt$hash with
@@ -212,6 +229,73 @@ W03-GATE — PASS (engineering gate), re-verified green on work/wave-03 at
 Deferred to W05-GATE: the real weekly data manual DOCX check (with
   W01-T007). It must NOT be recorded as passed anywhere before the real
   data exists.
+```
+
+## W04-AUDIT hotfix (2026-09-06)
+
+```text
+W04-AUDIT — REVIEW_PASSED (checkpoint 4a14b4ce022fae2e83bedb869d2161cc0961793d,
+work/wave-04-audit; NOT merged into main — awaiting audit). Three audit
+items fixed; one migration (0011), no other schema change:
+
+1. Stored XSS (web/pages.py): the priority-interface relationship cell
+   joined device-reported aggregation member / member-of display names
+   straight into HTML. _interface_row now esc()es each name item by item
+   BEFORE assembling 聚合接口（成员：…）/ 属于聚合：… — the only markup
+   left in the cell is the trusted <br>. A stored <script> / <img
+   onerror=…> interface or aggregation name renders only as escaped text
+   in every position (name, description, BOTH relationship directions).
+2. Report job / install-pending Web observability (web/reports.py +
+   web/pages.py — Web read-model/presentation only; the Wave 3 job state
+   machine, executor and reconciliation are untouched): the list no
+   longer looks at ACTIVE jobs only. It joins each week's MOST RECENT
+   ReportJob of ANY status and renders next to the report status:
+     pending   → 重新生成排队中
+     running   → 重新生成进行中
+     failed    → 重新生成失败，等待自动重试 + sanitized ReportJob.last_error
+     succeeded → nothing, UNLESS the current-DOCX switch is still owed
+                 (install pending): the fixed note 新报告已提交，但文件切
+                 换待恢复；当前下载仍可能是上一份成功报告 + the
+                 install-pending diagnostic from job.last_error.
+   The shared read-only definition of that state is the new
+   reporting/jobs.py::is_install_pending predicate. All job errors are
+   HTML-escaped like every page text. A cleanly succeeded job adds no
+   noise; the previous success stays downloadable while a switch is owed.
+3. Single-admin DB invariant (migration 0011 + db/models.py): the old
+   UNIQUE(singleton) over a BOOLEAN admitted one true AND one false row —
+   two administrator rows could coexist. ck_users_singleton_true
+   (CHECK (singleton IS TRUE)) now runs alongside the kept
+   uq_users_single_admin unique index: a second singleton=true row
+   violates the unique index and a singleton=false row violates the
+   CHECK, so the table can only ever hold one user whatever writes reach
+   the database. The ORM mirrors the constraint. All pre-existing rows
+   are singleton=true (initialize_admin never wrote otherwise), the
+   migration applies safely over a populated table, and the pre-existing
+   dev admin still logs in (live-verified).
+
+Tests: +8 integration. test_web_interfaces.py: stored <script>/<img
+onerror> names render ONLY escaped in name, description and both
+relationship directions, raw tags never in the HTML. test_web_regenerate.py:
+succeeded install-pending job shows the fixed note + diagnostic with the
+old DOCX still downloadable; failed job shows 重新生成失败 + its
+ReportJob.last_error HTML-escaped (raw tags absent); the week's LATEST
+job drives the note (fresh pending supersedes an older install-pending);
+a cleanly succeeded job renders no note. test_auth_admin.py: row-space
+matrix (row 1 true OK / second true refused / false refused); a
+pre-0011 user row still verifies and logs in; migration 0011 CHECK
+present next to the unique index.
+Evidence: pytest 278 unit + 241 integration PASS on migrated PostgreSQL
+(0001→0011); ruff clean; mypy clean (122 files); `alembic upgrade head`
+0010→0011 on the dev database and idempotent at 0011; image rebuilt +
+compose smoke: web healthy (/health database ok), worker heartbeat
+persisted and fresh (16 s), poll/IRF/weekly-report loops alive with zero
+errors; live HTTP checks against the running container: injected
+<script>/<img onerror> device text renders only escaped (raw count 0),
+seeded succeeded install-pending job shows the fixed note + diagnostic on
+/reports (evidence rows removed afterwards; dev admin password
+re-initialized for the smoke login). W04-GATE revalidated PASS; Wave 5
+NOT started; W03-T010 stays BLOCKED — REAL_WEEK_DATA_PENDING; W01-T007
+stays BLOCKED — FIELD_VALIDATION_PENDING.
 ```
 
 ## W03-AUDIT hotfix (2026-09-06)
@@ -733,6 +817,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W04-AUDIT checkpoint: 4a14b4ce022fae2e83bedb869d2161cc0961793d (work/wave-04-audit)
 W04-GATE verification: bc98a3600eece2add11ad05358ca005ea4707e0d (work/wave-04)
 W04-T005 checkpoint: 8715fab0cace43fe270ee5ea92ec550dbcf3913d (work/wave-04)
 W04-T004 checkpoint: 9c535b486ec047d5257503b33808333d4d26f9c3 (work/wave-04)
@@ -825,19 +910,24 @@ REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING.
 ## Current Wave Gate
 
 ```text
-W04-GATE — Operations Web Gate: PASS (engineering gate, 2026-09-06).
-pytest 278 unit + 233 integration PASS on migrated PostgreSQL (0001→0010);
-ruff clean; mypy clean (122 files); alembic upgrade head idempotent at
-0010; image rebuilt + compose smoke on the new image: web healthy
-(/health database ok), worker heartbeat persisted and fresh, device-poll
-loop alive. Live end-to-end flow against the running web container:
-login (HttpOnly/SameSite=Lax session cookie) -> priority-interface
-configuration with live no-cascade verification (aggregate=t, members=f;
-then a member=t independently) -> report list (2026-W35) -> download
-(valid 8-section DOCX, attachment headers) -> regenerate (web form POST
-created one manual job; the worker loop executed it to succeeded with
-one current DOCX, no residue) -> logout (303; cookie replay 303; the
-sessions row destroyed). Password grep count in web+worker logs: 0.
+W04-GATE — Operations Web Gate: PASS (engineering gate, 2026-09-06;
+revalidated PASS after W04-AUDIT on migrated PostgreSQL 0001→0011:
+pytest 278 unit + 241 integration PASS, ruff/mypy clean, alembic at
+0011, compose smoke + live XSS/install-pending HTTP checks green — see
+the W04-AUDIT hotfix section above).
+Original gate evidence: pytest 278 unit + 233 integration PASS on
+migrated PostgreSQL (0001→0010); ruff clean; mypy clean (122 files);
+alembic upgrade head idempotent at 0010; image rebuilt + compose smoke
+on the new image: web healthy (/health database ok), worker heartbeat
+persisted and fresh, device-poll loop alive. Live end-to-end flow
+against the running web container: login (HttpOnly/SameSite=Lax session
+cookie) -> priority-interface configuration with live no-cascade
+verification (aggregate=t, members=f; then a member=t independently) ->
+report list (2026-W35) -> download (valid 8-section DOCX, attachment
+headers) -> regenerate (web form POST created one manual job; the worker
+loop executed it to succeeded with one current DOCX, no residue) ->
+logout (303; cookie replay 303; the sessions row destroyed). Password
+grep count in web+worker logs: 0.
 W03-GATE remains PASS (engineering gate); W03-T010
 REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING remain
 BLOCKED and block W05-GATE only.

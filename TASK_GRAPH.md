@@ -439,7 +439,7 @@ REVIEW_PASSED
 **Checkpoint:** see EXECUTION_STATE.md checkpoint ledger.
 
 ## W04-GATE — Operations Web Gate
-**Status:** PASS（engineering gate, 2026-09-06）  
+**Status:** PASS（engineering gate, 2026-09-06; revalidated PASS after W04-AUDIT）  
 **Depends On:** W04-T003, W04-T004, W04-T005  
 **Blocks:** Wave 5  
 **Gate:** login -> configure priority interfaces -> view/download/regenerate report workflow passes.  
@@ -457,6 +457,18 @@ REVIEW_PASSED
 - Unauthenticated requests to /, /reports, /interfaces, download and regenerate are all denied (303 to /login) — live-checked and pinned by tests; all state-changing POSTs CSRF-checked first (missing/forged → 403).
 - Remaining release blockers (NOT gate-blocking): W03-T010 REAL_WEEK_DATA_PENDING and W01-T007 FIELD_VALIDATION_PENDING, both carried to W05-GATE.  
 **Checkpoint:** see EXECUTION_STATE.md checkpoint ledger (W04-GATE verification commit).
+
+## W04-AUDIT — Wave 4 audit hotfix
+**Status:** REVIEW_PASSED  
+**Depends On:** W04-GATE  
+**Blocks:** none (audit only; no product capability added)  
+**Scope:** three audit findings — (1) Stored XSS: the priority-interface relationship cell interpolated device-reported `aggregation_members` / `member_of` names into HTML without `esc()`; (2) report job / install-pending Web observability: the list rendered ACTIVE jobs only, so a succeeded regeneration's owed file switch and a failed attempt's `ReportJob.last_error` were invisible; (3) single-admin DB invariant: `UNIQUE(singleton)` over a BOOLEAN admitted one `true` row AND one `false` row.  
+**Implementation:**
+- Stored XSS (`web/pages.py`): `_interface_row` now escapes every aggregation member and member-of display name item by item through `esc()` BEFORE assembling the 聚合接口（成员：…）/ 属于聚合：… relationship text — device/database text can no longer reach the page as markup; the only HTML in the cell is the trusted `<br>` separator.
+- Report job observability (`web/reports.py`, `web/pages.py`, read-model/presentation only — the Wave 3 job state machine is untouched): the list joins each week's MOST RECENT `ReportJob` of ANY status (not ACTIVE only) and renders, next to the report status: pending 重新生成排队中 / running 重新生成进行中 / failed 重新生成失败，等待自动重试 plus the sanitized `ReportJob.last_error`, and for a succeeded job whose current-DOCX switch is still owed the fixed note `新报告已提交，但文件切换待恢复；当前下载仍可能是上一份成功报告` plus the install-pending diagnostic. The new `reporting/jobs.py::is_install_pending` predicate is the shared read-only definition of that state; job errors are HTML-escaped like every other page text.
+- Single-admin DB invariant (migration `0011` + `db/models.py`): `ck_users_singleton_true` (`CHECK (singleton IS TRUE)`) alongside the kept `uq_users_single_admin` unique index makes "at most one user row" a REAL database guarantee — a second `singleton=true` row violates the unique index and a `singleton=false` row violates the CHECK. The ORM mirrors the constraint. All pre-existing rows are `singleton=true` (`initialize_admin` never wrote otherwise), so the migration applies safely over a populated table and existing administrators keep working (verified live).
+**Tests:** integration `tests/integration/test_web_interfaces.py` (+1: stored `<script>` / `<img onerror=…>` interface and aggregation names render ONLY as escaped text in name, description and BOTH relationship directions — raw tags never enter the HTML); `tests/integration/test_web_regenerate.py` (+4: succeeded job with install-pending `last_error` shows the fixed note + diagnostic and keeps the old DOCX downloadable; failed job shows 重新生成失败 + its `ReportJob.last_error` HTML-escaped with raw tags absent; the week's LATEST job drives the note (fresh pending supersedes an older install-pending); a cleanly succeeded job adds no noise); `tests/integration/test_auth_admin.py` (+3: full row-space matrix — row 1 `singleton=true` OK, second `singleton=true` refused, `singleton=false` refused; a pre-0011 user row still verifies and logs in; migration 0011 CHECK present next to the unique index).
+**Acceptance:** pytest 278 unit + 241 integration PASS on migrated PostgreSQL (0001→0011); ruff clean; mypy clean (122 files); `alembic upgrade head` 0010→0011 on the dev database and idempotent at 0011; image rebuilt + compose smoke: web healthy (/health database ok), worker heartbeat persisted and fresh (16 s), poll/IRF/weekly-report loops alive with zero errors; live HTTP checks against the running container: injected `<script>`/`<img onerror>` device text renders only escaped (raw count 0) in both relationship directions, and a seeded succeeded install-pending job shows the fixed note + diagnostic on /reports (evidence rows removed afterwards; pre-existing admin login re-verified). W04-GATE revalidated PASS; Wave 5 NOT started; W03-T010 stays BLOCKED — REAL_WEEK_DATA_PENDING; W01-T007 stays BLOCKED — FIELD_VALIDATION_PENDING. Checkpoint: see EXECUTION_STATE.md checkpoint ledger.
 
 ---
 
