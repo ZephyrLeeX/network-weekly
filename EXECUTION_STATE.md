@@ -5,7 +5,7 @@
 ```text
 Current Wave: W05 — Deployment and Stability — IN PROGRESS (branch
   work/wave-05, created 2026-09-06)
-Current Task: W05-T002 — install.sh (next; T001 REVIEW_PASSED)
+Current Task: W05-T003 — update.sh (next; T001/T002 REVIEW_PASSED)
 W04-AUDIT merge into main: 872b1631f64ad83d02bff7088679cc5d6accf2e9
   (post-merge re-check on main: 278 unit + 241 integration PASS, ruff
   clean, mypy clean in 122 files, alembic upgrade head idempotent at
@@ -40,6 +40,19 @@ W05-T001: 64e827cc4eff04d126234256749fcd1ca0f74365 — REVIEW_PASSED
           roots, migration 0001→0011, 10-device inventory sync, probe DOCX,
           force-recreate of ALL containers → rows+file intact, /health ok,
           heartbeat fresh 10 s, 0600 secrets loaded with 0 failures)
+W05-T002: fe493667724b5d6eea9c889ef68f73170542fc35 — REVIEW_PASSED
+          (deploy/install.sh + deploy/lib.sh: exit codes 10–19 with
+          diagnostics; Debian 13 amd64 + Docker/Compose checks; offline
+          image checks + prod-compose pull_policy: never; /opt /data /etc
+          created with perms; devices.toml/secrets.env initialized from
+          docs examples only, no fake device secrets, existing wide-mode
+          secrets refused (13) not tightened; alembic in-image; admin via
+          env passthrough never argv; inventory sync; up --wait; health +
+          heartbeat verification; idempotent re-run; staging root
+          overrides; 6 new unit tests; smoke: fresh install on real
+          Debian 13 roots-override host — 10 devices, admin scrypt-
+          verifies, 0 password hits in logs, re-run preserved .env+admin,
+          exit 12/13 failure paths)
 ```
 
 ## Wave 4 checkpoint ledger

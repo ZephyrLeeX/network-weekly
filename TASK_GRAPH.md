@@ -487,10 +487,16 @@ REVIEW_PASSED
 **Checkpoint:** see EXECUTION_STATE.md Wave 5 checkpoint ledger.
 
 ## W05-T002 — install.sh
-**Status:** TODO  
+**Status:** REVIEW_PASSED（2026-09-06, branch work/wave-05）  
 **Depends On:** W05-T001  
 **Blocks:** W05-T003, W05-T005  
-**Acceptance:** Debian 13 target with Docker/Compose can initialize directories, DB, administrator, inventory and healthy web/worker services.
+**Acceptance:** Debian 13 target with Docker/Compose can initialize directories, DB, administrator, inventory and healthy web/worker services.  
+**Implementation:**
+- `deploy/install.sh` + shared `deploy/lib.sh`: fail-fast (`set -euo pipefail`) with explicit exit codes **10–19** (10 host/OS · 11 Docker/Compose · 12 image missing · 13 config/secrets · 14 migration · 15 admin · 16 inventory · 17 services · 18 health · 19 heartbeat), every failure printing a diagnostic. Genuine Debian 13 + amd64 checks (`/etc/os-release`, `dpkg --print-architecture`); Docker Engine + Compose plugin probes; local-image checks with `pull_policy: never` added to the production compose (a missing image is an immediate local error, never a silent registry pull — offline discipline). Creates `/opt/network-report` (compose + 0600 `.env` with a generated alphanumeric PostgreSQL password), `/data/network-report/{postgres,reports}` (reports uid 1000) and `/etc/network-report`; initializes `devices.toml` (0644) and `secrets.env` (0600, uid-1000) from the docs examples ONLY — real device secrets are never auto-generated, placeholders trigger an explicit go-live warning; an EXISTING too-wide `secrets.env` is refused (exit 13) with the fix command, never silently tightened. Order: postgres → `alembic upgrade head` (in-image; failure leaves prior state untouched, exit 14) → single admin (`admin_cli init` with the password handed over by environment passthrough only — never argv, never echoed, no xtrace) → inventory sync → `up -d --wait` → `/health` verification → worker-heartbeat verification (both with retries inside the containers, no host curl dependency).
+- Idempotent: re-run keeps `.env` (stable PostgreSQL password), config files, admin account (existence-checked via a one-off container before prompting); inventory sync re-upserts; `NETWORK_REPORT_*_ROOT` staging overrides allow non-root test installs (uid must be 1000).
+**Tests:** `tests/unit/test_deploy_scripts.py` (5): bash syntax of lib+install, fail-fast header, no network verbs (curl/wget/apt-get/docker pull/pip install), admin-password argv-exclusion pinned (`-e VAR=` form forbidden, `export` + `read -rs` required), exit-code/verifier presence, §26.2 flow coverage; `tests/unit/test_production_compose.py` (+1 pull_policy). Suite: 296 unit + 241 integration PASS, ruff clean, mypy clean (124 files).  
+**Smoke evidence (this host IS Debian 13 amd64; throwaway roots, web published on 18001):** fresh install exit 0 — 10 devices in DB, admin `admin` scrypt-verifies, `.env` 0600, `secrets.env` 0600, `devices.toml` 0644, reports dir uid 1000, web healthy, heartbeat 12 s; admin password 0 occurrences in web/worker/postgres logs; idempotent re-run preserved `.env`+admin; missing image → exit 12; `chmod 0644 secrets.env` → exit 13.  
+**Checkpoint:** see EXECUTION_STATE.md Wave 5 checkpoint ledger.
 
 ## W05-T003 — update.sh
 **Status:** TODO  
