@@ -18,6 +18,7 @@ dependencies = [
     "python-docx>=1.2",
     # Guarantees zoneinfo has Asia/Shanghai data even on minimal images.
     "tzdata>=2025.2",
+    "python-multipart>=0.0.20",
 ]
 
 [dependency-groups]
@@ -25,6 +26,7 @@ dev = [
     "pytest>=8.4",
     "ruff>=0.14",
     "mypy>=1.19",
+    "httpx>=0.28.1",
 ]
 
 [build-system]
