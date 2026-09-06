@@ -87,22 +87,67 @@ PY
     return 1
 }
 
-# Wait for a NEW heartbeat written by THIS worker (NETWORK_REPORT_WORKER_ID)
-# after the baseline captured by heartbeat_baseline (W05-AUDIT fix 1, §25);
-# returns 1 on timeout (callers decide the exit code).
+# Full Docker container ID of the project's worker container
+# (W05-AUDIT-2): "" when no running worker container exists, otherwise the
+# COMPLETE `docker inspect` identity — never a short ID, never an image
+# tag. A heartbeat verdict may only be guessed from real container
+# identity, not from comparing image names.
+# Exits 1 when Docker itself could not be queried: callers must fail that
+# case instead of silently treating it as "same container".
+worker_container_id() {
+    local cid
+    cid=$(COMPOSE ps -q worker 2>/dev/null) || return 1
+    if [[ -z $cid ]]; then
+        printf ''
+        return 0
+    fi
+    docker inspect --format '{{.Id}}' "$cid" 2>/dev/null || return 1
+}
+
+# True when the TARGET image's heartbeat_verify takes the pre/post worker
+# container IDs (the W05-AUDIT-2 signature). Older rollback targets take
+# the inline fallback below instead — including images that carry the
+# pre-W05-AUDIT-2 module (usage error, exit 2) or no module at all, whose
+# own logic must never decide this verdict.
+heartbeat_verify_accepts_container_ids() {
+    COMPOSE exec -T worker python -c "import backend.ops.heartbeat_verify" 2>/dev/null || return 1
+    # A module with the new signature parses argv BEFORE touching anything
+    # and dies on the malformed baseline with a traceback (exit 1); the
+    # pre-W05-AUDIT-2 signature answers this 5-argument call with its usage
+    # error (exit 2).
+    local rc=0
+    COMPOSE exec -T worker python -m backend.ops.heartbeat_verify \
+        verify '{' pre post >/dev/null 2>&1 || rc=$?
+    [[ $rc == 1 ]]
+}
+
+# Wait for heartbeat evidence that the worker started by THIS
+# install/update wrote a NEW heartbeat after the baseline captured by
+# heartbeat_baseline (W05-AUDIT fix 1, §25; W05-AUDIT-2); returns 1 on
+# timeout (callers decide the exit code).
+#
+# Arguments: baseline JSON, worker container ID before the start, worker
+# container ID after the start. When the container was REPLACED, a
+# last_heartbeat newer than the baseline is NOT enough: the old worker's
+# post-baseline final tick looks exactly like that. A replaced container
+# additionally requires started_at to have moved past the baseline's. When
+# the container was NOT replaced (same-container re-verify) the heartbeat
+# moving is sufficient and started_at may stay put.
 #
 # The pre-W05-AUDIT check ("any heartbeat row is fresh enough") passed on a
 # stale row left behind by the previous worker — a false positive. The
 # tested implementation lives in backend.ops.heartbeat_verify; the inline
-# fallback below applies the SAME rules when the target image predates that
-# module (a rollback target), keeping `update.sh --image <old>` usable.
-# Keep the fallback in sync with backend/ops/heartbeat_verify.py.
+# fallback below applies the SAME rules when the target image predates the
+# W05-AUDIT-2 verifier (a rollback target), keeping `update.sh --image
+# <old>` usable. Keep the fallback in sync with
+# backend/ops/heartbeat_verify.py.
 wait_heartbeat() {
-    local baseline=$1
+    local baseline=$1 pre_id=$2 post_id=$3
     local attempt
-    if COMPOSE exec -T worker python -c "import backend.ops.heartbeat_verify" 2>/dev/null; then
+    if heartbeat_verify_accepts_container_ids; then
         for attempt in $(seq 1 24); do
-            if COMPOSE exec -T worker python -m backend.ops.heartbeat_verify verify "$baseline" 2>/dev/null; then
+            if COMPOSE exec -T worker python -m backend.ops.heartbeat_verify \
+                verify "$baseline" "$pre_id" "$post_id" 2>/dev/null; then
                 return 0
             fi
             sleep 5
@@ -110,7 +155,7 @@ wait_heartbeat() {
         return 1
     fi
     for attempt in $(seq 1 24); do
-        if COMPOSE exec -T worker python - verify "$baseline" <<'PY' 2>/dev/null
+        if COMPOSE exec -T worker python - verify "$baseline" "$pre_id" "$post_id" <<'PY' 2>/dev/null
 import json, sys
 from datetime import UTC, datetime
 
@@ -121,6 +166,7 @@ from backend.db.engine import get_engine
 from backend.db.models import WorkerHeartbeat
 
 baseline = json.loads(sys.argv[2])
+pre_id, post_id = sys.argv[3], sys.argv[4]
 worker_id = load_settings().worker_id
 with get_engine().connect() as conn:
     row = conn.execute(
@@ -131,14 +177,36 @@ limit = load_settings().heartbeat_interval_seconds * 4
 if row is None:
     print(f"no heartbeat row for worker {worker_id!r} yet (limit {limit}s)")
     raise SystemExit(1)
-age = (datetime.now(UTC) - row[0]).total_seconds()
-if baseline and row[0] <= datetime.fromisoformat(baseline["last_heartbeat"]):
+last, started = row
+age = (datetime.now(UTC) - last).total_seconds()
+if not baseline:
+    if age >= limit:
+        print(f"first heartbeat for worker {worker_id!r} is already stale: "
+              f"age {age:.0f}s >= limit {limit}s")
+        raise SystemExit(1)
+    print(f"first heartbeat for worker {worker_id!r} observed (age {age:.0f}s)")
+    raise SystemExit(0)
+baseline_last = datetime.fromisoformat(baseline["last_heartbeat"])
+if last <= baseline_last:
     print(f"worker {worker_id!r} wrote no NEW heartbeat after the baseline")
     raise SystemExit(1)
 if age >= limit:
-    print(f"heartbeat for worker {worker_id!r} is stale: age {age:.0f}s >= limit {limit}s")
+    print(f"new heartbeat for worker {worker_id!r} is already stale: "
+          f"age {age:.0f}s >= limit {limit}s")
     raise SystemExit(1)
-print(f"new heartbeat for worker {worker_id!r} written after the baseline (age {age:.0f}s)")
+if pre_id != post_id:
+    baseline_started = datetime.fromisoformat(baseline["started_at"])
+    if started <= baseline_started:
+        print(f"old worker wrote after the baseline but the replacement worker "
+              f"has not: worker {worker_id!r} started_at {started.isoformat()} "
+              f"<= baseline {baseline_started.isoformat()} while the worker "
+              "container was replaced — that is the old container's final tick")
+        raise SystemExit(1)
+    print(f"new heartbeat for worker {worker_id!r} written after the baseline "
+          f"by the replacement worker (age {age:.0f}s)")
+    raise SystemExit(0)
+print(f"new heartbeat for worker {worker_id!r} written after the baseline "
+      f"(age {age:.0f}s, worker kept running)")
 raise SystemExit(0)
 PY
         then
@@ -192,9 +260,17 @@ verify_health() {
 
 verify_heartbeat() {
     local baseline=${1:-}
+    local pre_id=${2:-}
+    local post_id=${3:-}
     [[ -n $baseline ]] || baseline='{}'
-    wait_heartbeat "$baseline" \
-        || die 19 "worker wrote no NEW heartbeat after this start; 'docker compose -p network-report logs worker' shows why"
+    # W05-AUDIT-2: `compose up` reporting success is not container identity.
+    # Without the post-start worker container ID the replacement decision
+    # cannot be made — FAIL, never default to "same container".
+    if [[ -z $post_id ]]; then
+        die 19 "worker container identity could not be determined after the start; refusing to verify against an unknown container (is the worker running? 'docker compose -p network-report ps')"
+    fi
+    wait_heartbeat "$baseline" "$pre_id" "$post_id" \
+        || die 19 "no heartbeat evidence from the (re)started worker (a new tick past the baseline, plus an advanced started_at when its container was replaced); 'docker compose -p network-report logs worker' shows why"
 }
 
 # Failure AFTER the migration committed (W05-AUDIT fix 3): the schema may

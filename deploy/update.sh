@@ -77,17 +77,26 @@ fi
 
 # Captured AFTER the migration (which does not touch heartbeat rows) and
 # immediately before the recreate, so the heartbeat verifier (W05-AUDIT
-# fix 1) can insist on a heartbeat written after THIS update: the old
-# worker's last row must never pass as evidence of the new one.
+# fix 1, W05-AUDIT-2) can insist on evidence written after THIS update: the
+# old worker's last row must never pass, and when the recreate REPLACES the
+# worker container its started_at must have advanced too — the old worker's
+# post-baseline final tick otherwise masquerades as new-worker evidence.
 step "capturing the pre-restart worker heartbeat baseline"
 HEARTBEAT_BASELINE=$(heartbeat_baseline) \
     || die 19 "cannot read the pre-update worker heartbeat baseline (is the database reachable?)"
 echo "heartbeat baseline: $HEARTBEAT_BASELINE"
+PRE_WORKER_CONTAINER_ID=$(worker_container_id) \
+    || die 19 "cannot read the pre-update worker container identity from Docker"
+echo "pre-update worker container: ${PRE_WORKER_CONTAINER_ID:-<none>}"
 
 step "restarting web + worker on the target image"
 if ! COMPOSE up -d --wait; then
     post_migration_failure 17 "service restart failed; 'docker compose -p network-report ps' shows what happened"
 fi
+
+POST_WORKER_CONTAINER_ID=$(worker_container_id) \
+    || die 19 "cannot read the worker container identity after the update"
+echo "post-update worker container: ${POST_WORKER_CONTAINER_ID:-<none>}"
 
 step "verifying web /health"
 if ! wait_health; then
@@ -95,8 +104,14 @@ if ! wait_health; then
 fi
 
 step "verifying worker heartbeat"
-if ! wait_heartbeat "$HEARTBEAT_BASELINE"; then
-    post_migration_failure 19 "worker wrote no NEW heartbeat after the update; 'docker compose -p network-report logs worker' shows why"
+# `compose up` exiting 0 is not container identity: without the post-start
+# worker container ID the replacement decision cannot be made — fail, never
+# default to "same container" (W05-AUDIT-2).
+if [[ -z $POST_WORKER_CONTAINER_ID ]]; then
+    post_migration_failure 19 "worker container identity could not be determined after the update (is the worker running? 'docker compose -p network-report ps')"
+fi
+if ! wait_heartbeat "$HEARTBEAT_BASELINE" "$PRE_WORKER_CONTAINER_ID" "$POST_WORKER_CONTAINER_ID"; then
+    post_migration_failure 19 "no heartbeat evidence from the updated worker (a new tick past the baseline, plus an advanced started_at when its container was replaced); 'docker compose -p network-report logs worker' shows why"
 fi
 
 step "update complete"

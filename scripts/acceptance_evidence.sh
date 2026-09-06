@@ -142,6 +142,15 @@ PY
 fact "reports dir listing:"
 ls -la "$DATA_DIR/reports" 2>/dev/null || fact "reports dir missing"
 
+section "scheduled weekly report jobs (A09 — report_jobs history, NOT weekly_reports)"
+# W05-AUDIT-2: weekly_reports.generated_at is the CURRENT success registry
+# and is overwritten by every manual regenerate, so it cannot prove the
+# original Monday 00:10 trigger. The scheduled report_jobs rows are
+# append-only history: trigger, status, created/started/finished, attempts.
+# Read-only; error texts and other free-form columns are not printed.
+COMPOSE exec -T web python -m backend.ops.report_job_evidence \
+    || fact "scheduled report jobs query FAILED"
+
 section "secrets / inventory permission bits (content is NEVER read)"
 stat -c '%a %u %n' "$CONFIG_DIR/secrets.env" "$CONFIG_DIR/devices.toml" 2>/dev/null \
     || fact "config files missing"

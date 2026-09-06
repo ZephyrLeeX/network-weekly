@@ -122,6 +122,76 @@ def test_heartbeat_verifier_targets_only_the_current_worker() -> None:
     assert 'wait_heartbeat "$HEARTBEAT_BASELINE"' in update
 
 
+def test_heartbeat_verdict_is_bound_to_worker_container_identity() -> None:
+    """W05-AUDIT-2: the replacement decision must come from the worker's
+    real Docker container identity before/after the (re)start — never from
+    comparing image names — and a missing post-start identity must fail the
+    verification instead of defaulting to "same container"."""
+
+    lib = (DEPLOY / "lib.sh").read_text(encoding="utf-8")
+    install = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+    update = (DEPLOY / "update.sh").read_text(encoding="utf-8")
+
+    # Real container identity: the FULL `docker inspect` ID, "" when absent;
+    # a failed Docker query is an error, not "".
+    assert "worker_container_id()" in lib
+    assert "docker inspect --format '{{.Id}}'" in lib
+    assert "COMPOSE ps -q worker" in lib
+
+    # Pre/post identities are captured around the (re)start in both scripts.
+    for script, start_step in (
+        (install, 'step "starting web + worker"'),
+        (update, 'step "restarting web + worker'),
+    ):
+        pre = script.index("PRE_WORKER_CONTAINER_ID=$(worker_container_id)")
+        post = script.index("POST_WORKER_CONTAINER_ID=$(worker_container_id)")
+        assert pre < script.index(start_step) < post, start_step
+
+    # install.sh routes through the die-ing verifier with all three args.
+    assert (
+        'verify_heartbeat "$HEARTBEAT_BASELINE" '
+        '"$PRE_WORKER_CONTAINER_ID" "$POST_WORKER_CONTAINER_ID"' in install
+    )
+    # update.sh routes through the returning waiter (post-migration failure
+    # keeps the schema-aware 19 path).
+    assert (
+        'wait_heartbeat "$HEARTBEAT_BASELINE" '
+        '"$PRE_WORKER_CONTAINER_ID" "$POST_WORKER_CONTAINER_ID"' in update
+    )
+    # A missing post-start identity is a hard failure in BOTH paths — never
+    # a silent "same container".
+    assert "worker container identity could not be determined" in lib
+    assert "worker container identity could not be determined" in update
+
+
+def test_heartbeat_verifier_fallback_shares_the_race_invariants() -> None:
+    """W05-AUDIT-2: the inline fallback (rollback targets predating the
+    W05-AUDIT-2 verifier) must decide replacement from the pre/post
+    container IDs and demand an advanced started_at exactly like the tested
+    module — a last_heartbeat newer than the baseline alone must never pass
+    a replaced container."""
+
+    lib = (DEPLOY / "lib.sh").read_text(encoding="utf-8")
+
+    # The capability probe: only a verifier that ACCEPTS the pre/post IDs
+    # may decide; older modules (usage exit 2 / missing module) fall back.
+    assert "heartbeat_verify_accepts_container_ids()" in lib
+    assert "verify '{' pre post" in lib
+
+    # The fallback compares container identities and started_at — the two
+    # invariants that close the old-worker-after-baseline race.
+    fallback = lib.split('python - verify "$baseline" "$pre_id" "$post_id"')[1]
+    fallback = fallback.split("\nPY\n")[0]  # the heredoc body only
+    assert "pre_id != post_id" in fallback
+    assert 'started_at' in fallback
+    assert 'baseline["started_at"]' in fallback
+    assert "started <= baseline_started" in fallback
+    assert "replacement worker" in fallback
+    # ...and still refuses a stale/identical row and a missing own row.
+    assert "wrote no NEW heartbeat after the baseline" in fallback
+    assert "no heartbeat row for worker" in fallback
+
+
 def test_post_migration_failure_paths_are_schema_aware() -> None:
     """W05-AUDIT fix 3: after a committed migration, roll-back advice must
     carry the schema-compatibility caveat instead of an unconditional image

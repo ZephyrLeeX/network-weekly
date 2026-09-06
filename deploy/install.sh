@@ -175,22 +175,31 @@ step "device inventory sync"
 COMPOSE run --rm --no-deps web python -m backend.inventory_sync \
     || die 16 "inventory sync failed (is $CONFIG_DIR/devices.toml valid TOML?)"
 
-# Captured BEFORE the stack starts so the heartbeat verifier can insist on a
-# heartbeat written after THIS start (W05-AUDIT fix 1): a row left by the
-# previous worker — even seconds old — must never pass the verification.
+# Captured BEFORE the stack starts so the heartbeat verifier can insist on
+# evidence written after THIS start (W05-AUDIT fix 1, W05-AUDIT-2): a row
+# left by the previous worker — even seconds old — must never pass, and the
+# worker's CONTAINER identity before/after decides whether started_at must
+# have advanced (a fresh install replaces "no container" with a new one).
 step "capturing the pre-start worker heartbeat baseline"
 HEARTBEAT_BASELINE=$(heartbeat_baseline) \
     || die 19 "cannot read the pre-start worker heartbeat baseline (is the database reachable?)"
 echo "heartbeat baseline: $HEARTBEAT_BASELINE"
+PRE_WORKER_CONTAINER_ID=$(worker_container_id) \
+    || die 19 "cannot read the pre-start worker container identity from Docker"
+echo "pre-start worker container: ${PRE_WORKER_CONTAINER_ID:-<none>}"
 
 step "starting web + worker"
 COMPOSE up -d --wait || die 17 "docker compose could not bring the stack up (see the output above)"
+
+POST_WORKER_CONTAINER_ID=$(worker_container_id) \
+    || die 19 "cannot read the worker container identity after the start"
+echo "post-start worker container: ${POST_WORKER_CONTAINER_ID:-<none>}"
 
 step "verifying web /health"
 verify_health
 
 step "verifying worker heartbeat"
-verify_heartbeat "$HEARTBEAT_BASELINE"
+verify_heartbeat "$HEARTBEAT_BASELINE" "$PRE_WORKER_CONTAINER_ID" "$POST_WORKER_CONTAINER_ID"
 
 step "install complete"
 COMPOSE ps
