@@ -5,7 +5,7 @@
 ```text
 Current Wave: W04 — Login and Operations Web (started per Owner Decision
   2026-09-06)
-Current Task: W04-T002 (server-side session + login/logout)
+Current Task: W04-T003 (report list + DOCX download)
 Owner Decision 2026-09-06: Wave 3 engineering side passed W03-AUDIT-4;
   Wave 4 may proceed. The real weekly data manual DOCX check is DEFERRED
   to the Release Gate (W05-GATE):
@@ -32,6 +32,13 @@ W04-T001: 620d2af3323f3b97c7349652bd138bf24dd90336 — REVIEW_PASSED
           verify_admin_login/set_admin_password; admin_cli.py init with
           env-or-getpass password entry, never argv/stdout/logs;
           plaintext never persisted; 8 unit + 8 integration tests)
+W04-T002: 7ed12d02fd2ac5bd3579b25c0bf632a289cb683d — REVIEW_PASSED
+          (migration 0010 sessions; server-side persistence with 7-day
+          absolute + 12-hour idle bounds, idle-slide-only touch;
+          backend/web: require_admin gate, CSRF double-submit on every
+          POST, login/logout with fresh-token fixation defense and fixed
+          no-enumeration error text, HttpOnly SameSite=Lax cookie;
+          4 unit + 22 integration tests incl. timeouts/fixation/CSRF)
 ```
 
 ## Wave 3 checkpoint ledger
@@ -523,6 +530,18 @@ and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
 ## Last completed task
 
 ```text
+W04-T002 (server-side session + login/logout) — REVIEW_PASSED:
+  sessions table in PostgreSQL (row id = opaque bearer token); valid only
+  inside BOTH the 7-day absolute and the 12-hour idle bound; login issues
+  a fresh token (fixation defense) and rotates the CSRF cookie; logout
+  destroys the row server-side; every protected page/action sits behind
+  require_admin; every state-changing POST CSRF-checked first (403).
+See "Wave 4 checkpoint ledger" above for the checkpoint SHA.
+```
+
+## Previous completed task (W04-T001)
+
+```text
 W04-T001 (single administrator + salted scrypt password) — REVIEW_PASSED:
   migration 0009 users with the singleton unique index (§21 as a DB
   guarantee); auth/passwords.py self-describing salted scrypt hashes;
@@ -640,6 +659,7 @@ backfill, and the unattemptable dev cycle is visible as a FAILED poll run
 ## Last checkpoint
 
 ```text
+W04-T002 checkpoint: 7ed12d02fd2ac5bd3579b25c0bf632a289cb683d (work/wave-04)
 W04-T001 checkpoint: 620d2af3323f3b97c7349652bd138bf24dd90336 (work/wave-04)
 W03 merge into main: 131844461ade75c1517b1da91bd7d49bc1090521
 W03-AUDIT-4 checkpoint: 760bdd61ee328049f22fe9677aeecfedfd3097e1 (work/wave-03)
