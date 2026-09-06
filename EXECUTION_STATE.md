@@ -7,12 +7,19 @@ Current Wave: W05 — Deployment and Stability — engineering side
   COMPLETE (T001–T004 REVIEW_PASSED, branch work/wave-05, NOT yet merged
   to main — awaiting W05-GATE which is BLOCKED on real-environment
   acceptance; created 2026-09-06)
-Current Task: W05-T005 — Real-environment stability acceptance:
+Current Task: W05-AUDIT — Wave 5 audit hotfix COMPLETE and REVIEW_PASSED
+  (commit 838b5b613f80ed60999018ca8e061b798e81a51e, branch work/wave-05):
+  (1) heartbeat verifier false positive fixed (baseline state machine);
+  (2) acceptance evidence oldest-row MAX→MIN fixed; (3) post-migration
+  rollback guidance made schema-aware. W05-T001..T004 REVIEW_PASSED,
+  revalidated by W05-AUDIT; W05-T005 stays IN_PROGRESS —
+  REAL_ENVIRONMENT_EVIDENCE_PENDING; W05-GATE stays BLOCKED; no formal
+  two-week acceptance timing started; main NOT merged.
+Previous task: W05-T005 — Real-environment stability acceptance:
   scaffolding COMPLETE (docs/ACCEPTANCE.md A01–A16 + templates,
   scripts/acceptance_evidence.sh, docs/evidence/); acceptance itself
   BLOCKED until real-environment evidence — T005 must NOT be marked
   REVIEW_PASSED, W05-GATE stays BLOCKED (Owner 指令 2026-09-06).
-  W05-T001..T004 all REVIEW_PASSED on branch work/wave-05.
 W04-AUDIT merge into main: 872b1631f64ad83d02bff7088679cc5d6accf2e9
   (post-merge re-check on main: 278 unit + 241 integration PASS, ruff
   clean, mypy clean in 122 files, alembic upgrade head idempotent at
@@ -37,6 +44,63 @@ W01-T007 = BLOCKED — FIELD_VALIDATION_PENDING (blocks W05-GATE only).
 ## Wave 5 checkpoint ledger
 
 ```text
+W05-AUDIT: 838b5b613f80ed60999018ca8e061b798e81a51e — REVIEW_PASSED
+          (three audit fixes, no new capability, NO new migration —
+          head stays 0011:
+          (1) heartbeat verifier false positive (W05-T002/T003):
+          wait_heartbeat accepted ANY fresh worker_heartbeat row — a stale
+          row left by the previous worker passed as "new worker healthy".
+          New tested module backend/ops/heartbeat_verify.py: row for
+          NETWORK_REPORT_WORKER_ID must EXIST, last_heartbeat strictly >
+          pre-start baseline ({} baseline = first row), age < interval*4;
+          started_at reported ("worker restarted/kept running") but never
+          a pass condition (same-image in-place re-verify must stay legal).
+          install.sh + update.sh capture the baseline immediately before
+          up -d; lib.sh carries an equivalent inline fallback so rollback
+          targets predating the module keep working (smoke caught an
+          argv[2]-index bug in that fallback — fixed);
+          (2) acceptance evidence oldest raw data (W05-T005 A13):
+          scripts/acceptance_evidence.sh used MAX(collected_at) labelled
+          "oldest" — recent rows always masked beyond-90d data. New
+          backend/ops/retention_evidence.py reports true MIN() oldest-row
+          age for device_metrics/interface_metrics/device_poll_runs with
+          BEYOND-90d/OK verdict; A13 wording aligned; W05-T004 retention
+          implementation untouched;
+          (3) rollback semantics (W05-T003): update.sh printed an
+          unconditional "rollback with: update.sh --image OLD" on 17/18/19
+          although the migration had already committed. New lib.sh
+          post_migration_failure prints the mandated schema-aware block
+          ("Database migration has already committed. ... Do NOT blindly
+          roll back ... restore the pre-update database backup first");
+          update-complete hint schema-qualified; docs/OPERATIONS.md §0/§4/§5
+          rewritten (migration NOT committed → rollback safe; migration
+          committed → rollback may require DB restore; no auto-downgrade,
+          no automatic restore);
+          tests: 318 unit + 253 integration PASS (new: verifier state
+          machine scenarios A–E, verifier worker-id scoping + TIMESTAMPTZ
+          round trip on real PG, oldest-row MIN with seeded 180d+1d rows →
+          BEYOND-90d never OK, post_migration_failure executed for
+          17/18/19, deploy-script invariants incl. no "rollback with:" in
+          update.sh); ruff clean; mypy clean (133 files); alembic upgrade
+          head idempotent at 0011;
+          smokes (staging roots, throwaway stack, image built from
+          838b5b6's tree): fresh install exit 0 (baseline {} →
+          first-heartbeat PASS); force-recreate all containers → state
+          intact; STALE-LEFTOVER scenario → FAIL "a stale row from a
+          previous worker must not pass"; other-worker fresh row → FAIL
+          "no heartbeat row for worker 'worker'" while that row was 18s
+          fresh; worker restart → PASS "worker restarted"; same-image
+          update rejected baseline-identical rows twice until the running
+          worker's next tick ("kept running"); REAL image update ran
+          0009→0010→0011 exit 0 with 10 devices + admin intact; raising-
+          0012 image → exit 14, .env restored, 0 recreates; REAL exit-17
+          injection (port conflict after committed migration) printed the
+          mandated schema-aware block with ZERO "rollback with:" lines
+          (18/19 messaging pinned by executing the same helper);
+          documented rollback loop (explicit operator downgrade on the
+          throwaway staging DB + update.sh --image prev) exit 0 via the
+          legacy fallback; retention evidence with 180d+1d seeded rows →
+          all three tables "oldest row ... age 180.0 days BEYOND-90d")
 W05-T001: 64e827cc4eff04d126234256749fcd1ca0f74365 — REVIEW_PASSED
           (deploy/docker-compose.prod.yml: web/worker/postgres only, one
           pre-built app image, no build/no named volumes, DB + DOCX on
