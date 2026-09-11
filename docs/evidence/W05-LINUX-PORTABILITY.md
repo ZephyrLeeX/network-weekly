@@ -1,6 +1,7 @@
 # W05-LINUX-PORTABILITY — engineering evidence, 2026-09-11
 
 Status: IMPLEMENTED / REAL_UBUNTU_SMOKE_PENDING. Branch: work/wave-05.
+Implementation checkpoint: cd9b4d00450c9f66488ea001138cbbfb97f25be5.
 This is automated engineering evidence, not real Ubuntu or formal acceptance.
 
 - Removed Debian 13 / ID / VERSION_ID gates and dpkg architecture queries.

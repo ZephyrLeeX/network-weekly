@@ -3,6 +3,7 @@
 ## W05-LINUX-PORTABILITY — current owner-approved task
 
 Status: IMPLEMENTED / REAL_UBUNTU_SMOKE_PENDING (2026-09-11), branch work/wave-05.
+Implementation checkpoint: cd9b4d00450c9f66488ea001138cbbfb97f25be5.
 Engineering verification: 365 unit + 266 integration PASS; ruff PASS;
 mypy PASS (137 files); Alembic empty DB upgraded to 0011, no new migration.
 25 new capability tests; production scripts no longer depend on dpkg/rpm or

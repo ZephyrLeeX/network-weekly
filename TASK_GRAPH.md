@@ -592,4 +592,4 @@ REVIEW_PASSED
 
 **Engineering self-review:** minimal host preflight, no collector/business/schema edits; current normative docs updated while historical audits/checkpoints preserved. 25 new executable capability tests; 365 unit + 266 integration PASS, ruff PASS, mypy PASS (137 files); Alembic empty DB → 0011, no new migration. Production Compose unchanged: web/worker/postgres, pull_policy never, no build. Secret-handling/UID/GID/bind-mount semantics retained; no new external runtime dependency. Evidence: docs/evidence/W05-LINUX-PORTABILITY.md.
 **Release limitation:** this host is Arch Linux x86_64 with Compose 5.5.1 (fails the requested v2 check); no real Ubuntu 24.04 offline install/restart smoke was executed. Owner real-host output required before REVIEW_PASSED. W05-T005 remains IN_PROGRESS — REAL_ENVIRONMENT_EVIDENCE_PENDING; W01-T007 and W03-T010 BLOCKED; W05-GATE BLOCKED. Formal two-week acceptance NOT complete; main NOT merged.
-**Checkpoint:** recorded in EXECUTION_STATE.md W05-LINUX-PORTABILITY entry.
+**Implementation checkpoint:** cd9b4d00450c9f66488ea001138cbbfb97f25be5 (IMPLEMENTED; real Ubuntu smoke still pending).
