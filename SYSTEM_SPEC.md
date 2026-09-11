@@ -831,10 +831,10 @@ weekly DOCX files                 long-term
 目标环境：
 
 ```text
-Debian 13 amd64
+Linux amd64/x86_64 server
 Docker Engine
-Docker Compose Plugin
-PostgreSQL
+Docker Compose v2 Plugin
+PostgreSQL container
 Python 3.14
 FastAPI
 SQLAlchemy 2.x
@@ -844,6 +844,17 @@ PySNMP 7.x
 Netmiko
 python-docx
 ```
+
+生产宿主机必须是 Linux server，不绑定 distribution/version；不得以
+`/etc/os-release`、包管理器或发行版包名白名单判定安装条件。
+当前 production application image 仅面向 linux/amd64；以 `uname -m`
+检查 x86_64/amd64，不承诺 arm64。最低要求：正常 Linux 文件系统语义、
+默认 /opt /data /etc 部署的 root 权限、可访问的 Docker Engine daemon、
+可执行当前 production Compose 的 v2 plugin、本地已准备应用镜像和
+postgres:17-alpine、部署脚本实际调用的宿主工具，以及可创建/写入目录和
+chmod/chown/stat/install 能力。UID/GID 1000、bind mounts 与 0600 Secret
+语义不变。依赖由操作者离线准备，安装和生产运行均不得依赖 Internet。
+不支持 Windows/macOS、Docker Desktop、WSL、Android 或 BSD。
 
 Compose 服务固定为：
 
@@ -892,8 +903,8 @@ postgres
 
 至少完成：
 
-1. 检查 Debian 13 amd64。
-2. 检查 Docker Engine / Compose Plugin 可用。
+1. 检查 Linux kernel、root/目录权限、必需宿主工具及当前 release 的 linux/amd64 架构。
+2. 检查 Docker Engine / Compose v2 Plugin 及必需本地镜像可用。
 3. 创建目录。
 4. 检查配置和 Secret 文件权限。
 5. 启动 PostgreSQL。

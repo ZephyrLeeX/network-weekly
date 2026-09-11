@@ -1,6 +1,6 @@
 """W05-T002/T003: deployment scripts (deploy/*.sh) structural guarantees.
 
-The install/update flow runs on an air-gapped Debian host, so these tests
+The install/update flow runs on an air-gapped Linux host, so these tests
 pin the properties that must hold before it ever gets there: the scripts
 stay syntactically valid bash, never fetch anything from the network, hand
 the administrator password through the environment only (never argv) and
@@ -59,8 +59,9 @@ def test_lib_defines_explicit_exit_codes_and_verifiers() -> None:
 def test_install_covers_the_spec_26_2_flow() -> None:
     install = (DEPLOY / "install.sh").read_text(encoding="utf-8")
     for needed in (
-        "Debian 13",
-        "dpkg --print-architecture",
+        "check_linux_host",
+        "check_host_commands install",
+        "check_architecture",
         "check_docker",
         "alembic upgrade head",
         "backend.admin_cli init",

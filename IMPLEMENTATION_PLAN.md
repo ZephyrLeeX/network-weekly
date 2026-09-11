@@ -345,7 +345,7 @@ monitored toggle
 
 ## Objective
 
-让系统在目标 Debian 13 隔离环境中可安装、可更新并长期稳定运行。
+让系统在满足 runtime capabilities 的 Linux server 隔离环境中可安装、可更新并长期稳定运行。
 
 ## Outputs
 
@@ -366,7 +366,7 @@ weekly report runbook
 
 至少完成：
 
-1. Debian 13 amd64 目标环境安装通过。
+1. Linux production host dependency/capability validation 与安装通过。
 2. 无 Internet 运行通过。
 3. 当前 10 个逻辑设备采集验证完成。
 4. 独立 S10500X 验证完成。

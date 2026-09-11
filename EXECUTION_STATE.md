@@ -1,6 +1,22 @@
 # EXECUTION_STATE.md
 
-## Current execution
+## W05-LINUX-PORTABILITY — current owner-approved task
+
+Status: IMPLEMENTED / REAL_UBUNTU_SMOKE_PENDING (2026-09-11), branch work/wave-05.
+Engineering verification: 365 unit + 266 integration PASS; ruff PASS;
+mypy PASS (137 files); Alembic empty DB upgraded to 0011, no new migration.
+25 new capability tests; production scripts no longer depend on dpkg/rpm or
+os-release distro/version gates. Evidence: docs/evidence/W05-LINUX-PORTABILITY.md.
+Real Ubuntu smoke NOT executed: current host Arch Linux x86_64, Compose 5.5.1
+(outside requested v2 requirement). Owner real-host evidence still required.
+W05-T001/T003/T004 remain REVIEW_PASSED; W05-T002 REVIEW_PASSED — revalidated
+for distro-neutral Linux (engineering tests; real Ubuntu smoke pending).
+Scope/acceptance: TASK_GRAPH.md W05-LINUX-PORTABILITY, SYSTEM_SPEC.md §25/§26.
+Historical checkpoints below are preserved. W05-T005 remains IN_PROGRESS —
+REAL_ENVIRONMENT_EVIDENCE_PENDING; W01-T007 / W03-T010 and W05-GATE remain
+BLOCKED. Formal two-week acceptance NOT complete; main NOT merged.
+
+## Previous execution snapshot
 
 ```text
 Current Wave: W05 — Deployment and Stability — engineering side
@@ -54,7 +70,7 @@ Wave 5 discipline (Owner instruction 2026-09-06):
   - W05-T001..T004 are engineering scope and may complete with
     REVIEW_PASSED after tests + smokes (fresh install, update, container
     replacement, health/heartbeat).
-  - W05-T005 needs REAL environment evidence (Debian 13 amd64 install,
+  - W05-T005 needs REAL environment evidence (Linux host capability validation/install,
     offline runtime, 10 logical devices, standalone S10500X, S10500X IRF,
     S12500 IRF, aggregation/priority interfaces, >= 2 complete report
     weeks, 2 consecutive Mondays, DOCX failure 10-min retry, worker

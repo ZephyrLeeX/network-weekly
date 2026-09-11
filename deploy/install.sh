@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # install.sh — Network Weekly Report System (W05-T002, SYSTEM_SPEC.md §26.2).
 #
-# Target: Debian 13 amd64 with Docker Engine + Compose plugin already
+# Target: Linux amd64/x86_64 server with Docker Engine + Compose plugin already
 # installed and the two images loaded locally. This script never touches the
 # Internet: no package installs, no image pulls, no downloads.
 #
@@ -23,28 +23,30 @@
 
 set -euo pipefail
 
+command -v dirname >/dev/null 2>&1 || {
+    printf 'FATAL (exit 10): required host command is missing: dirname\n' >&2
+    exit 10
+}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
 umask 077
 
-step "host checks"
+step "host dependency checks"
+check_linux_host
+check_host_commands install
 if [[ $(id -u) -ne 0 ]]; then
-    if [[ "$INSTALL_ROOT" == /opt && "$DATA_ROOT" == /data && "$CONFIG_ROOT" == /etc ]]; then
+    if [[ "$INSTALL_ROOT" == /opt || "$DATA_ROOT" == /data || "$CONFIG_ROOT" == /etc ]]; then
         die 10 "must run as root (or redirect all three NETWORK_REPORT_*_ROOT roots for a staging install)"
     fi
     [[ $(id -u) -eq 1000 ]] || die 10 "non-root staging install requires uid 1000 (the in-image app user); this user is $(id -u)"
 fi
-[[ -r /etc/os-release ]] || die 10 "/etc/os-release not readable: is this Debian?"
-# shellcheck disable=SC1091
-. /etc/os-release
-[[ ${ID:-} == debian && ${VERSION_ID:-} == 13 ]] \
-    || die 10 "target OS must be Debian 13 (found ID=${ID:-unset} VERSION_ID=${VERSION_ID:-unset})"
-[[ $(dpkg --print-architecture) == amd64 ]] \
-    || die 10 "target architecture must be amd64 (found $(dpkg --print-architecture))"
+check_architecture
 check_docker
 
+# Actual directory/config operations verify Linux filesystem capabilities.
+trap 'die 13 "deployment filesystem/config operation failed; check writable directories and chmod/chown/stat/install capabilities"' ERR
 step "application directory $APP_DIR"
 mkdir -p "$APP_DIR"
 [[ -f $SCRIPT_DIR/docker-compose.prod.yml ]] \
@@ -119,8 +121,11 @@ if grep -q 'change-me' "$CONFIG_DIR/secrets.env"; then
          "picked up without a restart)."
 fi
 
+trap - ERR
+
 step "image checks (offline)"
 check_images
+COMPOSE config -q || die 13 "production Compose configuration is not usable"
 
 step "host port check"
 WEB_PORT=$(grep -E '^NETWORK_REPORT_WEB_PORT=' "$APP_DIR/.env" | cut -d= -f2-)

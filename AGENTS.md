@@ -59,7 +59,7 @@ Codex 只能实现 `SYSTEM_SPEC.md` 明确要求的能力，以及当前 `READY`
 - 历史报告查看与下载。
 - 手工重新生成报告。
 - 重点接口配置页面。
-- Debian 13 amd64 + Docker Engine + Docker Compose + PostgreSQL。
+- 满足部署能力要求的 Linux amd64/x86_64 server + Docker Engine + Docker Compose + PostgreSQL。
 - `install.sh` 与 `update.sh`。
 
 ## Engineering rules

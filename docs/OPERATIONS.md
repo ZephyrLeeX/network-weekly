@@ -58,9 +58,9 @@ docker exec -it network-report-postgres-1 psql -U network_report -d network_repo
 两项都异常时先看 `nrc logs --tail 100 worker` / `postgres`，再确认
 `nrc ps` 的 healthy 状态与宿主机磁盘（`df -h /data`）。
 
-## 3. 安装检查清单（离线，Debian 13 amd64）
+## 3. 安装检查清单（离线，Linux amd64/x86_64 server）
 
-1. 目标机已装 Docker Engine + Compose 插件（`docker info`、
+1. 目标机已装 Docker Engine + Compose v2 插件（`docker info`、
    `docker compose version`）；本脚本不安装任何系统包、不联网。
 2. 导入两个镜像并确认存在：`docker load -i <app镜像tar>`；
    `docker image inspect network-weekly-app:<版本>` 与
@@ -272,3 +272,7 @@ stat -c '%a %u %n' /etc/network-report/secrets.env   # 期望: 600 1000
 - 脱敏：密码、SNMP community、私钥、Authorization 与已注册 Secret 值在日
   志输出层统一替换，异常堆栈同样脱敏。发现日志出现疑似敏感值立即视为事故
   处理并轮换凭据。
+
+生产宿主按 Linux runtime capability 验证，不绑定发行版或版本；当前镜像仅支持
+linux/amd64。所需宿主命令、离线镜像、权限与支持边界见 `deploy/README.md`
+的 Linux host prerequisites；真实 Ubuntu smoke 记录见 `docs/ACCEPTANCE.md`。

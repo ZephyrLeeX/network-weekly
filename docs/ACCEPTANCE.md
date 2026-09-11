@@ -13,7 +13,7 @@ evidence rule）。
 
 | ID | 条目 | 证据来源 | 判定标准 |
 | --- | --- | --- | --- |
-| A01 | Debian 13 amd64 安装 | install.sh 全程输出 + 退出码 0 + `/etc/os-release` | 第 3 节安装检查清单全部通过（OPERATIONS.md） |
+| A01 | Linux production host dependency/capability validation | install.sh 全程输出与退出码；evidence host/runtime 节；`/etc/os-release` 仅作信息 | Linux、release 支持架构、Docker Engine、Compose v2、本地镜像、部署文件系统能力均通过；install.sh exit 0；OPERATIONS.md 第 3 节全部通过。发行版/版本号不参与判定 |
 | A02 | 离线运行 | 断网/气隙状态下：/health、心跳、报告列表、采集（poll runs 持续增长） | 全部正常，无任何因外网缺失产生的错误 |
 | A03 | 10 个逻辑设备 | evidence 脚本 inventory 节 | `total_devices=10`（8 独立 S10500X + 1 组 S10500X IRF + 1 组 S12500 IRF），`expected_irf_members` 与 §2.2 一致 |
 | A04 | 独立 S10500X 采集 | 该设备 poll runs 24h 统计 + failed_sections | SUCCESS/PARTIAL ≥ 95%/天，无持续 `credentials` |
@@ -88,3 +88,12 @@ W05-T005: IN_PROGRESS — 工具/清单/模板已就绪；等待真实环境证�
 W05-GATE: BLOCKED — 依赖 W05-T005 全部 PASS + W01-T007 CLOSED +
   W03-T010 CLOSED + 无 P0/P1 缺陷。
 ```
+
+## W05-LINUX-PORTABILITY Ubuntu smoke（独立于正式两周验收）
+
+状态：REAL_UBUNTU_SMOKE_PENDING。需 Owner 在真实 Ubuntu 24.04 LTS x86_64
+Linux server、Docker Engine/Compose v2、完全离线环境记录：install.sh exit 0；
+web/postgres healthy；worker 新心跳 PASS；inventory sync PASS；重启宿主机或
+Docker 后服务恢复；acceptance_evidence.sh exit 0（无需 dpkg/rpm）。附命令、
+退出码、脱敏输出、时间与执行人，且确认 deploy/scripts 生产路径无
+`dpkg --print-architecture`。模拟测试不代替本证据；第二发行版真宿主 smoke 可选。

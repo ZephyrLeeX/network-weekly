@@ -25,6 +25,10 @@
 
 set -euo pipefail
 
+command -v dirname >/dev/null 2>&1 || {
+    printf 'FATAL (exit 10): required host command is missing: dirname\n' >&2
+    exit 10
+}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
@@ -46,6 +50,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+step "host dependency checks"
+check_linux_host
+check_host_commands update
+check_architecture
+check_docker
+
 step "installed stack"
 [[ -f $APP_DIR/docker-compose.yml && -f $APP_DIR/.env ]] \
     || die 13 "no installed stack at $APP_DIR (docker-compose.yml + .env); run install.sh first"
@@ -57,6 +67,7 @@ echo "target  image: $TARGET_IMAGE"
 step "target image present locally (offline)"
 export NETWORK_REPORT_APP_IMAGE="$TARGET_IMAGE"
 check_images
+COMPOSE config -q || die 13 "production Compose configuration is not usable"
 
 if [[ $TARGET_IMAGE != "$CURRENT_IMAGE" ]]; then
     cp "$APP_DIR/.env" "$APP_DIR/.env.bak"

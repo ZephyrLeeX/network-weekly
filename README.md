@@ -84,3 +84,7 @@ scripts/               部署/运维脚本（Wave 5 填充）
 docs/                  文档（Wave 5 运维手册等）
 data/                  本地运行时数据（gitignore，不入库）
 ```
+
+生产宿主按 Linux runtime capability 验证，不绑定发行版或版本；当前镜像仅支持
+linux/amd64。所需宿主命令、离线镜像、权限与支持边界见 `deploy/README.md`
+的 Linux host prerequisites；真实 Ubuntu smoke 记录见 `docs/ACCEPTANCE.md`。

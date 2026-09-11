@@ -1,6 +1,6 @@
 # Production deployment layout (W05-T001, SYSTEM_SPEC.md §26.1)
 
-`deploy/` holds everything a Debian 13 amd64 target host needs for an
+`deploy/` holds everything a Linux amd64/x86_64 server needs for an
 offline install: the production Compose file, `install.sh` (W05-T002) and
 `update.sh` (W05-T003). Operator procedures live in `docs/OPERATIONS.md`
 (W05-T004).
@@ -88,3 +88,28 @@ docker run --rm -u root \
 (Adjust the volume name to `docker volume ls` output.) PostgreSQL data is
 not carried over from a dev `./data/postgres` directory: production starts
 from an empty data directory and `install.sh` runs `alembic upgrade head`.
+
+## Linux host prerequisites (W05-LINUX-PORTABILITY)
+
+Only Linux server semantics are supported; distribution/version is not an
+installation condition. Current release: linux/amd64 (`uname -m`: x86_64 or
+amd64). Docker Engine and `docker compose` v2 must work with the production
+configuration; standalone docker-compose is not a substitute. Both application
+and postgres:17-alpine images must already exist locally. Docker installation
+is an external prerequisite. No package manager or Internet is used by scripts.
+Windows, macOS, Docker Desktop, WSL, Android and BSD are outside support.
+
+Host commands audited in install.sh, update.sh, lib.sh and acceptance_evidence.sh:
+- Shared deploy helpers: bash, dirname, docker, uname, grep, cut.
+- Install additionally: id, mkdir, install, chmod, chown, stat, od, tr, cat, seq, sleep.
+- Update additionally: cp, chmod, sed, cat, seq, sleep.
+- Evidence additionally: date, tr, ls, stat.
+
+Python, Alembic and database clients used by these scripts execute inside the
+containers. Required command absence exits 10 with its name; Docker/Compose
+failure exits 11; absent local images exit 12. Production Compose validation
+runs before service changes. Default roots require root; staging non-root UID
+1000 requires all three roots redirected. Actual filesystem operations must
+succeed (install failures exit 13); reports and secrets retain UID/GID 1000,
+secrets 0600, and the existing Linux bind mounts. A successful install includes
+container health, administrator/inventory setup and new worker heartbeat checks.

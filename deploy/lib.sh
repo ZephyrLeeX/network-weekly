@@ -41,12 +41,54 @@ step() {
     printf '\n== %s ==\n' "$*"
 }
 
-# Require Docker Engine + Compose plugin, both usable by the calling user.
+# Only commands actually executed on the host; Python/DB tools run in images.
+require_command() {
+    command -v "$1" >/dev/null 2>&1 \
+        || die 10 "required host command is missing: $1"
+}
+
+check_linux_host() {
+    require_command uname
+    [[ $(uname -s) == Linux ]] \
+        || die 10 "production deployment requires a Linux host"
+}
+
+check_host_commands() {
+    local cmd
+    for cmd in bash dirname docker uname grep cut; do
+        require_command "$cmd"
+    done
+    case "$1" in
+        install)
+            for cmd in id mkdir install chmod chown stat od tr cat seq sleep; do require_command "$cmd"; done
+            ;;
+        update)
+            for cmd in cp chmod sed cat seq sleep; do require_command "$cmd"; done
+            ;;
+        evidence)
+            for cmd in date tr ls stat; do require_command "$cmd"; done
+            ;;
+    esac
+}
+
+check_architecture() {
+    local arch
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64|amd64) echo "release platform: linux/amd64" ;;
+        *) die 10 "current release requires linux/amd64 (found $arch)" ;;
+    esac
+}
+
+# Require Docker Engine + Compose v2, both usable by the calling user.
 check_docker() {
+    local version
     docker info >/dev/null 2>&1 \
-        || die 11 "Docker Engine is not usable by this user (installed? group membership? 'systemctl status docker')"
-    docker compose version >/dev/null 2>&1 \
-        || die 11 "Docker Compose plugin is missing (package docker-compose-plugin on Debian 13)"
+        || die 11 "Docker Engine is not usable by the current user. Ensure the Docker daemon is running and this account can access it."
+    version=$(docker compose version --short 2>/dev/null) \
+        || die 11 "Docker Compose v2 is unavailable. Ensure 'docker compose version' succeeds."
+    [[ $version =~ ^v?2\. ]] \
+        || die 11 "Docker Compose v2 is required. Ensure 'docker compose version' reports v2."
 }
 
 # Require the images to exist locally; a production install never pulls.

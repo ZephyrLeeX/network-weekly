@@ -16,18 +16,33 @@
 
 set -euo pipefail
 
+command -v dirname >/dev/null 2>&1 || {
+    printf 'FATAL (exit 10): required host command is missing: dirname\n' >&2
+    exit 10
+}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=../deploy/lib.sh
 source "$SCRIPT_DIR/../deploy/lib.sh"
+
+check_linux_host
+check_host_commands evidence
+check_architecture
+check_docker
+check_images
+COMPOSE config -q || die 13 "production Compose configuration is not usable"
 
 section() { printf '\n## %s\n' "$*"; }
 fact() { printf '%s\n' "$*"; }
 
 printf '# W05-T005 acceptance evidence — collected %s\n' "$(date -Is)"
-fact "host: $(uname -sr) / $(dpkg --print-architecture 2>/dev/null || echo unknown-arch)"
+fact "host: $(uname -sr) / $(uname -m)"
 
-section "OS"
-fact "$(grep -E '^(PRETTY_NAME|VERSION_ID)=' /etc/os-release | tr '\n' ' ')"
+section "OS (informational only; not an acceptance condition)"
+if [[ -r /etc/os-release ]]; then
+    fact "$(grep -E '^(PRETTY_NAME|VERSION_ID)=' /etc/os-release | tr '\n' ' ' || true)"
+else
+    fact "distribution metadata unavailable (not required)"
+fi
 
 section "runtime (docker)"
 docker version --format 'engine {{.Server.Version}}'
