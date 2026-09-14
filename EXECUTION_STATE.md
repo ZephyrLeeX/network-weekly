@@ -1,6 +1,19 @@
 # EXECUTION_STATE.md
 
-## W05-LINUX-PORTABILITY — current owner-approved task
+## W05-LINUX-PORTABILITY-FIX — current owner-approved task
+
+Status: REVIEW_PASSED (2026-09-14), branch work/wave-05.
+The incorrect Compose major-version gate is removed. `check_docker` now requires
+successful `docker info`, `docker compose version`, exact `--wait` support in
+`docker compose up --help`, and exact `--status` support in
+`docker compose ps --help`. Standalone `docker-compose` is not used. Real local
+Compose 5.5.1 passed all probes. Verification: 371 unit + 266 integration PASS;
+ruff PASS; mypy PASS (137 files); empty PostgreSQL upgraded through migrations
+0001→0011 and `alembic_version=0011`; no migration/business-code change.
+W05-GATE remains BLOCKED; formal two-week acceptance incomplete; main unmerged.
+Checkpoint: pending commit recording this REVIEW_PASSED result.
+
+## W05-LINUX-PORTABILITY — previous task
 
 Status: IMPLEMENTED / REAL_UBUNTU_SMOKE_PENDING (2026-09-11), branch work/wave-05.
 Implementation checkpoint: cd9b4d00450c9f66488ea001138cbbfb97f25be5.
@@ -8,8 +21,9 @@ Engineering verification: 365 unit + 266 integration PASS; ruff PASS;
 mypy PASS (137 files); Alembic empty DB upgraded to 0011, no new migration.
 25 new capability tests; production scripts no longer depend on dpkg/rpm or
 os-release distro/version gates. Evidence: docs/evidence/W05-LINUX-PORTABILITY.md.
-Real Ubuntu smoke NOT executed: current host Arch Linux x86_64, Compose 5.5.1
-(outside requested v2 requirement). Owner real-host evidence still required.
+Real Ubuntu smoke NOT executed: current host Arch Linux x86_64. The earlier
+Compose 5.5.1 rejection was an incorrect major-version gate and is superseded
+by W05-LINUX-PORTABILITY-FIX. Owner real-host evidence still required.
 W05-T001/T003/T004 remain REVIEW_PASSED; W05-T002 REVIEW_PASSED — revalidated
 for distro-neutral Linux (engineering tests; real Ubuntu smoke pending).
 Scope/acceptance: TASK_GRAPH.md W05-LINUX-PORTABILITY, SYSTEM_SPEC.md §25/§26.

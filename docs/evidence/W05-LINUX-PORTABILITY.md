@@ -7,8 +7,10 @@ This is automated engineering evidence, not real Ubuntu or formal acceptance.
 - Removed Debian 13 / ID / VERSION_ID gates and dpkg architecture queries.
 - Linux kernel required; uname -m accepts x86_64/amd64 as linux/amd64.
 - Commands checked per script (complete audited lists in deploy/README.md).
-- Docker daemon usability, docker compose v2 version and actual production
-  Compose config validation; standalone docker-compose never substituted.
+- Docker daemon usability, Docker Compose plugin invocation and actual
+  production Compose config validation; standalone docker-compose never
+  substituted. The major-version restriction recorded here was superseded by
+  W05-LINUX-PORTABILITY-FIX.
 - Local application and postgres:17-alpine image inspection retained.
 - Default roots require root; non-root UID 1000 staging requires all roots
   redirected. Filesystem/config operation failures explicitly exit 13.
@@ -37,8 +39,9 @@ This development-only dependency preparation is not an offline deployment test.
 Database tests required sandbox escalation for local Docker/loopback access.
 
 Real-host smoke: NOT executed. Current host is Arch Linux x86_64 with Docker
-Compose 5.5.1, not Ubuntu 24.04 LTS / Compose v2. Installer correctly rejects
-non-v2 Compose. No host/Docker restart, Ubuntu install, real inventory sync or
+Compose 5.5.1, not Ubuntu 24.04 LTS. The earlier installer rejection based on
+that major version was incorrect and is superseded by W05-LINUX-PORTABILITY-FIX.
+No host/Docker restart, Ubuntu install, real inventory sync or
 full real evidence-collector PASS is claimed. Required Owner Ubuntu offline
 smoke checklist is in docs/ACCEPTANCE.md. No second-distro smoke claimed.
 

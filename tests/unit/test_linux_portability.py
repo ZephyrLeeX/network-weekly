@@ -28,7 +28,22 @@ def host(tmp_path: Path) -> dict[str, str]:
         "uname": 'case "$1" in -s) echo "${KERNEL:-Linux}";; *) echo "${ARCH:-x86_64}";; esac',
         "docker": '''case "$*" in
 info) exit "${DAEMON_EXIT:-0}";;
-"compose version --short") echo "${COMPOSE_VERSION:-2.39.1}"; exit "${COMPOSE_EXIT:-0}";;
+"compose version")
+    echo "Docker Compose version ${COMPOSE_VERSION:-2.39.1}"
+    exit "${COMPOSE_EXIT:-0}"
+    ;;
+"compose up --help")
+    [[ ${UP_HELP_EXIT:-0} == 0 ]] || exit "$UP_HELP_EXIT"
+    echo "Usage: docker compose up [OPTIONS]"
+    [[ ${HAS_WAIT:-1} == 1 ]] && echo "      --wait  Wait for services to be running|healthy"
+    [[ ${HAS_WAIT_TIMEOUT:-0} == 1 ]] && echo "      --wait-timeout int  Wait timeout"
+    ;;
+"compose ps --help")
+    [[ ${PS_HELP_EXIT:-0} == 0 ]] || exit "$PS_HELP_EXIT"
+    echo "Usage: docker compose ps [OPTIONS]"
+    [[ ${HAS_STATUS:-1} == 1 ]] && echo "      --status stringArray  Filter services by status"
+    [[ ${HAS_STATUS_FILTER:-0} == 1 ]] && echo "      --status-filter string  Filter"
+    ;;
 image\\ inspect*) exit "${IMAGE_EXIT:-0}";;
 esac
 exit 0''',
@@ -72,9 +87,9 @@ def test_complete_linux_capabilities_pass(host: dict[str, str], profile: str, ar
         ("KERNEL", "FreeBSD", 10, "production deployment requires a Linux host"),
         ("ARCH", "aarch64", 10, "current release requires linux/amd64"),
         ("DAEMON_EXIT", "1", 11, "Docker Engine is not usable"),
-        ("COMPOSE_EXIT", "1", 11, "Docker Compose v2 is unavailable"),
-        ("COMPOSE_VERSION", "1.29.2", 11, "Docker Compose v2 is required"),
-        ("COMPOSE_VERSION", "5.5.1", 11, "Docker Compose v2 is required"),
+        ("COMPOSE_EXIT", "1", 11, "Docker Compose plugin is unavailable"),
+        ("HAS_WAIT", "0", 11, "docker compose up --wait"),
+        ("HAS_STATUS", "0", 11, "docker compose ps --status"),
         ("IMAGE_EXIT", "1", 12, "not present locally"),
     ],
 )
@@ -88,6 +103,50 @@ def test_preflight_failure_contract(
         "check_docker; check_images",
     )
     assert result.returncode == code
+    assert message in result.stderr
+
+
+@pytest.mark.parametrize("version", ["2.39.1", "5.5.1", "99.0.0"])
+def test_compose_major_version_is_irrelevant_when_capabilities_exist(
+    host: dict[str, str], version: str
+) -> None:
+    host["COMPOSE_VERSION"] = version
+    result = run(host, "check_docker")
+    assert result.returncode == 0, result.stderr
+
+
+def test_only_standalone_docker_compose_is_rejected(
+    host: dict[str, str], tmp_path: Path
+) -> None:
+    docker = Path(host["PATH"]) / "docker"
+    docker.unlink()
+    standalone = Path(host["PATH"]) / "docker-compose"
+    standalone.write_text(f"#!{BASH}\necho 'Docker Compose version v2.39.1'\n")
+    standalone.chmod(0o755)
+
+    result = run(host, "check_docker")
+
+    assert result.returncode == 11
+    assert "Docker Engine is not usable" in result.stderr
+    assert standalone.exists()
+
+
+@pytest.mark.parametrize(
+    ("missing", "similar", "message"),
+    [
+        ("HAS_WAIT", "HAS_WAIT_TIMEOUT", "docker compose up --wait"),
+        ("HAS_STATUS", "HAS_STATUS_FILTER", "docker compose ps --status"),
+    ],
+)
+def test_similar_option_does_not_replace_required_capability(
+    host: dict[str, str], missing: str, similar: str, message: str
+) -> None:
+    host[missing] = "0"
+    host[similar] = "1"
+
+    result = run(host, "check_docker")
+
+    assert result.returncode == 11
     assert message in result.stderr
 
 

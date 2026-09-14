@@ -93,8 +93,11 @@ from an empty data directory and `install.sh` runs `alembic upgrade head`.
 
 Only Linux server semantics are supported; distribution/version is not an
 installation condition. Current release: linux/amd64 (`uname -m`: x86_64 or
-amd64). Docker Engine and `docker compose` v2 must work with the production
-configuration; standalone docker-compose is not a substitute. Both application
+amd64). Docker Engine and the Docker Compose plugin with required deployment
+capabilities must work with the production configuration; standalone
+`docker-compose` is not a substitute. The installer checks `docker compose
+version`, `docker compose up --help` for `--wait`, and `docker compose ps
+--help` for `--status`; it does not gate on a Compose major version. Both application
 and postgres:17-alpine images must already exist locally. Docker installation
 is an external prerequisite. No package manager or Internet is used by scripts.
 Windows, macOS, Docker Desktop, WSL, Android and BSD are outside support.

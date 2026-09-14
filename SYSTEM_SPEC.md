@@ -833,7 +833,7 @@ weekly DOCX files                 long-term
 ```text
 Linux amd64/x86_64 server
 Docker Engine
-Docker Compose v2 Plugin
+Docker Compose plugin with required deployment capabilities
 PostgreSQL container
 Python 3.14
 FastAPI
@@ -850,7 +850,7 @@ python-docx
 当前 production application image 仅面向 linux/amd64；以 `uname -m`
 检查 x86_64/amd64，不承诺 arm64。最低要求：正常 Linux 文件系统语义、
 默认 /opt /data /etc 部署的 root 权限、可访问的 Docker Engine daemon、
-可执行当前 production Compose 的 v2 plugin、本地已准备应用镜像和
+具备所需部署能力的 Docker Compose plugin、本地已准备应用镜像和
 postgres:17-alpine、部署脚本实际调用的宿主工具，以及可创建/写入目录和
 chmod/chown/stat/install 能力。UID/GID 1000、bind mounts 与 0600 Secret
 语义不变。依赖由操作者离线准备，安装和生产运行均不得依赖 Internet。
@@ -904,7 +904,7 @@ postgres
 至少完成：
 
 1. 检查 Linux kernel、root/目录权限、必需宿主工具及当前 release 的 linux/amd64 架构。
-2. 检查 Docker Engine / Compose v2 Plugin 及必需本地镜像可用。
+2. 检查 Docker Engine、Docker Compose plugin 所需部署能力及必需本地镜像可用。
 3. 创建目录。
 4. 检查配置和 Secret 文件权限。
 5. 启动 PostgreSQL。

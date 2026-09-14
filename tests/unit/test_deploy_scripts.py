@@ -54,6 +54,13 @@ def test_lib_defines_explicit_exit_codes_and_verifiers() -> None:
         assert re.search(rf"#\s+{code}\s", lib), code
     for needed in ("verify_health()", "verify_heartbeat()", "check_docker()", "check_images()"):
         assert needed in lib, needed
+    assert "docker compose version" in lib
+    assert "docker compose up --help" in lib
+    assert "docker compose ps --help" in lib
+    assert "--wait" in lib
+    assert "--status" in lib
+    assert re.search(r"(?m)^\s*docker-compose(?:\s|$)", lib) is None
+    assert "^v?2" not in lib
 
 
 def test_install_covers_the_spec_26_2_flow() -> None:
@@ -71,6 +78,7 @@ def test_install_covers_the_spec_26_2_flow() -> None:
         'secrets.env must have permission 0600',
     ):
         assert needed in install, needed
+    assert "COMPOSE config -q" in install
 
 
 def test_update_covers_the_spec_26_3_flow_without_destroying_state() -> None:
@@ -88,6 +96,7 @@ def test_update_covers_the_spec_26_3_flow_without_destroying_state() -> None:
     assert "migration failed — .env restored" in update
     # Nothing in the update path may delete persistent state.
     assert re.search(r"(?<![-\w])rm\s", update) is None
+    assert "COMPOSE config -q" in update
 
 
 def test_heartbeat_verifier_targets_only_the_current_worker() -> None:

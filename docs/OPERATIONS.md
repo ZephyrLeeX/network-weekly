@@ -60,8 +60,10 @@ docker exec -it network-report-postgres-1 psql -U network_report -d network_repo
 
 ## 3. 安装检查清单（离线，Linux amd64/x86_64 server）
 
-1. 目标机已装 Docker Engine + Compose v2 插件（`docker info`、
-   `docker compose version`）；本脚本不安装任何系统包、不联网。
+1. 目标机已装 Docker Engine + 具备部署所需能力的 Docker Compose plugin：
+   `docker info`、`docker compose version` 成功，`docker compose up --help`
+   包含 `--wait`，`docker compose ps --help` 包含 `--status`。不接受旧的
+   standalone `docker-compose`；本脚本不安装任何系统包、不联网。
 2. 导入两个镜像并确认存在：`docker load -i <app镜像tar>`；
    `docker image inspect network-weekly-app:<版本>` 与
    `docker image inspect postgres:17-alpine` 都成功。

@@ -80,15 +80,23 @@ check_architecture() {
     esac
 }
 
-# Require Docker Engine + Compose v2, both usable by the calling user.
+# Require Docker Engine + the Docker Compose plugin capabilities used by the
+# production deployment scripts. The plugin's major version is not a proxy
+# for those capabilities.
 check_docker() {
-    local version
+    local help_output
     docker info >/dev/null 2>&1 \
         || die 11 "Docker Engine is not usable by the current user. Ensure the Docker daemon is running and this account can access it."
-    version=$(docker compose version --short 2>/dev/null) \
-        || die 11 "Docker Compose v2 is unavailable. Ensure 'docker compose version' succeeds."
-    [[ $version =~ ^v?2\. ]] \
-        || die 11 "Docker Compose v2 is required. Ensure 'docker compose version' reports v2."
+    docker compose version >/dev/null 2>&1 \
+        || die 11 "Docker Compose plugin is unavailable. Ensure 'docker compose version' succeeds. The standalone 'docker-compose' command is not supported."
+    help_output=$(docker compose up --help 2>&1) \
+        || die 11 "Docker Compose plugin cannot describe 'docker compose up'."
+    grep -Eq -- '(^|[[:space:]])--wait([=[:space:]]|$)' <<<"$help_output" \
+        || die 11 "Docker Compose plugin lacks required deployment capability: 'docker compose up --wait'."
+    help_output=$(docker compose ps --help 2>&1) \
+        || die 11 "Docker Compose plugin cannot describe 'docker compose ps'."
+    grep -Eq -- '(^|[[:space:]])--status([=[:space:]]|$)' <<<"$help_output" \
+        || die 11 "Docker Compose plugin lacks required deployment capability: 'docker compose ps --status'."
 }
 
 # Require the images to exist locally; a production install never pulls.

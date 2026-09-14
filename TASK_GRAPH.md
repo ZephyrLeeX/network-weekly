@@ -490,7 +490,7 @@ REVIEW_PASSED
 **Status:** REVIEW_PASSED — revalidated for distro-neutral Linux (engineering tests; real Ubuntu smoke pending)
 **Depends On:** W05-T001  
 **Blocks:** W05-T003, W05-T005  
-**Acceptance:** A Linux capability-based production host with Docker Engine/Compose v2 can initialize directories, DB, administrator, inventory and healthy web/worker services.
+**Acceptance:** A Linux capability-based production host with Docker Engine and a Docker Compose plugin with required deployment capabilities can initialize directories, DB, administrator, inventory and healthy web/worker services.
 **Implementation:**
 - `deploy/install.sh` + shared `deploy/lib.sh`: fail-fast (`set -euo pipefail`) with explicit exit codes **10–19** (10 host/OS · 11 Docker/Compose · 12 image missing · 13 config/secrets · 14 migration · 15 admin · 16 inventory · 17 services · 18 health · 19 heartbeat), every failure printing a diagnostic. Original checkpoint used Debian 13 + amd64 checks (superseded by W05-LINUX-PORTABILITY) (`/etc/os-release`, `dpkg --print-architecture`); Docker Engine + Compose plugin probes; local-image checks with `pull_policy: never` added to the production compose (a missing image is an immediate local error, never a silent registry pull — offline discipline). Creates `/opt/network-report` (compose + 0600 `.env` with a generated alphanumeric PostgreSQL password), `/data/network-report/{postgres,reports}` (reports uid 1000) and `/etc/network-report`; initializes `devices.toml` (0644) and `secrets.env` (0600, uid-1000) from the docs examples ONLY — real device secrets are never auto-generated, placeholders trigger an explicit go-live warning; an EXISTING too-wide `secrets.env` is refused (exit 13) with the fix command, never silently tightened. Order: postgres → `alembic upgrade head` (in-image; failure leaves prior state untouched, exit 14) → single admin (`admin_cli init` with the password handed over by environment passthrough only — never argv, never echoed, no xtrace) → inventory sync → `up -d --wait` → `/health` verification → worker-heartbeat verification (both with retries inside the containers, no host curl dependency).
 - Idempotent: re-run keeps `.env` (stable PostgreSQL password), config files, admin account (existence-checked via a one-off container before prompting); inventory sync re-upserts; `NETWORK_REPORT_*_ROOT` staging overrides allow non-root test installs (uid must be 1000).
@@ -588,8 +588,35 @@ REVIEW_PASSED
 **Status:** IMPLEMENTED / REAL_UBUNTU_SMOKE_PENDING (2026-09-11)
 **Depends On:** W05-T001, W05-T002, W05-T003, W05-T004 (REVIEW_PASSED)
 **Scope:** SYSTEM_SPEC.md §25/§26: replace distribution/version gates with Linux runtime capability checks; deployment scripts, A01 evidence, operator docs and deployment tests only.
-**Acceptance:** Linux x86_64/amd64, required commands, Docker Engine, Compose v2 and local images checked; no distro/package-manager requirement; filesystem/uid 1000/offline semantics retained. Full pytest/integration/ruff/mypy and Alembic 0011, no migration. Real Ubuntu 24.04 LTS offline host install/health/heartbeat/inventory/restart/evidence smoke required for REVIEW_PASSED; otherwise IMPLEMENTED / REAL_UBUNTU_SMOKE_PENDING. No formal two-week acceptance or main merge.
+**Acceptance:** Linux x86_64/amd64, required commands, Docker Engine, Docker Compose plugin with required deployment capabilities and local images checked; no distro/package-manager requirement; filesystem/uid 1000/offline semantics retained. Full pytest/integration/ruff/mypy and Alembic 0011, no migration. Real Ubuntu 24.04 LTS offline host install/health/heartbeat/inventory/restart/evidence smoke required for REVIEW_PASSED; otherwise IMPLEMENTED / REAL_UBUNTU_SMOKE_PENDING. No formal two-week acceptance or main merge.
 
 **Engineering self-review:** minimal host preflight, no collector/business/schema edits; current normative docs updated while historical audits/checkpoints preserved. 25 new executable capability tests; 365 unit + 266 integration PASS, ruff PASS, mypy PASS (137 files); Alembic empty DB → 0011, no new migration. Production Compose unchanged: web/worker/postgres, pull_policy never, no build. Secret-handling/UID/GID/bind-mount semantics retained; no new external runtime dependency. Evidence: docs/evidence/W05-LINUX-PORTABILITY.md.
 **Release limitation:** this host is Arch Linux x86_64 with Compose 5.5.1 (fails the requested v2 check); no real Ubuntu 24.04 offline install/restart smoke was executed. Owner real-host output required before REVIEW_PASSED. W05-T005 remains IN_PROGRESS — REAL_ENVIRONMENT_EVIDENCE_PENDING; W01-T007 and W03-T010 BLOCKED; W05-GATE BLOCKED. Formal two-week acceptance NOT complete; main NOT merged.
 **Implementation checkpoint:** cd9b4d00450c9f66488ea001138cbbfb97f25be5 (IMPLEMENTED; real Ubuntu smoke still pending).
+
+## W05-LINUX-PORTABILITY-FIX — Compose capability detection
+**Status:** REVIEW_PASSED (2026-09-14)
+**Depends On:** W05-LINUX-PORTABILITY implementation
+**Scope:** Remove the Compose major-version gate; require only `docker compose`
+and the deployment capabilities actually used (`version`, `up --wait`,
+`ps --status`). Align SYSTEM_SPEC.md, deployment/operator documentation and A01.
+Deployment scripts/tests only; no business code or schema change.
+**Acceptance:** Compose 2.x, 5.x and a future higher major pass when all required
+capabilities exist; missing `docker compose`, `--wait` or `--status`, and a host
+with only standalone `docker-compose`, fail clearly. Production still executes
+`docker compose config -q`. Full pytest/integration/ruff/mypy pass; Alembic
+remains 0011; no main merge.
+**Implementation:** `deploy/lib.sh::check_docker` no longer reads or restricts
+the Compose major version. It invokes only the plugin form and verifies the
+four required capabilities. Exact option matching prevents `--wait-timeout` or
+a `--status-*` option from satisfying the required option. Install, update and
+acceptance evidence paths retain their real `COMPOSE config -q` validation.
+SYSTEM_SPEC.md, deploy/README.md, OPERATIONS.md and ACCEPTANCE.md A01 describe
+the same capability contract.
+**Tests/acceptance:** 42 focused deployment tests include Compose 2.39.1,
+5.5.1 and future 99.0.0 PASS; missing plugin, `--wait`, `--status`, and
+standalone-only FAIL. Real host Compose 5.5.1 passed the read-only probes.
+Full regression: 371 unit + 266 integration PASS; ruff/mypy PASS; empty
+PostgreSQL migrations 0001→0011 and `alembic_version=0011`; no migration.
+No business code changed. W05-GATE remains BLOCKED; main not merged.
+**Checkpoint:** pending commit recording this REVIEW_PASSED result.
