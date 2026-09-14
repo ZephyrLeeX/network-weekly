@@ -33,4 +33,4 @@ Verification results:
 - Production `install.sh`, `update.sh`, and `acceptance_evidence.sh` each retain
   an actual `COMPOSE config -q` execution.
 
-Checkpoint: pending commit recording this REVIEW_PASSED result.
+Implementation checkpoint: `4fbdc97967f310c2cc2889d425df17f42d09ba6c`.

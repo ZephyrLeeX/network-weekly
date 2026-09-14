@@ -619,4 +619,4 @@ standalone-only FAIL. Real host Compose 5.5.1 passed the read-only probes.
 Full regression: 371 unit + 266 integration PASS; ruff/mypy PASS; empty
 PostgreSQL migrations 0001→0011 and `alembic_version=0011`; no migration.
 No business code changed. W05-GATE remains BLOCKED; main not merged.
-**Checkpoint:** pending commit recording this REVIEW_PASSED result.
+**Implementation checkpoint:** 4fbdc97967f310c2cc2889d425df17f42d09ba6c.

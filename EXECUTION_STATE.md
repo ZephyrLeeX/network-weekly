@@ -11,7 +11,7 @@ Compose 5.5.1 passed all probes. Verification: 371 unit + 266 integration PASS;
 ruff PASS; mypy PASS (137 files); empty PostgreSQL upgraded through migrations
 0001→0011 and `alembic_version=0011`; no migration/business-code change.
 W05-GATE remains BLOCKED; formal two-week acceptance incomplete; main unmerged.
-Checkpoint: pending commit recording this REVIEW_PASSED result.
+Implementation checkpoint: 4fbdc97967f310c2cc2889d425df17f42d09ba6c.
 
 ## W05-LINUX-PORTABILITY — previous task
 
