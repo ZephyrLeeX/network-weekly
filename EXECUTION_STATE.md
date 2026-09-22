@@ -4,23 +4,32 @@
 
 Status: IMPLEMENTED / FIELD_REVALIDATION_PENDING (2026-09-22), branch
 work/wave-05; implementation checkpoint
-f5cd33047e3198767b08b2792e9b9bd1b065cce1. The completed real-device run on
+a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87. The completed real-device run on
 S10510X standalone, S10510X IRF and S12508G-AF IRF confirmed the existing
 SNMP CPU/memory/interface/counter/FCS collectors and LAG Attached-authoritative
 / Selected-fallback mapping; those algorithms were not changed. The exposed
 SSH compatibility defects are fixed: bounded H3C S-series hyphen suffixes
 preserve `S12508G-AF`; live `display irf` parses MemberID/Slot/Role and
-aggregates multiple MPU rows into one physical member (Master if any live row
-is Master, otherwise one consistent recognized role, conflicting non-Master
-roles None); configuration contributes member ids only and never guesses a
-role. Six anonymized real-shape SSH fixtures preserve both models, repeated
-slot rows, markers and IRF-Port layouts. Credential-profile examples now show
-default/core-a/core-b and tests prove per-device resolution without weakening
-secret handling. Verification: 380 unit/deploy + 266 integration PASS; ruff
-PASS; mypy PASS (137 files); Alembic head 0011, no migration; parser smoke:
-S10510X / S12508G-AF exact models, S105 IRF 1 Master + 2 Standby, S125 IRF 1
-Master + 2 Standby. W01-T007 is NOT REVIEW_PASSED until this checkpoint is
-deployed back to the field and those normalized results are revalidated.
+aggregates multiple MPU rows into one physical member. Recognized live roles
+are Master, Slave, Backup, Standby and Loading: Master wins if present;
+otherwise one consistent recognized role is retained; conflicting non-Master
+roles stay None. Configuration contributes member ids only and never guesses a
+role. Loading is a defensive compatibility addition made after the real-device
+parser fix and is covered by synthetic regression cases; the S10510X and
+S12508G-AF field captures contained Master/Standby, not Loading. Six anonymized
+real-shape SSH fixtures preserve both models, repeated slot rows, markers and
+IRF-Port layouts. Credential-profile examples show default/core-a/core-b and
+tests prove per-device resolution without weakening secret handling.
+Verification: focused SSH/parser tests 28 PASS; full non-integration 383 PASS;
+integration 266 PASS; ruff PASS; mypy PASS (137 files); Alembic head 0011, no
+migration. Parser smoke: exact S10510X / S12508G-AF models; both fabrics member
+1 Master + member 2 Standby; synthetic Loading+Loading -> Loading,
+Master+Loading -> Master and Standby+Loading -> None. Checkpoint
+a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87 is the implementation checkpoint to
+build for field revalidation. W01-T007 is NOT REVIEW_PASSED until an image from
+that checkpoint is deployed back to the field and the exact S12508G-AF model
+plus both normalized Master/Standby IRF role sets are revalidated; Loading does
+not need to be manufactured in the field.
 W05-T005 remains IN_PROGRESS — REAL_ENVIRONMENT_EVIDENCE_PENDING; W05-GATE
 remains BLOCKED; main remains unmerged.
 
