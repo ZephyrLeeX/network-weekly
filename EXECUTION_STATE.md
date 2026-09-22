@@ -1,5 +1,29 @@
 # EXECUTION_STATE.md
 
+## W01-T007-H3C-FIELD-COMPATIBILITY — current owner-approved task
+
+Status: IMPLEMENTED / FIELD_REVALIDATION_PENDING (2026-09-22), branch
+work/wave-05; implementation checkpoint
+f5cd33047e3198767b08b2792e9b9bd1b065cce1. The completed real-device run on
+S10510X standalone, S10510X IRF and S12508G-AF IRF confirmed the existing
+SNMP CPU/memory/interface/counter/FCS collectors and LAG Attached-authoritative
+/ Selected-fallback mapping; those algorithms were not changed. The exposed
+SSH compatibility defects are fixed: bounded H3C S-series hyphen suffixes
+preserve `S12508G-AF`; live `display irf` parses MemberID/Slot/Role and
+aggregates multiple MPU rows into one physical member (Master if any live row
+is Master, otherwise one consistent recognized role, conflicting non-Master
+roles None); configuration contributes member ids only and never guesses a
+role. Six anonymized real-shape SSH fixtures preserve both models, repeated
+slot rows, markers and IRF-Port layouts. Credential-profile examples now show
+default/core-a/core-b and tests prove per-device resolution without weakening
+secret handling. Verification: 380 unit/deploy + 266 integration PASS; ruff
+PASS; mypy PASS (137 files); Alembic head 0011, no migration; parser smoke:
+S10510X / S12508G-AF exact models, S105 IRF 1 Master + 2 Standby, S125 IRF 1
+Master + 2 Standby. W01-T007 is NOT REVIEW_PASSED until this checkpoint is
+deployed back to the field and those normalized results are revalidated.
+W05-T005 remains IN_PROGRESS — REAL_ENVIRONMENT_EVIDENCE_PENDING; W05-GATE
+remains BLOCKED; main remains unmerged.
+
 ## W05-LINUX-PORTABILITY-FIX — current owner-approved task
 
 Status: REVIEW_PASSED (2026-09-14), branch work/wave-05.
@@ -953,18 +977,18 @@ No real H3C device is currently reachable. The user authorized:
   release.
 ```
 
-## FIELD_VALIDATION_PENDING (release-blocking, not Wave-2-blocking)
+## FIELD_REVALIDATION_PENDING (release-blocking, not Wave-2-blocking)
 
 ```text
-W01-T007 — BLOCKED — FIELD_VALIDATION_PENDING. Must close before the
-production Release Gate (W05-GATE). Outstanding real-device acceptance:
-  1. Real standalone S10500X collection end-to-end.
-  2. Real S10500X IRF collection end-to-end.
-  3. Real S12500 IRF collection end-to-end.
-Also pending on real devices: hh3c-entity-ext CPU/memory OID confirmation,
-Comware aggregation-id == aggregation-ifIndex confirmation, replacement of
-the synthetic fixtures in tests/fixtures/h3c/ with anonymized real captures,
-and confirmation of the corrected IEEE8023-LAG-MIB .12/.13 columns.
+W01-T007 — IMPLEMENTED — FIELD_REVALIDATION_PENDING. Must close before the
+production Release Gate (W05-GATE). The 2026-09-22 old-image field run covered
+standalone S10510X, S10510X IRF and S12508G-AF IRF and confirmed the SNMP
+columns plus IEEE8023-LAG-MIB .12/.13 semantics. Its SSH outputs exposed model
+suffix and multi-slot IRF parser bugs; checkpoint f5cd330 contains the fixes
+and anonymized real-shape fixtures. Outstanding: deploy that checkpoint back
+to the field and confirm exact `S12508G-AF`, S105 member roles 1 Master / 2
+Standby, and S125 member roles 1 Master / 2 Standby. Do not mark REVIEW_PASSED
+until this corrected-image revalidation is recorded.
 ```
 
 ## Last completed task
