@@ -28,10 +28,12 @@ _MODEL_RE = re.compile(
 _ROW_RE = re.compile(r"^\s*[*+]*\s*(?P<member>\d+)\s+(?P<rest>\S.*?)\s*$")
 
 # Role tokens accepted verbatim. Kept to the documented Comware IRF role
-# vocabulary (Master/Slave, plus Standby as reported by some Comware 7
-# releases); anything else leaves role as None instead of guessing.
-_KNOWN_ROLES = {"master", "slave", "backup", "standby"}
-_CANONICAL_ROLES = {role.lower(): role for role in ("Master", "Slave", "Backup", "Standby")}
+# vocabulary (Master/Slave, plus Backup/Standby/Loading as reported by
+# Comware releases); anything else leaves role as None instead of guessing.
+_KNOWN_ROLES = {"master", "slave", "backup", "standby", "loading"}
+_CANONICAL_ROLES = {
+    role.lower(): role for role in ("Master", "Slave", "Backup", "Standby", "Loading")
+}
 
 
 def parse_display_version(text: str) -> dict[str, str | None]:

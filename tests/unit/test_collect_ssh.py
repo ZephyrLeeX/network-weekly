@@ -156,6 +156,33 @@ def test_parse_display_irf_aggregates_only_recognized_roles(
     assert parse_display_irf(text) == [IrfMemberSample(member_id=1, role=expected_role)]
 
 
+def test_parse_display_irf_aggregates_loading_slots() -> None:
+    text = (
+        "MemberID Slot Role Priority CPU-Mac Description\n"
+        "2 10 Loading 10 x x\n"
+        "2 12 Loading 10 x x"
+    )
+    assert parse_display_irf(text) == [IrfMemberSample(member_id=2, role="Loading")]
+
+
+def test_parse_display_irf_master_wins_over_loading() -> None:
+    text = (
+        "MemberID Slot Role Priority CPU-Mac Description\n"
+        "1 0 Loading 32 x x\n"
+        "1 1 Master 32 x x"
+    )
+    assert parse_display_irf(text) == [IrfMemberSample(member_id=1, role="Master")]
+
+
+def test_parse_display_irf_loading_conflict_fails_closed() -> None:
+    text = (
+        "MemberID Slot Role Priority CPU-Mac Description\n"
+        "1 0 Standby 10 x x\n"
+        "1 1 Loading 10 x x"
+    )
+    assert parse_display_irf(text) == [IrfMemberSample(member_id=1, role=None)]
+
+
 def test_parse_display_irf_ignores_non_member_lines() -> None:
     members = parse_display_irf("garbage\n\nno members here")
     assert members == []
