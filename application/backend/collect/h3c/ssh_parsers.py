@@ -1,10 +1,9 @@
 """Parsers for the allowlisted H3C SSH `display` outputs (W01-T005).
 
-Pure text -> DTO parsing, unit-tested against fixture files. The fixtures
-are synthetic placeholders pending anonymized real S10500X/S12500 captures
-(see tests/fixtures/h3c/README.md); Comware output varies between versions,
-so parsing is deliberately tolerant: anything not recognized with
-confidence stays None or is skipped rather than guessed.
+Pure text -> DTO parsing, unit-tested against anonymized real-output shapes
+(see tests/fixtures/h3c/README.md). Comware output varies between versions,
+so parsing is deliberately tolerant: anything not recognized with confidence
+stays None or is skipped rather than guessed.
 """
 
 import re
@@ -17,17 +16,22 @@ from backend.collect.dto import IrfMemberSample
 #   "H3C Comware Platform Software, Software Version 7.1.070, Release 7510P21"
 _VERSION_RE = re.compile(r"Version\s+(?P<version>\d[\w.]*)", re.IGNORECASE)
 _RELEASE_RE = re.compile(r"Release\s+(?P<release>\d[\w.-]*)", re.IGNORECASE)
-# Model line: "H3C S10508X uptime is ..." / "H3C S12516X-G uptime is ...".
-_MODEL_RE = re.compile(r"^\s*H3C\s+(?P<model>S\d+[A-Z0-9X]*(?:-G)?)\b", re.MULTILINE)
+# Model line: "H3C S10510X uptime is ..." / "H3C S12508G-AF uptime is ...".
+# A model may carry one or more bounded alphanumeric hyphen suffixes, but a
+# space ends the model so ordinary text such as "uptime" can never be eaten.
+_MODEL_RE = re.compile(
+    r"^\s*H3C\s+(?P<model>S\d+[A-Z0-9]*(?:-[A-Z0-9]+)*)\b", re.MULTILINE
+)
 
-# Table rows of `display irf` / `display irf configuration`. Leading IRF
-# markers (`*` = master, `+` = logged-in member) may precede the member id.
+# Table rows. Leading IRF markers (`*` = master, `+` = logged-in member) may
+# precede the member id in live `display irf` output.
 _ROW_RE = re.compile(r"^\s*[*+]*\s*(?P<member>\d+)\s+(?P<rest>\S.*?)\s*$")
 
 # Role tokens accepted verbatim. Kept to the documented Comware IRF role
 # vocabulary (Master/Slave, plus Standby as reported by some Comware 7
 # releases); anything else leaves role as None instead of guessing.
 _KNOWN_ROLES = {"master", "slave", "backup", "standby"}
+_CANONICAL_ROLES = {role.lower(): role for role in ("Master", "Slave", "Backup", "Standby")}
 
 
 def parse_display_version(text: str) -> dict[str, str | None]:
@@ -46,36 +50,69 @@ def parse_display_version(text: str) -> dict[str, str | None]:
     }
 
 
-def _member_rows(text: str) -> list[IrfMemberSample]:
-    """Common member-row extraction: numeric first column, optional role."""
+def _table_lines(text: str, *, required_headers: set[str]) -> list[str]:
+    """Return candidate rows following the matching IRF table header."""
 
-    members: list[IrfMemberSample] = []
-    seen: set[int] = set()
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        headers = {token.lower() for token in line.split()}
+        if required_headers <= headers:
+            return lines[index + 1 :]
+    return []
+
+
+def _parse_display_irf_rows(text: str) -> list[IrfMemberSample]:
+    """Parse and aggregate live rows shaped as MemberID Slot Role ... ."""
+
+    roles_by_member: dict[int, set[str]] = {}
+    for line in _table_lines(text, required_headers={"memberid", "slot", "role"}):
         match = _ROW_RE.match(line)
         if not match:
             continue
-        member_id = int(match.group("member"))
-        if member_id in seen:
+        tokens = match.group("rest").split()
+        if len(tokens) < 2:
             continue
-        seen.add(member_id)
-        first_token = match.group("rest").split()[0]
-        role = first_token if first_token.lower() in _KNOWN_ROLES else None
+        member_id = int(match.group("member"))
+        roles = roles_by_member.setdefault(member_id, set())
+        role_token = tokens[1].lower()
+        if role_token in _KNOWN_ROLES:
+            roles.add(_CANONICAL_ROLES[role_token])
+
+    members: list[IrfMemberSample] = []
+    for member_id, roles in sorted(roles_by_member.items()):
+        if "Master" in roles:
+            role = "Master"
+        elif len(roles) == 1:
+            role = next(iter(roles))
+        else:
+            # No recognized role, or conflicting non-Master live roles: do
+            # not invent a ranking or infer a chassis role from slot order.
+            role = None
         members.append(IrfMemberSample(member_id=member_id, role=role))
     return members
 
 
-def parse_display_irf(text: str) -> list[IrfMemberSample]:
-    """Parse `display irf` member table rows; unparseable lines are skipped."""
+def _parse_irf_configuration_member_ids(text: str) -> list[IrfMemberSample]:
+    """Parse only member ids from configuration; its other columns are not roles."""
 
-    return _member_rows(text)
+    member_ids: set[int] = set()
+    for line in _table_lines(text, required_headers={"memberid"}):
+        match = _ROW_RE.match(line)
+        if match:
+            member_ids.add(int(match.group("member")))
+    return [IrfMemberSample(member_id=member_id, role=None) for member_id in sorted(member_ids)]
+
+
+def parse_display_irf(text: str) -> list[IrfMemberSample]:
+    """Parse live MemberID/Slot/Role rows and aggregate MPU slots per member."""
+
+    return _parse_display_irf_rows(text)
 
 
 def parse_display_irf_configuration(text: str) -> list[IrfMemberSample]:
-    """Parse `display irf configuration` (member id + role/priority columns).
+    """Parse only member ids from `display irf configuration`.
 
-    Member *count* is the critical value for §17; roles stay None when the
-    output shape differs from expectation until real evidence fixes it.
+    NewID, Priority and IRF-Port columns never carry a live member role.
     """
 
-    return _member_rows(text)
+    return _parse_irf_configuration_member_ids(text)

@@ -169,9 +169,14 @@ class TestSecrets:
         assert "hunter2" not in record.msg
 
     def test_profile_key_and_lookup(self, tmp_path: Path) -> None:
-        path = self._write(tmp_path, 0o600, "SNMP_COMMUNITY_CORE=corecom\n")
+        path = self._write(
+            tmp_path,
+            0o600,
+            "SNMP_COMMUNITY_DEFAULT=defaultcom\nSNMP_COMMUNITY_CORE_A=corecom\n",
+        )
         secrets = load_secrets(path)
         assert profile_key("SNMP_COMMUNITY", "core-x") == "SNMP_COMMUNITY_CORE_X"
-        assert lookup_profile_secret(secrets, "SNMP_COMMUNITY", "CORE") == "corecom"
-        with pytest.raises(SecretsError, match="SSH_USERNAME_CORE"):
-            lookup_profile_secret(secrets, "SSH_USERNAME", "CORE")
+        assert lookup_profile_secret(secrets, "SNMP_COMMUNITY", "default") == "defaultcom"
+        assert lookup_profile_secret(secrets, "SNMP_COMMUNITY", "core-a") == "corecom"
+        with pytest.raises(SecretsError, match="SSH_USERNAME_CORE_A"):
+            lookup_profile_secret(secrets, "SSH_USERNAME", "core-a")

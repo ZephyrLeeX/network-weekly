@@ -226,8 +226,13 @@ docker exec -it network-report-postgres-1 psql -U network_report -d network_repo
 
 - secrets.env 键按凭据 profile 组织：`SNMP_COMMUNITY_<PROFILE>`、
   `SSH_USERNAME_<PROFILE>`、`SSH_PASSWORD_<PROFILE>`（profile 中的 `-` 映
-  射为 `_`）。**任何地方（工单、聊天、文档）都不要粘贴真实值**；日志已统
-  一脱敏注册过的 Secret，但不要故意把 Secret 打进日志。
+  射为 `_`，如 `credential_profile = "core-a"` 对应
+  `SNMP_COMMUNITY_CORE_A` / `SSH_USERNAME_CORE_A` /
+  `SSH_PASSWORD_CORE_A`）。多个设备可共享一个 profile；凭据不同的设备应
+  使用不同 profile。profile 只是 `devices.toml` 中的引用名，community、
+  用户名和密码仍只放在 0600 的 `secrets.env`。**任何地方（工单、聊天、文
+  档）都不要粘贴真实值**；日志会脱敏已注册的 Secret，但不要故意把 Secret
+  打进日志。
 - SNMP 失败时系统会做一次轻量 SSH 管理面确认：SSH 通 → 设备不算 DOWN，
   但该周期 SNMP 异常反映在 PARTIAL 与 Coverage 中；连续 2 周期双失败才判
   DOWN。

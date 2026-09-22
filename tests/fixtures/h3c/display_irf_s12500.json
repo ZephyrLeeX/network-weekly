@@ -1,0 +1,4 @@
+{
+  "_comment": "ANONYMIZED REAL SHAPE — S12508G-AF IRF; MAC/description/site identifiers replaced",
+  "text": "MemberID  Slot  Role    Priority  CPU-Mac         Description\n   1      0     Standby 32        0000-0000-0100  [anonymized]\n *+1      1     Master  32        0000-0000-0101  [anonymized]\n   2      0     Standby 10        0000-0000-0200  [anonymized]\n   2      1     Standby 10        0000-0000-0201  [anonymized]\n------------------------------------------------------------\n * indicates the device is the master.\n + indicates the device through which the user logs in."
+}

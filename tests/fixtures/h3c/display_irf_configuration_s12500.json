@@ -1,0 +1,4 @@
+{
+  "_comment": "ANONYMIZED REAL SHAPE — S12508G-AF IRF configuration; interface layout preserved",
+  "text": "MemberID  NewID  IRF-Port1                     IRF-Port2\n 1        1      FortyGigE1/0/0/1              FortyGigE1/0/0/2\n 2        2      FortyGigE2/0/0/1              FortyGigE2/0/0/2"
+}

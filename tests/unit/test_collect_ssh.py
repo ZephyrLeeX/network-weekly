@@ -1,8 +1,8 @@
 """Unit tests for the bounded SSH transport and IRF parsers (W01-T005).
 
 No real SSH connections: transport behavior is proven with a stubbed
-ConnectHandler; parsers run against fixture files that are synthetic
-placeholders pending anonymized real captures (see README).
+ConnectHandler; parsers run against anonymized real-output-shape fixtures
+(see README).
 """
 
 import json
@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
+from backend.collect.dto import IrfMemberSample
 from backend.collect.h3c.ssh_parsers import (
     parse_display_irf,
     parse_display_irf_configuration,
@@ -92,11 +93,16 @@ def test_check_reachable_true_and_false() -> None:
 
 def test_parse_display_version() -> None:
     parsed = parse_display_version(_fixture_text("display_version_s10500x.json"))
-    # Official Comware 7 shape: "H3C Comware Software, Version 7.1.070,
-    # Release 7596P10".
     assert parsed["version"] == "7.1.070"
-    assert parsed["release"] == "7596P10"
-    assert parsed["model"] == "S10508X"
+    assert parsed["release"] == "7596P09"
+    assert parsed["model"] == "S10510X"
+
+
+def test_parse_display_version_s12508g_af_full_model() -> None:
+    parsed = parse_display_version(_fixture_text("display_version_s12500.json"))
+    assert parsed["version"] == "7.1.070"
+    assert parsed["release"] == "7596P09"
+    assert parsed["model"] == "S12508G-AF"
 
 
 def test_parse_display_version_platform_variant() -> None:
@@ -118,8 +124,36 @@ def test_parse_display_version_unknown_stays_none() -> None:
 
 def test_parse_display_irf_members_and_roles() -> None:
     members = parse_display_irf(_fixture_text("display_irf_s10500x.json"))
-    assert [(m.member_id, m.role) for m in members] == [(1, "Master"), (2, "Slave")]
+    assert members == [
+        IrfMemberSample(member_id=1, role="Master"),
+        IrfMemberSample(member_id=2, role="Standby"),
+    ]
     assert all(m.model is None and m.software_version is None for m in members)
+
+
+def test_parse_display_irf_s12500_master_on_second_slot_wins() -> None:
+    members = parse_display_irf(_fixture_text("display_irf_s12500.json"))
+    assert members == [
+        IrfMemberSample(member_id=1, role="Master"),
+        IrfMemberSample(member_id=2, role="Standby"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected_role"),
+    [
+        (" 1 0 Standby 10 x x\n 1 1 Standby 10 x x", "Standby"),
+        (" 1 0 Slave 10 x x\n 1 1 Slave 10 x x", "Slave"),
+        (" 1 0 Backup 10 x x\n 1 1 Backup 10 x x", "Backup"),
+        (" 1 0 Slave 10 x x\n 1 1 Backup 10 x x", None),
+        (" 1 0 Unknown 10 x x\n 1 1 Standby 10 x x", "Standby"),
+    ],
+)
+def test_parse_display_irf_aggregates_only_recognized_roles(
+    rows: str, expected_role: str | None
+) -> None:
+    text = "MemberID Slot Role Priority CPU-Mac Description\n" + rows
+    assert parse_display_irf(text) == [IrfMemberSample(member_id=1, role=expected_role)]
 
 
 def test_parse_display_irf_ignores_non_member_lines() -> None:
@@ -132,6 +166,22 @@ def test_parse_display_irf_configuration_member_ids() -> None:
         _fixture_text("display_irf_configuration_s10500x.json")
     )
     assert [m.member_id for m in members] == [1, 2]
+    assert all(m.role is None for m in members)
+
+
+def test_parse_display_irf_configuration_s12500_never_guesses_roles() -> None:
+    members = parse_display_irf_configuration(
+        _fixture_text("display_irf_configuration_s12500.json")
+    )
+    assert members == [
+        IrfMemberSample(member_id=1, role=None),
+        IrfMemberSample(member_id=2, role=None),
+    ]
+
+
+def test_parse_standalone_irf_configuration_priority_is_not_a_role() -> None:
+    text = "MemberID Priority IRF-Port1 IRF-Port2\n1 1 disable disable"
+    assert parse_display_irf_configuration(text) == [IrfMemberSample(member_id=1, role=None)]
 
 
 class _StubSshClient:
@@ -155,9 +205,9 @@ def test_collect_software_info_from_display_version() -> None:
     client = _StubSshClient({"display version": _fixture_text("display_version_s10500x.json")})
     software = collect_software_info(client)  # type: ignore[arg-type]
     assert software.version == "7.1.070"
-    assert software.release == "7596P10"
-    assert software.model == "S10508X"
-    assert software.software_version == "7.1.070 Release 7596P10"
+    assert software.release == "7596P09"
+    assert software.model == "S10510X"
+    assert software.software_version == "7.1.070 Release 7596P09"
 
 
 def test_collect_irf_members_merges_both_commands() -> None:
@@ -172,7 +222,7 @@ def test_collect_irf_members_merges_both_commands() -> None:
         }
     )
     members = collect_irf_members(client)  # type: ignore[arg-type]
-    assert [(m.member_id, m.role) for m in members] == [(1, "Master"), (2, "Slave")]
+    assert [(m.member_id, m.role) for m in members] == [(1, "Master"), (2, "Standby")]
 
 
 def test_collect_irf_members_falls_back_to_configuration_only() -> None:

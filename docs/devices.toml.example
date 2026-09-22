@@ -4,19 +4,21 @@
 #
 # model_family supports only "s10500x" and "s12500" (SYSTEM_SPEC.md §2.2).
 # irf_member_count is set only for IRF fabrics (>= 2); omit it for standalone
-# devices. credential_profile selects the key prefix in secrets.env.
+# devices. credential_profile is a non-secret reference name selecting keys in
+# secrets.env. Devices may share a profile; devices with different credentials
+# use different profiles. Profile "core-a" maps to the suffix CORE_A.
 
 [[device]]
 name = "core-s10500x-01"
 management_ip = "192.0.2.11"
 model_family = "s10500x"
-credential_profile = "default"
+credential_profile = "core-a"
 
 [[device]]
 name = "core-s10500x-02"
 management_ip = "192.0.2.12"
 model_family = "s10500x"
-credential_profile = "default"
+credential_profile = "core-b"
 
 [[device]]
 name = "core-s10500x-03"

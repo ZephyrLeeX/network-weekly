@@ -69,8 +69,9 @@ DOT3_STATS_FCS_ERRORS = "1.3.6.1.2.1.10.7.2.1.3"
 DOT3_HC_STATS_FCS_ERRORS = "1.3.6.1.2.1.10.7.11.1.2"
 
 # --- H3C hh3c-entity-ext (enterprise 25506) ----------------------------------
-# Per-chassis CPU / memory usage table. Column OIDs pending real-device
-# verification; the table index is the entity's physical index.
+# Per-chassis CPU / memory usage table. These column OIDs returned valid data
+# on real S10510X and S12508G-AF Comware 7 devices; the table index is the
+# entity's physical index.
 HH3C_ENTITY_EXT_CPU_USAGE = "1.3.6.1.4.1.25506.2.6.1.1.1.1.6"
 HH3C_ENTITY_EXT_MEM_USAGE = "1.3.6.1.4.1.25506.2.6.1.1.1.1.8"
 
@@ -80,8 +81,8 @@ HH3C_ENTITY_EXT_MEM_USAGE = "1.3.6.1.4.1.25506.2.6.1.1.1.1.8"
 # logic selected the port into (0 = not selected).
 # Column 13 dot3adAggPortAttachedAggID: the aggregation the port is actually
 # attached to / bundling into (0 = not attached).
-# On Comware the aggregation id is the aggregation interface's ifIndex
-# (pending real-device confirmation in W01-T007).
+# The aggregation id equalled the aggregation interface's ifIndex on real
+# S10510X and S12508G-AF Comware 7 devices (not generalized to all Comware).
 DOT3_AGG_PORT_SELECTED_AGG_ID = "1.2.840.10006.300.43.1.2.1.1.12"
 DOT3_AGG_PORT_ATTACHED_AGG_ID = "1.2.840.10006.300.43.1.2.1.1.13"
 

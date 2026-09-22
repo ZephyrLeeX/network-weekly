@@ -1,11 +1,17 @@
-# Wave 1 H3C fixtures — status: SYNTHETIC PLACEHOLDERS
+# Wave 1 H3C fixtures
 
-These JSON files describe the *expected shape* of H3C S10500X / S12500
-responses so the parsers can be developed and unit-tested before device
-access. They are **not** real-device captures.
+The six `display_*_s10500x.json` / `display_*_s12500.json` SSH fixtures are
+anonymized real-output shapes captured from S10510X and S12508G-AF Comware 7
+devices. They preserve parser-significant model/version fields, table headers,
+MemberID/Slot/Role/Priority columns, `*`/`+` markers, repeated MPU-slot rows and
+IRF-Port layout. MAC addresses, descriptions, hostnames, management addresses
+and authentication data are removed or replaced.
 
-Per the real-device evidence rule (AGENTS.md), they must be replaced (or
-validated) by anonymized captures from the actual 1x standalone S10500X,
-the S10500X IRF and the S12500 IRF during W01-T007 before any task that
-relies on them may declare real-device acceptance. No management IP,
-hostname, community or credential may appear in committed fixtures.
+The SNMP JSON fixtures remain synthetic test inputs unless their `_comment`
+explicitly says otherwise. Real-device validation confirmed the production
+SNMP collection path separately; this compatibility fix does not rewrite
+those already-verified collectors or represent raw site data in Git.
+
+These fixtures prove parser behavior only. W01-T007 remains pending until an
+image containing the corrected parser is taken back to the field and the
+normalized S12508G-AF model and both IRF member-role results are revalidated.

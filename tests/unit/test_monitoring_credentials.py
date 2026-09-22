@@ -11,7 +11,9 @@ SECRET_VALUES = {
     "SNMP_COMMUNITY_DEFAULT": "c0mmunity",
     "SSH_USERNAME_DEFAULT": "monitor",
     "SSH_PASSWORD_DEFAULT": "s3cret",
-    "SNMP_COMMUNITY_S12500": "other-community",
+    "SNMP_COMMUNITY_CORE_A": "other-community",
+    "SSH_USERNAME_CORE_A": "core-a-monitor",
+    "SSH_PASSWORD_CORE_A": "core-a-secret",
 }
 
 
@@ -91,9 +93,18 @@ def test_unpollable_contexts_cover_every_enabled_device() -> None:
     assert [context.device_name for context in contexts] == ["a", "b"]
 
 
-def test_profiles_map_to_their_own_secrets() -> None:
+def test_default_and_hyphenated_profiles_map_to_their_own_secrets() -> None:
     contexts = build_contexts(
-        _session([_device("core", profile="s12500")]), SECRET_VALUES
+        _session([_device("shared-default"), _device("dedicated", profile="core-a")]),
+        SECRET_VALUES,
     )
-    assert contexts[0].snmp is not None
-    assert contexts[0].snmp.community == "other-community"
+    default, core_a = contexts
+    assert default.snmp is not None
+    assert default.snmp.community == "c0mmunity"
+    assert default.ssh is not None
+    assert default.ssh.password == "s3cret"
+    assert core_a.snmp is not None
+    assert core_a.snmp.community == "other-community"
+    assert core_a.ssh is not None
+    assert core_a.ssh.username == "core-a-monitor"
+    assert core_a.ssh.password == "core-a-secret"

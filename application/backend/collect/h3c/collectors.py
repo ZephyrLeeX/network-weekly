@@ -314,9 +314,10 @@ def parse_aggregations(varbinds: list[SnmpVarbind]) -> list[AggregationMapping]:
       but not (yet) attached (e.g. during LACP negotiation), so intended
       membership is not lost.
 
-    0 means "not selected/attached". The aggregation id equals the
-    aggregation interface's ifIndex on Comware (pending real-device
-    confirmation in W01-T004/T007).
+    0 means "not selected/attached". The aggregation id equalling the
+    aggregation interface's ifIndex, including Attached being populated when
+    Selected is 0, was validated on real S10510X and S12508G-AF Comware 7
+    devices. This is not a claim about every Comware platform/release.
     """
 
     attached = _values_by_suffix(varbinds, oids.DOT3_AGG_PORT_ATTACHED_AGG_ID)
