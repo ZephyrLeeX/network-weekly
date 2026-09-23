@@ -232,6 +232,37 @@ docker exec -it network-report-postgres-1 psql -U network_report -d network_repo
 interval 必须安排在新的完整统计周开始前并重启 worker，禁止在统计周中途
 切换，否则本版本无法用 interval history 还原 expected Coverage。
 
+### 手动诊断采集（不持久化）
+
+新镜像上线前或 SNMP 故障排查时，可在 PostgreSQL 已运行的前提下启动一次性
+worker 容器。长期运行的 `network-report-worker-1` 即使已停止，也不影响这
+个命令：
+
+```bash
+# 单台 enabled 设备（--device 可重复）
+nrc run --rm --no-deps worker \
+  python -m backend.manual_poll \
+  --device "NJ-SPZW-S10510X-JKQ"
+
+# 全部 enabled 设备
+nrc run --rm --no-deps worker \
+  python -m backend.manual_poll \
+  --all
+```
+
+该命令读取正式 `devices` 数据库、`secrets.env` 与 `credential_profile`，并
+使用 worker 相同的 SNMP/SSH 配置、单设备 deadline 和采集实现。`--all` 按
+稳定设备顺序串行执行，相邻设备使用正式 stagger 配置（生产默认 20 秒），
+避免同时冲击核心交换机。输出仅含每台设备的 SUCCESS/PARTIAL/FAILED、失败
+section、deadline/SSH 状态及安全的样本数量摘要；不会输出 community、密码
+或数据库 URL。
+
+这是只读现场诊断，**不是 scheduler cycle**：不创建 `cycle_started_at`，不写
+`device_poll_runs`、`device_metrics`、`interface_metrics` 或 IRF observation，
+不进入周报 Coverage，不推进设备/接口 Down/Recovery，也不 backfill。退出码
+`0` 表示全部 SUCCESS；`1` 表示至少一台 PARTIAL/FAILED 或运行时采集失败；
+`2` 表示参数、设备选择或配置错误。`--all` 与 `--device` 互斥。
+
 ## 10. SNMP / SSH 排查
 
 - secrets.env 键按凭据 profile 组织：`SNMP_COMMUNITY_<PROFILE>`、

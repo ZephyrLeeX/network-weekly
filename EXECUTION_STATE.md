@@ -1,5 +1,42 @@
 # EXECUTION_STATE.md
 
+## W05-PYSNMP-FIELD-HOTFIX — current owner-approved field fix
+
+Status: IMPLEMENTED / FIELD_REVALIDATION_PENDING (2026-09-23), branch
+work/wave-05; implementation checkpoints
+`7d113b54ce7a7d6a9f95ad33cc7a26503481389d` (PySNMP Null fix) and
+`82912566babb47a547d52ca4c657748d8d7d56a6` (non-persistent manual diagnostic
+CLI; current application checkpoint before the documentation commit). The
+deployed PySNMP 7.1.29 runtime has
+`rfc1902.Null` and no `rfc1905.Null`. The 2026-09-23 08:00:00+00 first formal
+DEVICE_POLL therefore produced three valid FAILED historical rows for the
+representative S10510X IRF, S10510X standalone and S12508G-AF IRF devices:
+identity, CPU, memory, interfaces and aggregations all hit `AttributeError`.
+SSH IRF observation remained healthy and reported members 1/2 present. The
+rows remain untouched as field evidence.
+
+The transport now recognizes real `rfc1902.Null` while preserving
+NoSuchObject/NoSuchInstance/EndOfMibView and existing numeric/text/IP behavior.
+GET and GETBULK share the tested real-value normalization boundary. PySNMP
+remains locked at 7.1.29. The new `python -m backend.manual_poll` command reads
+enabled devices from the formal database, reuses `secrets.env`,
+`credential_profile`, `build_contexts()` and `run_collection()`, applies the
+240 s production deadline, and serializes multiple devices with the configured
+20 s stagger. It intentionally has no scheduler/persistence/state-machine/IRF
+observation path: a real PostgreSQL test proves all three raw poll/metric table
+counts are unchanged.
+
+Verification: focused collection unit 111 PASS; focused PostgreSQL integration
+15 PASS; full non-integration 427 PASS; integration 268 PASS; ruff PASS; mypy
+PASS (140 files); PySNMP 7.1.29; Alembic 0011 (head), no migration. Production
+defaults remain poll/IRF 1800 s, 3 workers, stagger 20 s and deadline 240 s.
+OID, SSH whole-poll deadline, exact S10510X/S12508G-AF parsing,
+Master/Standby/Loading compatibility and Attached-authoritative/
+Selected-fallback LAG mapping are unchanged. No Docker image was built, no
+deployment was started and main remains unmerged. W01-T007 remains IMPLEMENTED
+/ FIELD_REVALIDATION_PENDING; W05-T005 remains IN_PROGRESS —
+REAL_ENVIRONMENT_EVIDENCE_PENDING; W05-GATE remains BLOCKED.
+
 ## W05-LOW-IMPACT-POLLING — current owner-approved product adjustment
 
 Status: IMPLEMENTED / FIELD_REVALIDATION_PENDING (2026-09-23), branch
@@ -63,11 +100,12 @@ migration. Parser smoke: exact S10510X / S12508G-AF models; both fabrics member
 1 Master + member 2 Standby; synthetic Loading+Loading -> Loading,
 Master+Loading -> Master and Standby+Loading -> None. Checkpoint
 a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87 remains the historical parser
-compatibility checkpoint. The next field revalidation must use the full
-low-impact polling application checkpoint
+compatibility checkpoint. The next field revalidation must use application
+checkpoint `82912566babb47a547d52ca4c657748d8d7d56a6` or later; the PySNMP hotfix
+supersedes the field-broken low-impact polling image
 213ac4983325d8288fc53ac1fd78ded2a3172a68. The previous low-impact polling
 checkpoint was 4c4466e13c23937934f11befaac1f6592f549ba9. W01-T007 is NOT REVIEW_PASSED
-until an image from current checkpoint 213ac4983325d8288fc53ac1fd78ded2a3172a68
+until an image from checkpoint `82912566babb47a547d52ca4c657748d8d7d56a6` or later
 is deployed back to the field and the exact S12508G-AF model plus both
 normalized Master/Standby IRF role sets are revalidated; Loading does not need
 to be manufactured in the field.

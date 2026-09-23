@@ -20,6 +20,37 @@ REVIEW_PASSED
 
 ---
 
+## W05-PYSNMP-FIELD-HOTFIX — PySNMP 7.1 Null compatibility and manual diagnostics
+**Status:** IMPLEMENTED — FIELD_REVALIDATION_PENDING (2026-09-23; not REVIEW_PASSED)
+**Depends On:** W05-LOW-IMPACT-POLLING implementation
+**Blocks:** W05-GATE through W01-T007 / W05-T005 field evidence
+**Scope:** owner-approved field hotfix only. PySNMP 7.1.29 exposes `Null` from
+`rfc1902`, not `rfc1905`; normalize real `rfc1902.Null` plus the existing
+`rfc1905` NoSuchObject/NoSuchInstance/EndOfMibView values to `None`. Add a
+non-persistent manual diagnostic CLI that reads enabled devices and formal
+credential profiles, calls `run_collection()` with the production whole-poll
+deadline, and serializes multi-device work with the configured stagger. It
+must never create a scheduler cycle, persist collection data, advance state
+machines, write IRF observations, or affect Coverage. No OID, timeout/retry,
+max-repetitions, H3C parser, LAG mapping, schema, dependency or production
+default change.
+**Field evidence:** the 2026-09-23 08:00:00+00 first formal DEVICE_POLL on the
+representative S10510X IRF, S10510X standalone and S12508G-AF IRF devices
+created three valid FAILED historical poll rows because every SNMP section hit
+`AttributeError`; SSH IRF observation still succeeded with members 1/2 present.
+Those rows are retained. SNMP field revalidation remains required.
+**Acceptance:** real PySNMP value-object regression coverage; focused collection
+unit 111 PASS and focused PostgreSQL integration 15 PASS; full non-integration
+427 PASS; integration 268 PASS; ruff PASS; mypy PASS (140 files); PySNMP stays
+7.1.29 in `uv.lock`; Alembic stays 0011 (head), no migration. Manual diagnostic
+integration proves `device_poll_runs`, `device_metrics` and `interface_metrics`
+counts remain unchanged.
+**Implementation checkpoints:** `7d113b54ce7a7d6a9f95ad33cc7a26503481389d`
+(Null fix), `82912566babb47a547d52ca4c657748d8d7d56a6` (manual CLI; current
+application checkpoint before this documentation commit).
+
+---
+
 ## W05-LOW-IMPACT-POLLING — Weekly-report-safe collection cadence
 **Status:** IMPLEMENTED — FIELD_REVALIDATION_PENDING (2026-09-23; not REVIEW_PASSED)
 **Depends On:** existing W01–W05 engineering implementation on `work/wave-05`
@@ -154,7 +185,7 @@ remains mandatory before REVIEW_PASSED.
 **Depends On:** W01-T006
 **Blocks:** W05-GATE (production Release Gate)
 **Acceptance:** one standalone S10500X, one S10500X IRF and one S12500 IRF validated end-to-end with anonymized fixtures/evidence: replace synthetic fixtures in `tests/fixtures/h3c/`, confirm H3C enterprise OIDs in `backend/collect/h3c/oids.py` (hh3c-entity-ext CPU/memory) and the Comware aggregation-id-ifIndex equivalence, then re-run the full gate.
-**2026-09-22 field result and compatibility fix:** the old image completed real SNMP/SSH discovery on representative S10510X standalone, S10510X IRF and S12508G-AF IRF devices. CPU/memory, interface/speed/counters/FCS and LAG Attached/Selected mapping were confirmed; the existing SNMP algorithms remain unchanged. That run exposed two SSH normalization bugs: the model regex truncated `S12508G-AF`, and `display irf` treated Slot as Role then used first-row-wins across multiple MPU slots. Initial correction checkpoint `f5cd33047e3198767b08b2792e9b9bd1b065cce1` accepts bounded alphanumeric hyphen suffixes, separates live/configuration table semantics and aggregates recognized live roles per physical member. Historical H3C parser compatibility checkpoint `a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87` additionally recognizes Loading as a defensive compatibility role. Recognized live roles are Master, Slave, Backup, Standby and Loading: any Master wins; otherwise one consistent recognized role is retained; conflicting non-Master roles stay None. Loading is covered by synthetic compatibility regression cases; the S10510X/S12508G-AF field captures contained Master/Standby and are not claimed to contain Loading. Six anonymized real-shape SSH fixtures cover S10510X/S12508G-AF version and both IRF commands. Verification at that checkpoint: focused SSH/parser tests 28 PASS; full non-integration 383 PASS; integration 266 PASS; ruff PASS; mypy PASS (137 files); Alembic remains 0011 with no migration. Parser smoke gives exact S10510X/S12508G-AF models, both fabrics as member 1 Master / member 2 Standby, and synthetic Loading+Loading -> Loading, Master+Loading -> Master, Standby+Loading -> None. **Not REVIEW_PASSED:** the next field revalidation must use the SSH-deadline-corrected full application checkpoint `213ac4983325d8288fc53ac1fd78ded2a3172a68` and revalidate the exact S12508G-AF model plus both normalized Master/Standby IRF role sets; Loading need not be manufactured in the field. `4c4466e13c23937934f11befaac1f6592f549ba9` remains the previous low-impact polling checkpoint. W05-T005 remains IN_PROGRESS — REAL_ENVIRONMENT_EVIDENCE_PENDING and W05-GATE remains BLOCKED.
+**2026-09-22 field result and compatibility fix:** the old image completed real SNMP/SSH discovery on representative S10510X standalone, S10510X IRF and S12508G-AF IRF devices. CPU/memory, interface/speed/counters/FCS and LAG Attached/Selected mapping were confirmed; the existing SNMP algorithms remain unchanged. That run exposed two SSH normalization bugs: the model regex truncated `S12508G-AF`, and `display irf` treated Slot as Role then used first-row-wins across multiple MPU slots. Initial correction checkpoint `f5cd33047e3198767b08b2792e9b9bd1b065cce1` accepts bounded alphanumeric hyphen suffixes, separates live/configuration table semantics and aggregates recognized live roles per physical member. Historical H3C parser compatibility checkpoint `a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87` additionally recognizes Loading as a defensive compatibility role. Recognized live roles are Master, Slave, Backup, Standby and Loading: any Master wins; otherwise one consistent recognized role is retained; conflicting non-Master roles stay None. Loading is covered by synthetic compatibility regression cases; the S10510X/S12508G-AF field captures contained Master/Standby and are not claimed to contain Loading. Six anonymized real-shape SSH fixtures cover S10510X/S12508G-AF version and both IRF commands. Verification at that checkpoint: focused SSH/parser tests 28 PASS; full non-integration 383 PASS; integration 266 PASS; ruff PASS; mypy PASS (137 files); Alembic remains 0011 with no migration. Parser smoke gives exact S10510X/S12508G-AF models, both fabrics as member 1 Master / member 2 Standby, and synthetic Loading+Loading -> Loading, Master+Loading -> Master, Standby+Loading -> None. **Not REVIEW_PASSED:** the next field revalidation must use application checkpoint `8291256` or later, which supersedes the field-broken `213ac4983325d8288fc53ac1fd78ded2a3172a68` image with the PySNMP 7.1 Null hotfix, and revalidate SNMP plus the exact S12508G-AF model and both normalized Master/Standby IRF role sets; Loading need not be manufactured in the field. `4c4466e13c23937934f11befaac1f6592f549ba9` remains the previous low-impact polling checkpoint. W05-T005 remains IN_PROGRESS — REAL_ENVIRONMENT_EVIDENCE_PENDING and W05-GATE remains BLOCKED.
 
 ## W01-GATE — Wave 1 Engineering Gate
 **Status:** PASS (engineering gate)
