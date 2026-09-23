@@ -298,6 +298,32 @@ def collect_interfaces(client: SnmpClient) -> InterfaceCollection:
     return InterfaceCollection(samples=samples, missing_fields=missing)
 
 
+def collect_interface_inventory(client: SnmpClient) -> list[InterfaceSample]:
+    """Read only configuration-page metadata, without poll counters or metrics."""
+
+    columns = (
+        oids.IF_DESCR,
+        oids.IF_ALIAS,
+        oids.IF_ADMIN_STATUS,
+        oids.IF_OPER_STATUS,
+        oids.IF_SPEED,
+        oids.IF_HIGH_SPEED,
+    )
+    values: dict[str, list[SnmpVarbind]] = {}
+    for column in columns:
+        try:
+            values[column] = client.bulk_walk(column)
+        except Exception as exc:  # noqa: BLE001 - optional columns degrade independently
+            if column == oids.IF_DESCR:
+                raise CollectionSectionError("interfaces", "ifDescr walk failed") from exc
+            logger.warning("inventory column %s unavailable (%s)", column, type(exc).__name__)
+            values[column] = []
+    samples = parse_interfaces(values)
+    if not samples:
+        raise CollectionSectionError("interfaces", "no usable interface data collected")
+    return samples
+
+
 # --- aggregation membership ------------------------------------------------------
 
 

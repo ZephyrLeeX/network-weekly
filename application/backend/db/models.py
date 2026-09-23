@@ -203,6 +203,36 @@ class AggregationMember(Base):
     )
 
 
+class InterfaceDiscoveryJob(Base):
+    """Worker-owned interface inventory refresh requested by the Web UI."""
+
+    __tablename__ = "interface_discovery_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed')",
+            name="ck_interface_discovery_job_status",
+        ),
+        Index(
+            "uq_interface_discovery_active_device",
+            "device_id",
+            unique=True,
+            postgresql_where=sa_text("status IN ('pending', 'running')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
 # --- Wave 2: monitoring pipeline (W02-T001) -------------------------------------
 
 

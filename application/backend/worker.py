@@ -33,6 +33,7 @@ from backend.monitoring.credentials import (
     build_irf_contexts,
     build_unpollable_contexts,
 )
+from backend.monitoring.interface_discovery import discovery_loop
 from backend.monitoring.irf import IrfDeviceContext, IrfObservationLoop
 from backend.monitoring.poll import DevicePollContext, poll_device
 from backend.monitoring.retention import run_retention
@@ -213,12 +214,19 @@ def main() -> None:
     reporter = threading.Thread(
         target=report_loop.run_loop, args=(stop,), name="weekly-report", daemon=True
     )
+    discoverer = threading.Thread(
+        target=discovery_loop,
+        args=(stop, session_factory, settings.secrets_file),
+        name="interface-discovery",
+        daemon=True,
+    )
 
     heartbeat.start()
     poller.start()
     irf_observer.start()
     retention.start()
     reporter.start()
+    discoverer.start()
     stop.wait()
     # Give the loops a moment to notice the stop event before exit.
     heartbeat.join(timeout=5)
@@ -226,6 +234,7 @@ def main() -> None:
     irf_observer.join(timeout=5)
     retention.join(timeout=5)
     reporter.join(timeout=5)
+    discoverer.join(timeout=5)
     logger.info("worker %s stopped", settings.worker_id)
 
 
