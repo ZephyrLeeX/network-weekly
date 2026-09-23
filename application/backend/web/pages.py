@@ -15,14 +15,14 @@ def login_page(csrf_token: str, *, error: str | None = None, username: str = "")
     """The login form (§20.1). `error` is a fixed text, never exception data."""
 
     error_html = f'<p class="error">{esc(error)}</p>' if error else ""
-    body = f"""
+    body = f"""<section class="card login-card">
 {error_html}
 <form method="post" action="/login">
 {hidden_csrf(csrf_token)}
 <p><label>用户名 <input type="text" name="username" value="{esc(username)}" autofocus></label></p>
 <p><label>密码 <input type="password" name="password"></label></p>
 <p><button type="submit">登录</button></p>
-</form>"""
+</form></section>"""
     return page(LOGIN_TITLE, body)
 
 
@@ -31,11 +31,12 @@ def home_page(admin_username: str, csrf_token: str) -> str:
 
     body = f"""
 {nav("home")}
-<p class="ok">已登录：{esc(admin_username)}</p>
+<section class="card"><p class="ok">已登录：{esc(admin_username)}</p>
+<p>在导航中查看历史报告或配置重点接口。</p>
 <form class="inline" method="post" action="/logout">
 {hidden_csrf(csrf_token)}
 <button type="submit">退出登录</button>
-</form>"""
+</form></section>"""
     return page(HOME_TITLE, body)
 
 
@@ -44,8 +45,7 @@ def csrf_error_page() -> str:
 
     return page(
         "请求被拒绝",
-        '<p class="error">安全校验失败（CSRF），请返回后重试。</p>'
-        '<p><a href="/">返回首页</a></p>',
+        '<p class="error">安全校验失败（CSRF），请返回后重试。</p><p><a href="/">返回首页</a></p>',
     )
 
 
@@ -90,14 +90,14 @@ def reports_page(
         rows = '<tr><td colspan="7" class="muted">暂无报告</td></tr>'
     body = f"""
 {nav("reports")}
-<table>
+<div class="card table-scroll"><table>
 <thead>
 <tr><th>周编号</th><th>统计周期（周一至周日）</th><th>生成时间</th><th>状态</th><th>错误信息</th><th>下载</th><th>重新生成</th></tr>
 </thead>
 <tbody>
 {rows}
 </tbody>
-</table>"""
+</table></div>"""
     return page("报告列表", body, status_note=note)
 
 
@@ -108,9 +108,19 @@ def _report_row(entry: ReportListEntry, csrf_token: str) -> str:
         else '<span class="muted">无</span>'
     )
     error_cell = esc(entry.last_error) if entry.last_error else '<span class="muted">—</span>'
-    status_cell = esc(entry.status_text)
+    badge_class = (
+        "success"
+        if "成功" in entry.status_text
+        else "failed"
+        if "失败" in entry.status_text
+        else "pending"
+    )
+    status_cell = f'<span class="badge {badge_class}">{esc(entry.status_text)}</span>'
     if entry.job_status_text:
-        status_cell += f'<br><span class="muted">{esc(entry.job_status_text)}</span>'
+        job_badge = "failed" if "失败" in entry.job_status_text else "pending"
+        status_cell += (
+            f'<br><span class="badge {job_badge}">{esc(entry.job_status_text)}</span>'
+        )
     if entry.job_error:
         # The job's sanitized error (failed attempt or install-pending) is
         # device/DB-derived text — escaped like everything else.
@@ -152,6 +162,7 @@ class InterfaceListEntry:
     description: str | None
     admin_state: str | None
     oper_state: str | None
+    speed_bps: int | None
     is_aggregation: bool
     monitored: bool
     # Member display names when this interface is an aggregation.
@@ -167,50 +178,73 @@ def interfaces_page(
     csrf_token: str,
     *,
     note: str | None = None,
+    job_id: int | None = None,
 ) -> str:
     """The priority-interface configuration page (§11/§12): device
     selection, interface name/description, current admin/oper state,
-    aggregation/member relationship and the monitored toggle. Toggling
-    never cascades — the W02-T005 service enforces that server-side."""
+    aggregation/member relationship and independent monitored checkboxes."""
 
     if devices:
-        device_links = " | ".join(
-            _device_link(device, selected_device) for device in devices
+        device_links = "".join(
+            _device_link(device, selected_device, csrf_token) for device in devices
         )
-        device_html = f"<p>选择设备：{device_links}</p>"
+        device_html = f'<div class="device-tabs" aria-label="选择设备">{device_links}</div>'
     else:
         device_html = '<p class="muted">尚未发现设备。设备清单由 inventory 同步与采集自动发现。</p>'
 
     if selected_device is None:
         table_html = '<p class="muted">请先选择一台设备。</p>'
     elif entries:
-        rows = "".join(_interface_row(entry, csrf_token) for entry in entries)
+        rows = "".join(_interface_row(entry) for entry in entries)
         table_html = f"""
-<table>
+<section class="card">
+<div class="toolbar"><label>搜索接口或描述
+<input id="interface-search" type="search" placeholder="输入名称或描述"></label>
+<span id="selected-count" class="muted"></span></div>
+<form method="post" action="/interfaces/{selected_device.device_id}/monitored">
+{hidden_csrf(csrf_token)}
+<div class="table-scroll"><table id="interface-table">
 <thead>
-<tr><th>接口名</th><th>描述</th><th>Admin</th><th>Oper</th><th>聚合关系</th><th>重点监控</th></tr>
+<tr><th>重点</th><th>接口名</th><th>描述</th><th>Admin</th><th>Oper</th><th>速率</th><th>聚合关系</th></tr>
 </thead>
 <tbody>
 {rows}
 </tbody>
-</table>"""
+</table></div><button type="submit">保存重点接口</button></form></section>"""
     else:
         table_html = '<p class="muted">该设备暂无已发现接口。</p>'
 
     body = f"""
 {nav("interfaces")}
 {device_html}
+{_discovery_status(selected_device, job_id, csrf_token)}
 {table_html}"""
     return page("重点接口配置", body, status_note=note)
 
 
-def _device_link(device: DeviceEntry, selected: DeviceEntry | None) -> str:
-    if selected is not None and device.device_id == selected.device_id:
-        return f"<strong>{esc(device.name)}</strong>"
-    return f'<a href="/interfaces?device_id={device.device_id}">{esc(device.name)}</a>'
+def _device_link(device: DeviceEntry, selected: DeviceEntry | None, csrf_token: str) -> str:
+    active = " active" if selected is not None and device.device_id == selected.device_id else ""
+    return (
+        f'<form method="post" action="/interfaces/{device.device_id}/discover" class="inline">'
+        f'{hidden_csrf(csrf_token)}<button class="device-tab{active}" type="submit">'
+        f"{esc(device.name)}</button></form>"
+    )
 
 
-def _interface_row(entry: InterfaceListEntry, csrf_token: str) -> str:
+def _discovery_status(selected: DeviceEntry | None, job_id: int | None, csrf_token: str) -> str:
+    if selected is None or job_id is None:
+        return ""
+    return (
+        f'<div id="discovery-status" class="alert" '
+        f'data-status-url="/interfaces/{selected.device_id}/discovery/{job_id}" '
+        f'data-return-url="/interfaces?device_id={selected.device_id}">正在获取接口...'
+        f'<form method="post" action="/interfaces/{selected.device_id}/discover" '
+        'class="retry-form">'
+        f'{hidden_csrf(csrf_token)}<button type="submit">重新获取</button></form></div>'
+    )
+
+
+def _interface_row(entry: InterfaceListEntry) -> str:
     description = entry.description if entry.description else "—"
     admin_state = entry.admin_state if entry.admin_state else "数据缺失"
     oper_state = entry.oper_state if entry.oper_state else "数据缺失"
@@ -230,27 +264,18 @@ def _interface_row(entry: InterfaceListEntry, csrf_token: str) -> str:
         relationship_parts.append("属于聚合：" + ", ".join(esc(name) for name in entry.member_of))
     relationship = "<br>".join(relationship_parts) if relationship_parts else "—"
 
-    if entry.monitored:
-        toggle = f"""
-<form class="inline" method="post" action="/interfaces/{entry.interface_id}/monitored">
-{hidden_csrf(csrf_token)}
-<button name="monitored" value="false">取消监控</button>
-</form>"""
-        status = "是"
-    else:
-        toggle = f"""
-<form class="inline" method="post" action="/interfaces/{entry.interface_id}/monitored">
-{hidden_csrf(csrf_token)}
-<button name="monitored" value="true">设为监控</button>
-</form>"""
-        status = "否"
+    checked = " checked" if entry.monitored else ""
+    speed = f"{entry.speed_bps / 1_000_000_000:g} Gbps" if entry.speed_bps else "—"
+    search = esc(f"{entry.display_name} {entry.description or ''}".lower())
 
     return f"""
-<tr>
+<tr data-search="{search}">
+<td><input type="checkbox" name="interface_id" value="{entry.interface_id}"{checked}
+aria-label="监控 {esc(entry.display_name)}"></td>
 <td>{esc(entry.display_name)}</td>
 <td>{esc(description)}</td>
 <td>{esc(admin_state)}</td>
 <td>{esc(oper_state)}</td>
+<td>{esc(speed)}</td>
 <td>{relationship}</td>
-<td>{esc(status)}{toggle}</td>
 </tr>"""

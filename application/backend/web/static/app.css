@@ -1,0 +1,45 @@
+/* Network Weekly operations UI. Locally bundled; no external assets. */
+:root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #172b4d; background: #f4f7fb; }
+* { box-sizing: border-box; }
+body { margin: 0; line-height: 1.55; }
+.shell { max-width: 1180px; margin: auto; padding: 0 1.25rem 3rem; }
+.site-header { padding: 1.2rem 0; border-bottom: 1px solid #dbe3ed; }
+.brand { color: #173b6d; font-weight: 750; text-decoration: none; letter-spacing: .01em; }
+main { padding-top: 1.5rem; }
+h1 { font-size: 1.6rem; margin: 0 0 1.25rem; letter-spacing: -.02em; }
+p { margin: .65rem 0; }
+a { color: #14589b; }
+a:hover { color: #0d3c71; }
+.nav { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 1.3rem; }
+.nav a, .nav strong { text-decoration: none; padding: .5rem .85rem; border-radius: .6rem; }
+.nav strong { background: #dceaf9; color: #164574; }
+.card { background: white; border: 1px solid #dbe3ed; border-radius: .85rem; padding: 1.25rem; box-shadow: 0 3px 18px #16375b0a; margin: 1rem 0; }
+.login-card { max-width: 420px; margin: 7vh auto; }
+label { font-weight: 600; }
+input:not([type=checkbox]) { display: block; width: 100%; max-width: 32rem; margin: .3rem 0 .85rem; padding: .65rem .8rem; border: 1px solid #b9c8d9; border-radius: .55rem; font: inherit; }
+input[type=checkbox] { width: 1.15rem; height: 1.15rem; accent-color: #1766af; cursor: pointer; }
+button { background: #1766af; color: white; border: 1px solid #1766af; border-radius: .55rem; padding: .55rem .85rem; font: inherit; font-weight: 600; cursor: pointer; }
+button:hover { background: #104e87; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #81b8ef; outline-offset: 2px; }
+form.inline { display: inline; }
+.table-scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 680px; margin: .3rem 0 1rem; }
+th, td { text-align: left; padding: .7rem .65rem; border-bottom: 1px solid #e4eaf1; vertical-align: top; }
+th { color: #52657a; background: #f6f9fc; font-size: .85rem; white-space: nowrap; }
+tr:hover td { background: #f8fbff; }
+.badge { display: inline-block; padding: .15rem .55rem; border-radius: 99px; font-size: .82rem; font-weight: 650; white-space: nowrap; }
+.badge.success, .ok { color: #176443; }
+.badge.success { background: #ddf5e8; }
+.badge.failed, .error { color: #a62936; }
+.badge.failed { background: #fde6e8; }
+.badge.pending { color: #875b14; background: #fff0d0; }
+.note, .alert { border: 1px solid #b6d5f4; border-radius: .6rem; background: #eaf4ff; padding: .75rem 1rem; margin: 1rem 0; }
+.error { font-weight: 650; }
+.muted { color: #687b90; }
+.device-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+.device-tab { background: white; color: #27537e; border-color: #b9c8d9; }
+.device-tab.active { background: #dceaf9; border-color: #83afd9; color: #164574; }
+.toolbar { display: flex; align-items: end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.retry-form { display: none; margin-top: .7rem; }
+.alert.failed .retry-form { display: block; }
+@media (max-width: 600px) { .shell { padding: 0 .8rem 2rem; } .card { padding: .85rem; } h1 { font-size: 1.35rem; } }

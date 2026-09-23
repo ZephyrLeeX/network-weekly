@@ -14,8 +14,10 @@ endpoint: worker heartbeat is an independent check stored in PostgreSQL.
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -49,6 +51,7 @@ app = FastAPI(
 app.include_router(web_router)
 app.include_router(reports_router)
 app.include_router(interfaces_router)
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "web" / "static"), name="static")
 app.add_exception_handler(LoginRequired, login_required_redirect)
 
 

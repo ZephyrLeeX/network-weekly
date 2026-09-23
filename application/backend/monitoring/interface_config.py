@@ -31,6 +31,18 @@ class InterfaceNotFoundError(ValueError):
     """Raised when an interface id does not exist (page-level 404 input)."""
 
 
+def set_monitored_for_device(session: Session, device_id: int, selected_ids: set[int]) -> None:
+    """Replace one device's selection atomically; aggregation rows stay independent."""
+
+    rows = (
+        session.execute(select(Interface).where(Interface.device_id == device_id)).scalars().all()
+    )
+    if not selected_ids.issubset({row.id for row in rows}):
+        raise InterfaceNotFoundError("interface does not belong to device")
+    for row in rows:
+        row.monitored = row.id in selected_ids
+
+
 def set_monitored(session: Session, interface_id: int, monitored: bool) -> Interface:
     """Set one interface's monitored flag; nothing else is ever touched.
 
@@ -62,6 +74,7 @@ class InterfaceOverviewRow:
     description: str | None
     admin_state: str | None
     oper_state: str | None
+    speed_bps: int | None
     is_aggregation: bool
     monitored: bool
     # Member interface display names when this row is an aggregation.
@@ -111,11 +124,10 @@ def interface_overview(session: Session, device_id: int) -> list[InterfaceOvervi
             description=interface.description,
             admin_state=interface.admin_state,
             oper_state=interface.oper_state,
+            speed_bps=interface.speed_bps,
             is_aggregation=interface.is_aggregation,
             monitored=interface.monitored,
-            aggregation_members=tuple(
-                sorted(members_by_aggregate.get(interface.id, []))
-            ),
+            aggregation_members=tuple(sorted(members_by_aggregate.get(interface.id, []))),
             member_of=tuple(sorted(aggregates_of_member.get(interface.id, []))),
         )
         for interface in interfaces

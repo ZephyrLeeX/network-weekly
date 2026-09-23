@@ -15,7 +15,14 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from backend.auth.admin import initialize_admin
-from backend.db.models import AggregationMember, Device, Interface, User, UserSession
+from backend.db.models import (
+    AggregationMember,
+    Device,
+    Interface,
+    InterfaceDiscoveryJob,
+    User,
+    UserSession,
+)
 from backend.main import app
 
 pytestmark = pytest.mark.integration
@@ -29,6 +36,7 @@ def _admin(db_engine: Engine) -> Iterator[None]:
     with Session(db_engine) as session:
         session.query(UserSession).delete()
         session.query(User).delete()
+        session.query(InterfaceDiscoveryJob).delete()
         session.query(AggregationMember).delete()
         session.query(Interface).delete()
         session.query(Device).delete()
@@ -38,6 +46,7 @@ def _admin(db_engine: Engine) -> Iterator[None]:
     with Session(db_engine) as session:
         session.query(UserSession).delete()
         session.query(User).delete()
+        session.query(InterfaceDiscoveryJob).delete()
         session.query(AggregationMember).delete()
         session.query(Interface).delete()
         session.query(Device).delete()
@@ -125,6 +134,7 @@ def topology(db_engine: Engine) -> dict[str, int]:
 def test_unauthenticated_interface_page_is_denied(db_engine: Engine) -> None:
     with TestClient(app, follow_redirects=False) as bare:
         assert bare.get("/interfaces").status_code == 303
+        assert bare.post("/interfaces/1/discover", data={}).status_code == 303
         assert bare.post("/interfaces/1/monitored", data={}).status_code == 303
 
 
@@ -141,7 +151,7 @@ def test_page_lists_devices_for_selection(
     page = client.get("/interfaces")
 
     assert page.status_code == 200
-    assert f'href="/interfaces?device_id={topology["device_id"]}"' in page.text
+    assert f'action="/interfaces/{topology["device_id"]}/discover"' in page.text
     assert "core-irf" in page.text
 
 
@@ -160,89 +170,88 @@ def test_device_page_shows_names_states_and_relationships(
     # Aggregation/member relationship display (§11).
     assert "聚合接口（成员：Ten-GigabitEthernet1/0/1, Ten-GigabitEthernet1/0/2）" in text
     # All discovered interfaces default to unmonitored (§12).
-    assert text.count(">否") == 3
-    assert "设为监控" in text
+    assert text.count('type="checkbox"') == 3
+    assert "保存重点接口" in text
 
 
-def test_toggle_monitored_on_and_off_via_web(
+def test_bulk_selection_and_empty_clear(
     client: TestClient, db_engine: Engine, topology: dict[str, int]
 ) -> None:
     device_id = topology["device_id"]
+    aggregate_id = topology["aggregate_id"]
     member_id = topology["member1_id"]
     csrf = _csrf(client)
-
     on = client.post(
-        f"/interfaces/{member_id}/monitored",
-        data={"monitored": "true", "csrf_token": csrf},
+        f"/interfaces/{device_id}/monitored",
+        data={"interface_id": [str(aggregate_id), str(member_id)], "csrf_token": csrf},
     )
     assert on.status_code == 303
-    assert f"/interfaces?device_id={device_id}" in on.headers["location"]
-
     with Session(db_engine) as session:
-        assert session.get(Interface, member_id) is not None
+        assert session.get(Interface, aggregate_id).monitored  # type: ignore[union-attr]
         assert session.get(Interface, member_id).monitored  # type: ignore[union-attr]
-    assert "是" in client.get(f"/interfaces?device_id={device_id}").text
-    assert "取消监控" in client.get(f"/interfaces?device_id={device_id}").text
-
-    off = client.post(
-        f"/interfaces/{member_id}/monitored",
-        data={"monitored": "false", "csrf_token": csrf},
-    )
+        assert not session.get(Interface, topology["member2_id"]).monitored  # type: ignore[union-attr]
+    off = client.post(f"/interfaces/{device_id}/monitored", data={"csrf_token": csrf})
     assert off.status_code == 303
     with Session(db_engine) as session:
-        assert session.get(Interface, member_id) is not None
+        assert not session.get(Interface, aggregate_id).monitored  # type: ignore[union-attr]
         assert not session.get(Interface, member_id).monitored  # type: ignore[union-attr]
 
 
-def test_aggregation_toggle_never_toggles_members(
+def test_bulk_rejects_cross_device_and_bad_csrf(
     client: TestClient, db_engine: Engine, topology: dict[str, int]
 ) -> None:
-    """§11 through the web route: selecting the aggregate selects ONLY it."""
-
-    csrf = _csrf(client)
-
-    client.post(
-        f"/interfaces/{topology['aggregate_id']}/monitored",
-        data={"monitored": "true", "csrf_token": csrf},
-    )
-
     with Session(db_engine) as session:
-        assert session.get(Interface, topology["aggregate_id"]).monitored is True  # type: ignore[union-attr]
-        assert session.get(Interface, topology["member1_id"]).monitored is False  # type: ignore[union-attr]
-        assert session.get(Interface, topology["member2_id"]).monitored is False  # type: ignore[union-attr]
-
-    # A member can then be selected independently (and the aggregate stays).
-    client.post(
-        f"/interfaces/{topology['member2_id']}/monitored",
-        data={"monitored": "true", "csrf_token": csrf},
+        other = Device(
+            name="other",
+            management_ip="192.0.2.99",
+            model_family="s12500",
+            credential_profile="other",
+        )
+        session.add(other)
+        session.flush()
+        foreign = Interface(device_id=other.id, normalized_name="x", display_name="x")
+        session.add(foreign)
+        session.commit()
+        foreign_id = foreign.id
+    device_id = topology["device_id"]
+    url = f"/interfaces/{device_id}/monitored"
+    assert (
+        client.post(
+            url, data={"interface_id": str(foreign_id), "csrf_token": _csrf(client)}
+        ).status_code
+        == 404
     )
+    assert client.post(url, data={"interface_id": str(topology["member1_id"])}).status_code == 403
     with Session(db_engine) as session:
-        assert session.get(Interface, topology["aggregate_id"]).monitored is True  # type: ignore[union-attr]
-        assert session.get(Interface, topology["member1_id"]).monitored is False  # type: ignore[union-attr]
-        assert session.get(Interface, topology["member2_id"]).monitored is True  # type: ignore[union-attr]
+        assert not session.get(Interface, topology["member1_id"]).monitored  # type: ignore[union-attr]
 
 
-def test_toggle_requires_valid_csrf(
+def test_discovery_post_and_status(
     client: TestClient, db_engine: Engine, topology: dict[str, int]
 ) -> None:
-    missing = client.post(f"/interfaces/{topology['member1_id']}/monitored", data={})
-    forged = client.post(
-        f"/interfaces/{topology['member1_id']}/monitored",
-        data={"monitored": "true", "csrf_token": "forged"},
-    )
-
-    assert missing.status_code == 403
-    assert forged.status_code == 403
+    device_id = topology["device_id"]
+    url = f"/interfaces/{device_id}/discover"
+    assert client.post(url, data={}).status_code == 403
+    first = client.post(url, data={"csrf_token": _csrf(client)})
+    assert first.status_code == 303
+    second = client.post(url, data={"csrf_token": _csrf(client)})
+    assert second.headers["location"] == first.headers["location"]
     with Session(db_engine) as session:
-        assert session.get(Interface, topology["member1_id"]).monitored is False  # type: ignore[union-attr]
+        jobs = session.query(InterfaceDiscoveryJob).all()
+        assert len(jobs) == 1
+        job_id = jobs[0].id
+    status = client.get(f"/interfaces/{device_id}/discovery/{job_id}")
+    assert status.json() == {"id": job_id, "status": "pending", "error": ""}
+    assert "正在获取接口" in client.get(first.headers["location"]).text
+    assert client.get(f"/interfaces/{device_id}/discovery/999999").status_code == 404
 
 
-def test_toggle_unknown_interface_is_denied(client: TestClient) -> None:
-    response = client.post(
-        "/interfaces/999999/monitored", data={"monitored": "true", "csrf_token": _csrf(client)}
-    )
-
-    assert response.status_code == 404
+def test_static_assets_are_local(client: TestClient) -> None:
+    page = client.get("/reports")
+    assert "/static/app.css" in page.text and "/static/app.js" in page.text
+    assert "https://" not in page.text and "http://" not in page.text
+    assert client.get("/static/app.css").status_code == 200
+    assert client.get("/static/app.js").status_code == 200
 
 
 def test_unknown_device_id_renders_selection_list(
@@ -255,9 +264,7 @@ def test_unknown_device_id_renders_selection_list(
         assert "请先选择一台设备" in page.text
 
 
-def test_relationship_names_are_html_escaped(
-    client: TestClient, db_engine: Engine
-) -> None:
+def test_relationship_names_are_html_escaped(client: TestClient, db_engine: Engine) -> None:
     """W04-AUDIT: interface/aggregation names are device-reported text and
     untrusted — a stored <script>/<img onerror> name may only ever reach
     the page as escaped text, in the relationship cell like everywhere else."""
@@ -290,9 +297,7 @@ def test_relationship_names_are_html_escaped(
         session.add_all([aggregate, member])
         session.flush()
         session.add(
-            AggregationMember(
-                aggregation_interface_id=aggregate.id, member_interface_id=member.id
-            )
+            AggregationMember(aggregation_interface_id=aggregate.id, member_interface_id=member.id)
         )
         session.commit()
         device_id = device.id
