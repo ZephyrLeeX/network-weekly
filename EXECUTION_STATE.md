@@ -4,7 +4,7 @@
 
 Status: IMPLEMENTED / FIELD_REVALIDATION_PENDING (2026-09-23), branch
 work/wave-05; implementation checkpoint
-213ac49a4905fb4abb290476b6c358a245f09dfc. Previous low-impact polling
+213ac4983325d8288fc53ac1fd78ded2a3172a68. Previous low-impact polling
 checkpoint: 4c4466e13c23937934f11befaac1f6592f549ba9. The system is explicitly a
 weekly-report and weekly-trend collector, not a real-time NMS/alarm platform.
 Production defaults are now DEVICE_POLL 1800 s, IRF observation 1800 s,
@@ -65,9 +65,9 @@ Master+Loading -> Master and Standby+Loading -> None. Checkpoint
 a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87 remains the historical parser
 compatibility checkpoint. The next field revalidation must use the full
 low-impact polling application checkpoint
-213ac49a4905fb4abb290476b6c358a245f09dfc. The previous low-impact polling
+213ac4983325d8288fc53ac1fd78ded2a3172a68. The previous low-impact polling
 checkpoint was 4c4466e13c23937934f11befaac1f6592f549ba9. W01-T007 is NOT REVIEW_PASSED
-until an image from current checkpoint 213ac49a4905fb4abb290476b6c358a245f09dfc
+until an image from current checkpoint 213ac4983325d8288fc53ac1fd78ded2a3172a68
 is deployed back to the field and the exact S12508G-AF model plus both
 normalized Master/Standby IRF role sets are revalidated; Loading does not need
 to be manufactured in the field.
