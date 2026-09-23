@@ -352,6 +352,9 @@ CSRF-protected Web request/status/checkbox flow. Refreshes must leave formal
 polling, incident state, Coverage and `monitored` selections untouched. Bundle
 the operations UI's static assets locally and verify wheel inclusion. This
 engineering work does not close W05-T005, W01-T007, W03-T010 or W05-GATE.
+Device selection requests discovery only before the first cached interface row;
+subsequent selections read PostgreSQL via GET. Later discovery requires the
+administrator's explicit refresh action.
 
 ## Objective
 

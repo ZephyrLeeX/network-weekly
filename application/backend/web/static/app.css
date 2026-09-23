@@ -38,6 +38,7 @@ tr:hover td { background: #f8fbff; }
 .muted { color: #687b90; }
 .device-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
 .device-tab { background: white; color: #27537e; border-color: #b9c8d9; }
+.device-tabs a.device-tab { display: inline-block; text-decoration: none; font-weight: 600; padding: .55rem .85rem; border: 1px solid #b9c8d9; border-radius: .55rem; }
 .device-tab.active { background: #dceaf9; border-color: #83afd9; color: #164574; }
 .toolbar { display: flex; align-items: end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .retry-form { display: none; margin-top: .7rem; }

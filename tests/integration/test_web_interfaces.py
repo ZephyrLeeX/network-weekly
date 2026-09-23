@@ -11,7 +11,7 @@ from collections.abc import Iterator
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from backend.auth.admin import initialize_admin
@@ -151,8 +151,76 @@ def test_page_lists_devices_for_selection(
     page = client.get("/interfaces")
 
     assert page.status_code == 200
-    assert f'action="/interfaces/{topology["device_id"]}/discover"' in page.text
+    assert f'href="/interfaces?device_id={topology["device_id"]}"' in page.text
+    selector_form = (
+        f'<form method="post" action="/interfaces/{topology["device_id"]}/discover" '
+        'class="inline">'
+    )
+    assert selector_form not in page.text
     assert "core-irf" in page.text
+
+
+def test_first_selection_queues_discovery_and_cached_selection_is_read_only(
+    client: TestClient, db_engine: Engine, topology: dict[str, int]
+) -> None:
+    with Session(db_engine) as session:
+        fresh = Device(
+            name="fresh", management_ip="192.0.2.51", model_family="s10500x",
+            credential_profile="default",
+        )
+        session.add(fresh)
+        session.commit()
+        fresh_id = fresh.id
+
+    page = client.get("/interfaces")
+    selector_form = f'<form method="post" action="/interfaces/{fresh_id}/discover" class="inline">'
+    assert selector_form in page.text
+    first = client.post(f"/interfaces/{fresh_id}/discover", data={"csrf_token": _csrf(client)})
+    assert first.status_code == 303
+    assert "正在获取接口" in client.get(first.headers["location"]).text
+    pending = client.get("/interfaces")
+    assert f'href="/interfaces?device_id={fresh_id}"' in pending.text
+    with Session(db_engine) as session:
+        assert session.scalar(select(func.count()).select_from(InterfaceDiscoveryJob)) == 1
+
+    cached_id = topology["device_id"]
+    with Session(db_engine) as session:
+        session.get(Interface, topology["member1_id"]).monitored = True  # type: ignore[union-attr]
+        session.commit()
+    for _ in range(3):
+        selected = client.get(f"/interfaces?device_id={cached_id}")
+        assert selected.status_code == 200
+        assert "刷新接口列表" in selected.text
+    with Session(db_engine) as session:
+        assert session.scalar(select(func.count()).select_from(InterfaceDiscoveryJob)) == 1
+
+    refreshed = client.post(
+        f"/interfaces/{cached_id}/discover", data={"csrf_token": _csrf(client)}
+    )
+    assert refreshed.status_code == 303
+    with Session(db_engine) as session:
+        assert session.scalar(select(func.count()).select_from(InterfaceDiscoveryJob)) == 2
+        assert session.get(Interface, topology["member1_id"]).monitored  # type: ignore[union-attr]
+
+
+def test_first_discovery_failure_keeps_status_and_offers_retry(
+    client: TestClient, db_engine: Engine
+) -> None:
+    with Session(db_engine) as session:
+        device = Device(
+            name="failed-first", management_ip="192.0.2.52", model_family="s10500x",
+            credential_profile="default",
+        )
+        session.add(device)
+        session.flush()
+        job = InterfaceDiscoveryJob(device_id=device.id, status="failed")
+        session.add(job)
+        session.commit()
+        device_id = device.id
+    page = client.get(f"/interfaces?device_id={device_id}")
+    assert "接口获取失败" in page.text
+    assert "重新获取" in page.text
+    assert f'href="/interfaces?device_id={device_id}"' in page.text
 
 
 def test_device_page_shows_names_states_and_relationships(
@@ -243,6 +311,7 @@ def test_discovery_post_and_status(
     status = client.get(f"/interfaces/{device_id}/discovery/{job_id}")
     assert status.json() == {"id": job_id, "status": "pending", "error": ""}
     assert "正在获取接口" in client.get(first.headers["location"]).text
+    assert "正在获取接口" in client.get(f"/interfaces?device_id={device_id}").text
     assert client.get(f"/interfaces/{device_id}/discovery/999999").status_code == 404
 
 

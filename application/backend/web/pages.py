@@ -151,6 +151,9 @@ class DeviceEntry:
 
     device_id: int
     name: str
+    has_interfaces: bool = False
+    discovery_status: str | None = None
+    discovery_job_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -179,6 +182,7 @@ def interfaces_page(
     *,
     note: str | None = None,
     job_id: int | None = None,
+    job_status: str | None = None,
 ) -> str:
     """The priority-interface configuration page (§11/§12): device
     selection, interface name/description, current admin/oper state,
@@ -217,13 +221,19 @@ def interfaces_page(
     body = f"""
 {nav("interfaces")}
 {device_html}
-{_discovery_status(selected_device, job_id, csrf_token)}
+{_discovery_status(selected_device, job_id, job_status, csrf_token)}
+{_refresh_button(selected_device, csrf_token)}
 {table_html}"""
     return page("重点接口配置", body, status_note=note)
 
 
 def _device_link(device: DeviceEntry, selected: DeviceEntry | None, csrf_token: str) -> str:
     active = " active" if selected is not None and device.device_id == selected.device_id else ""
+    if device.has_interfaces or device.discovery_status is not None:
+        return (
+            f'<a class="device-tab{active}" href="/interfaces?device_id={device.device_id}">'
+            f"{esc(device.name)}</a>"
+        )
     return (
         f'<form method="post" action="/interfaces/{device.device_id}/discover" class="inline">'
         f'{hidden_csrf(csrf_token)}<button class="device-tab{active}" type="submit">'
@@ -231,13 +241,28 @@ def _device_link(device: DeviceEntry, selected: DeviceEntry | None, csrf_token: 
     )
 
 
-def _discovery_status(selected: DeviceEntry | None, job_id: int | None, csrf_token: str) -> str:
-    if selected is None or job_id is None:
+def _refresh_button(selected: DeviceEntry | None, csrf_token: str) -> str:
+    if selected is None or not selected.has_interfaces:
         return ""
     return (
-        f'<div id="discovery-status" class="alert" '
+        '<p class="muted">上次接口缓存已保存，可直接查看下方列表。</p>'
+        f'<form method="post" action="/interfaces/{selected.device_id}/discover">'
+        f'{hidden_csrf(csrf_token)}<button type="submit">刷新接口列表</button></form>'
+    )
+
+
+def _discovery_status(
+    selected: DeviceEntry | None, job_id: int | None, job_status: str | None, csrf_token: str
+) -> str:
+    if selected is None or job_id is None or job_status not in {"pending", "running", "failed"}:
+        return ""
+    failed = job_status == "failed"
+    message = "接口获取失败，请检查设备连接与采集配置后重试。" if failed else "正在获取接口..."
+    css_class = "alert failed" if failed else "alert"
+    return (
+        f'<div id="discovery-status" class="{css_class}" '
         f'data-status-url="/interfaces/{selected.device_id}/discovery/{job_id}" '
-        f'data-return-url="/interfaces?device_id={selected.device_id}">正在获取接口...'
+        f'data-return-url="/interfaces?device_id={selected.device_id}">{message}'
         f'<form method="post" action="/interfaces/{selected.device_id}/discover" '
         'class="retry-form">'
         f'{hidden_csrf(csrf_token)}<button type="submit">重新获取</button></form></div>'

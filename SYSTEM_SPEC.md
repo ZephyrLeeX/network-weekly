@@ -682,7 +682,10 @@ CRC / Error / Drop 观察值不改变总体状态。
 ### 20.0 On-demand interface inventory (2026-09-23 amendment)
 
 The priority-interface page requests a fresh, configuration-only interface
-inventory when an administrator selects a device. The Web process has no
+inventory on first selection only when that device has no `interfaces` rows.
+Once rows exist, device selection uses `GET /interfaces?device_id=<id>` and
+reads the cached database inventory without queuing a job. An explicit
+"刷新接口列表" button requests later refreshes. The Web process has no
 device credentials and never performs SNMP. A CSRF-protected POST creates or
 reuses one active PostgreSQL `interface_discovery_jobs` row per device; the
 worker processes jobs serially using SNMP and persists interface metadata and

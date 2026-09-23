@@ -27,6 +27,14 @@ and app.js. Focused and full integration could not start test cases: the
 test PostgreSQL at `127.0.0.1:15432` timed out, and this environment cannot
 access the Docker API. No integration acceptance or REVIEW_PASSED claimed.
 
+**2026-09-23 selector correction (IN_PROGRESS):** devices without cached
+`interfaces` rows request first discovery on selection. Cached devices select
+via GET and require the explicit "刷新接口列表" POST for later refresh. Active
+jobs remain visible and deduplicated; a failed first discovery retains status
+and "重新获取". Focused page unit tests and full non-integration pytest pass;
+ruff/mypy pass; Alembic head remains 0012. Focused and full PostgreSQL
+integration setup time out at 127.0.0.1:15432. No REVIEW_PASSED claim.
+
 ## Authority
 
 本文件与 `EXECUTION_STATE.md` 是唯一 Task 状态权威来源。

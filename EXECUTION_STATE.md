@@ -1,5 +1,16 @@
 # EXECUTION_STATE.md
 
+## 2026-09-23 W05-UI-DISCOVERY selector correction — active work
+
+On `work/wave-05`, device selection requests discovery only before cached
+`interfaces` rows exist. Cached devices use `GET /interfaces?device_id=<id>`;
+an explicit "刷新接口列表" button performs later discovery POST. Pending/running
+status and failed-first retry remain visible. Worker collector and DEVICE_POLL
+are unchanged. Focused page unit tests and full non-integration pytest pass;
+ruff/mypy pass; Alembic head remains 0012. Focused and full integration setup
+time out on test PostgreSQL at 127.0.0.1:15432; Docker API is denied.
+W05-UI-DISCOVERY remains IN_PROGRESS without a REVIEW_PASSED checkpoint.
+
 ## 2026-09-23 owner amendment — active work
 
 Current branch: `work/wave-05`, base `16e88c4966dbeceee51451647c2529922f53ec25`.
