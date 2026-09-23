@@ -77,17 +77,28 @@ def _to_python(value: Any) -> Any:
         return str(value)
     if isinstance(value, rfc1902.IpAddress):
         return str(value)
-    if isinstance(value, (rfc1905.NoSuchObject, rfc1905.NoSuchInstance, rfc1905.EndOfMibView)):
-        return None
-    if isinstance(value, rfc1905.Null):
+    if isinstance(
+        value,
+        (rfc1905.NoSuchObject, rfc1905.NoSuchInstance, rfc1905.EndOfMibView, rfc1902.Null),
+    ):
         return None
     return value.prettyPrint()
 
 
 def _is_missing(value: Any) -> bool:
     return isinstance(
-        value, (rfc1905.NoSuchObject, rfc1905.NoSuchInstance, rfc1905.EndOfMibView, rfc1905.Null)
+        value,
+        (rfc1905.NoSuchObject, rfc1905.NoSuchInstance, rfc1905.EndOfMibView, rfc1902.Null),
     )
+
+
+def _normalize_varbinds(binds: Any) -> list[SnmpVarbind]:
+    """Normalize real PySNMP GET/GETBULK bindings at the transport boundary."""
+
+    return [
+        SnmpVarbind(oid=str(vb[0]), value=None if _is_missing(vb[1]) else _to_python(vb[1]))
+        for vb in binds
+    ]
 
 
 class SnmpClient:
@@ -148,10 +159,7 @@ class SnmpClient:
                 ContextData(),
                 *varbinds,
             )
-            normalized = [
-                SnmpVarbind(oid=str(vb[0]), value=None if _is_missing(vb[1]) else _to_python(vb[1]))
-                for vb in binds
-            ]
+            normalized = _normalize_varbinds(binds)
             return error_indication, error_status, normalized
         finally:
             engine.close_dispatcher()
@@ -176,10 +184,7 @@ class SnmpClient:
                 ObjectType(ObjectIdentity(start_oid)),
                 lexicographicMode=lexicographic_mode,
             )
-            normalized = [
-                SnmpVarbind(oid=str(vb[0]), value=None if _is_missing(vb[1]) else _to_python(vb[1]))
-                for vb in binds
-            ]
+            normalized = _normalize_varbinds(binds)
             return error_indication, error_status, normalized
         finally:
             engine.close_dispatcher()

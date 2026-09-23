@@ -6,8 +6,17 @@ without network access. Real-device reachability is validated in W01-T007.
 """
 
 import pytest
+from pysnmp.proto import rfc1902, rfc1905
 
-from backend.collect.snmp import SnmpClient, SnmpConfig, SnmpError, SnmpVarbind
+from backend.collect.snmp import (
+    SnmpClient,
+    SnmpConfig,
+    SnmpError,
+    SnmpVarbind,
+    _is_missing,
+    _normalize_varbinds,
+    _to_python,
+)
 
 
 class FakeClient(SnmpClient):
@@ -35,6 +44,64 @@ class FakeClient(SnmpClient):
 
 def _client() -> FakeClient:
     return FakeClient(SnmpConfig(host="192.0.2.1", community="unused-in-tests"))
+
+
+def test_real_pysnmp_missing_values_normalize_without_rfc1905_null() -> None:
+    """PySNMP 7.1 keeps Null in rfc1902, unlike SNMP exception values."""
+
+    assert not hasattr(rfc1905, "Null")
+    values = (
+        rfc1902.Null(""),
+        rfc1905.NoSuchObject(""),
+        rfc1905.NoSuchInstance(""),
+        rfc1905.EndOfMibView(""),
+    )
+    for value in values:
+        assert _is_missing(value)
+        assert _to_python(value) is None
+
+
+@pytest.mark.parametrize(
+    "value_type",
+    [
+        rfc1902.Integer,
+        rfc1902.Integer32,
+        rfc1902.Gauge32,
+        rfc1902.Counter32,
+        rfc1902.Counter64,
+        rfc1902.TimeTicks,
+        rfc1902.Unsigned32,
+    ],
+)
+def test_real_pysnmp_integer_values_normalize_to_int(value_type: type[object]) -> None:
+    assert _to_python(value_type(42)) == 42  # type: ignore[call-arg]
+
+
+def test_real_pysnmp_text_and_ip_normalization_is_unchanged() -> None:
+    assert _to_python(rfc1902.OctetString("core-switch")) == "core-switch"
+    ip_address = rfc1902.IpAddress("192.0.2.10")
+    assert _to_python(ip_address) == str(ip_address)
+
+
+def test_transport_boundary_normalizes_real_pysnmp_get_and_bulk_values() -> None:
+    """The shared GET/GETBULK path handles real values without network I/O."""
+
+    binds = [
+        (rfc1902.ObjectIdentifier("1.3.6.1.2.1.1.5.0"), rfc1902.OctetString("core")),
+        (rfc1902.ObjectIdentifier("1.3.6.1.2.1.1.3.0"), rfc1902.TimeTicks(123)),
+        (rfc1902.ObjectIdentifier("1.3.6.1.2.1.2.2.1.8.9"), rfc1902.Null("")),
+        (
+            rfc1902.ObjectIdentifier("1.3.6.1.2.1.2.2.1.10.9"),
+            rfc1905.NoSuchInstance(""),
+        ),
+    ]
+
+    assert _normalize_varbinds(binds) == [
+        SnmpVarbind("1.3.6.1.2.1.1.5.0", "core"),
+        SnmpVarbind("1.3.6.1.2.1.1.3.0", 123),
+        SnmpVarbind("1.3.6.1.2.1.2.2.1.8.9", None),
+        SnmpVarbind("1.3.6.1.2.1.2.2.1.10.9", None),
+    ]
 
 
 def test_get_normalizes_agent_error() -> None:
