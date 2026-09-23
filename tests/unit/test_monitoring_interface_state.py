@@ -17,6 +17,7 @@ from backend.monitoring.sustained import (
 
 T0 = datetime(2026, 9, 5, 8, 0, 0, tzinfo=UTC)
 STEP = timedelta(minutes=5)
+SUSTAINED_STEP = timedelta(minutes=30)
 FRESH = InterfaceTracking()
 
 
@@ -93,26 +94,26 @@ def test_failed_recovery_run_interrupted_by_down() -> None:
 
 
 def _series(values: list[float | None]) -> list[tuple[datetime, float | None]]:
-    return [(T0 + i * STEP, value) for i, value in enumerate(values)]
+    return [(T0 + i * SUSTAINED_STEP, value) for i, value in enumerate(values)]
 
 
-def test_three_consecutive_samples_at_threshold_confirm() -> None:
-    """§14: 3 consecutive 5-minute samples at >=80% last 15 minutes."""
+def test_two_consecutive_samples_at_threshold_confirm() -> None:
+    """§14: two consecutive 30-minute samples represent a 60-minute interval."""
 
-    intervals = find_sustained_high_intervals(_series([85, 80, 80, 40]), 80.0)
+    intervals = find_sustained_high_intervals(_series([85, 80, 40]), 80.0)
     assert len(intervals) == 1
     assert intervals[0].start == T0
-    assert intervals[0].end == T0 + 3 * STEP  # exclusive end of the last slot
-    assert intervals[0].sample_count == 3
-    assert intervals[0].duration_seconds == 900.0
+    assert intervals[0].end == T0 + 2 * SUSTAINED_STEP
+    assert intervals[0].sample_count == 2
+    assert intervals[0].duration_seconds == 3600.0
 
 
 def test_interval_end_is_exclusive_per_sample_slot() -> None:
     """duration = sample_count * sample_interval, not (last - first)."""
 
     intervals = find_sustained_high_intervals(_series([90, 90, 90]), 80.0)
-    assert intervals[0].duration_seconds == 3 * STEP.total_seconds()
-    assert intervals[0].end - intervals[0].start == 3 * STEP
+    assert intervals[0].duration_seconds == 3 * SUSTAINED_STEP.total_seconds()
+    assert intervals[0].end - intervals[0].start == 3 * SUSTAINED_STEP
 
 
 def test_custom_sample_interval_is_honored() -> None:
@@ -130,8 +131,8 @@ def test_non_positive_sample_interval_is_rejected() -> None:
         find_sustained_high_intervals(_series([90] * 3), 80.0, sample_interval=timedelta(0))
 
 
-def test_two_samples_are_not_enough() -> None:
-    assert find_sustained_high_intervals(_series([90, 90, 10, 90, 90]), 80.0) == []
+def test_one_sample_is_not_enough() -> None:
+    assert find_sustained_high_intervals(_series([90, 10, 90]), 80.0) == []
 
 
 def test_missing_sample_breaks_continuity() -> None:
@@ -139,8 +140,8 @@ def test_missing_sample_breaks_continuity() -> None:
 
     intervals = find_sustained_high_intervals(_series([90, None, 90, 90, 90]), 80.0)
     assert len(intervals) == 1
-    assert intervals[0].start == T0 + 2 * STEP
-    assert intervals[0].end == T0 + 5 * STEP
+    assert intervals[0].start == T0 + 2 * SUSTAINED_STEP
+    assert intervals[0].end == T0 + 5 * SUSTAINED_STEP
 
 
 def test_long_run_is_one_interval() -> None:
@@ -148,8 +149,8 @@ def test_long_run_is_one_interval() -> None:
     assert len(intervals) == 1
     assert intervals[0].sample_count == 6
     assert intervals[0].start == T0
-    assert intervals[0].end == T0 + 6 * STEP
-    assert intervals[0].duration_seconds == 1800.0
+    assert intervals[0].end == T0 + 6 * SUSTAINED_STEP
+    assert intervals[0].duration_seconds == 10800.0
 
 
 def test_two_separate_runs_are_two_intervals() -> None:

@@ -123,6 +123,19 @@ def test_app_runs_in_production_mode_with_container_paths() -> None:
         assert env["NETWORK_REPORT_DATA_DIR"] == "/var/lib/network-report", name
 
 
+def test_low_impact_polling_defaults_are_wired_to_services() -> None:
+    services = _load()["services"]
+    assert services["web"]["environment"]["NETWORK_REPORT_POLL_INTERVAL_SECONDS"] == (
+        "${NETWORK_REPORT_POLL_INTERVAL_SECONDS:-1800}"
+    )
+    worker = services["worker"]["environment"]
+    assert worker["NETWORK_REPORT_POLL_INTERVAL_SECONDS"].endswith(":-1800}")
+    assert worker["NETWORK_REPORT_IRF_INTERVAL_SECONDS"].endswith(":-1800}")
+    assert worker["NETWORK_REPORT_POLL_MAX_WORKERS"].endswith(":-3}")
+    assert worker["NETWORK_REPORT_POLL_STAGGER_SECONDS"].endswith(":-20}")
+    assert worker["NETWORK_REPORT_POLL_DEADLINE_SECONDS"].endswith(":-240}")
+
+
 def test_postgres_is_not_published_to_the_host() -> None:
     # The dev compose publishes a loopback port for host-side test runs;
     # production has no such need and must not expose the database.

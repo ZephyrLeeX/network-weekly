@@ -34,7 +34,7 @@ from backend.reporting.service import (
 pytestmark = pytest.mark.integration
 
 PERIOD = period_for_iso_week(2026, 36)  # [2026-08-31, 2026-09-07) Shanghai
-STEP = timedelta(minutes=5)
+STEP = timedelta(minutes=30)
 
 
 @pytest.fixture(autouse=True)
@@ -90,7 +90,7 @@ def _good_week(session: Session, device_id: int, cycles: int = 10) -> None:
     session.flush()
 
 
-_FULL_WEEK_CYCLES = 7 * 24 * 12  # §18.1: 2016 planned cycles
+_FULL_WEEK_CYCLES = 7 * 24 * 2
 
 
 def _full_good_week(session: Session, device_id: int) -> None:
@@ -267,10 +267,10 @@ def test_open_interface_incident_is_abnormal(db_engine: Engine) -> None:
 def test_cpu_sustained_high_is_attention(db_engine: Engine) -> None:
     with Session(db_engine) as session:
         device = _device(session, "core-1")
-        _good_week(session, device.id, cycles=2010)
-        # 3 consecutive 90% samples at the end confirm sustained high (§14).
-        for i in range(3):
-            cycle = PERIOD.start + (2010 + i) * STEP
+        _good_week(session, device.id, cycles=330)
+        # Two consecutive 90% samples confirm sustained high (§14).
+        for i in range(2):
+            cycle = PERIOD.start + (330 + i) * STEP
             run = DevicePollRun(device_id=device.id, cycle_started_at=cycle, status="SUCCESS")
             session.add(run)
             session.flush()

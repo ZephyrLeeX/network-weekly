@@ -223,6 +223,56 @@ def test_outcome_defaults_and_status_rules() -> None:
     assert empty.has_valid_data() is False
 
 
+def test_poll_deadline_keeps_successful_sections_and_stops_new_sections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [0.0]
+    calls: list[str] = []
+    _stub_collect(monkeypatch, failures={})
+
+    def identity(client: object) -> DeviceIdentity:
+        calls.append("identity")
+        now[0] = 3.0
+        return DeviceIdentity(None, None, None, None)
+
+    monkeypatch.setattr("backend.collect.session.collect_identity", identity)
+    outcome = run_collection(
+        SNMP,
+        SSH,
+        "core-s10500x-01",
+        deadline_seconds=2,
+        monotonic_clock=lambda: now[0],
+    )
+
+    assert calls == ["identity"]
+    assert outcome.identity is not None
+    assert outcome.overall_status == PARTIAL
+    assert outcome.deadline_exceeded is True
+    assert outcome.ssh_reachable is None
+
+
+def test_poll_deadline_before_any_section_is_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    _stub_collect(monkeypatch, failures={})
+    monkeypatch.setattr(
+        "backend.collect.session.collect_identity",
+        lambda client: calls.append("identity"),
+    )
+    outcome = run_collection(
+        SNMP,
+        SSH,
+        "core-s10500x-01",
+        deadline_seconds=0,
+        monotonic_clock=lambda: 10.0,
+    )
+    assert calls == []
+    assert outcome.overall_status == FAILED
+    assert outcome.deadline_exceeded is True
+    assert outcome.ssh_reachable is None
+
+
 def test_static_ssh_collection_success() -> None:
     software = DeviceSoftwareInfo(version="7.1.070", release="7596P10", model="S10508X")
     members = [

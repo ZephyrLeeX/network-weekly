@@ -85,7 +85,7 @@ def advance_cycle_state(
     tracking: CycleTracking,
     observation: ReachabilityObservation,
     *,
-    interval: timedelta = timedelta(seconds=300),
+    interval: timedelta = timedelta(minutes=30),
 ) -> ReachabilityDecision:
     """Pure §9 transition for one cycle."""
 
@@ -207,7 +207,7 @@ def apply_device_reachability(
     device_id: int,
     observation: ReachabilityObservation,
     *,
-    interval: timedelta = timedelta(seconds=300),
+    interval: timedelta = timedelta(minutes=30),
 ) -> ReachabilityDecision:
     """Persist one cycle's reachability transition + incident records (§9.4)."""
 

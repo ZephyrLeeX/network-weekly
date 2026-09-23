@@ -18,6 +18,11 @@ def test_defaults_are_foundation_values(monkeypatch: pytest.MonkeyPatch) -> None
         "NETWORK_REPORT_WORKER_ID",
         "NETWORK_REPORT_HEARTBEAT_INTERVAL_SECONDS",
         "NETWORK_REPORT_RETENTION_DAYS",
+        "NETWORK_REPORT_POLL_INTERVAL_SECONDS",
+        "NETWORK_REPORT_IRF_INTERVAL_SECONDS",
+        "NETWORK_REPORT_POLL_MAX_WORKERS",
+        "NETWORK_REPORT_POLL_STAGGER_SECONDS",
+        "NETWORK_REPORT_POLL_DEADLINE_SECONDS",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -34,6 +39,11 @@ def test_defaults_are_foundation_values(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.heartbeat_interval_seconds == 30
     # §24: raw data is kept 90 days by default.
     assert settings.retention_days == 90
+    assert settings.poll_interval_seconds == 1800
+    assert settings.irf_interval_seconds == 1800
+    assert settings.poll_max_workers == 3
+    assert settings.poll_stagger_seconds == 20
+    assert settings.poll_deadline_seconds == 240
 
 
 def test_timezone_is_explicit_not_inherited_from_host(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -53,6 +63,11 @@ def test_environment_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NETWORK_REPORT_LOG_LEVEL", "debug")
     monkeypatch.setenv("NETWORK_REPORT_WORKER_ID", "worker-7")
     monkeypatch.setenv("NETWORK_REPORT_HEARTBEAT_INTERVAL_SECONDS", "15")
+    monkeypatch.setenv("NETWORK_REPORT_POLL_INTERVAL_SECONDS", "3600")
+    monkeypatch.setenv("NETWORK_REPORT_IRF_INTERVAL_SECONDS", "1200")
+    monkeypatch.setenv("NETWORK_REPORT_POLL_MAX_WORKERS", "5")
+    monkeypatch.setenv("NETWORK_REPORT_POLL_STAGGER_SECONDS", "7")
+    monkeypatch.setenv("NETWORK_REPORT_POLL_DEADLINE_SECONDS", "300")
 
     settings = load_settings()
 
@@ -63,6 +78,11 @@ def test_environment_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.log_level == "DEBUG"
     assert settings.worker_id == "worker-7"
     assert settings.heartbeat_interval_seconds == 15
+    assert settings.poll_interval_seconds == 3600
+    assert settings.irf_interval_seconds == 1200
+    assert settings.poll_max_workers == 5
+    assert settings.poll_stagger_seconds == 7
+    assert settings.poll_deadline_seconds == 300
 
 
 def test_invalid_timezone_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,4 +130,33 @@ def test_retention_days_below_90_is_rejected(
     monkeypatch.setenv("NETWORK_REPORT_RETENTION_DAYS", raw)
 
     with pytest.raises(ConfigError, match="NETWORK_REPORT_RETENTION_DAYS"):
+        load_settings()
+
+
+@pytest.mark.parametrize(
+    ("name", "raw"),
+    [
+        ("NETWORK_REPORT_POLL_INTERVAL_SECONDS", "299"),
+        ("NETWORK_REPORT_POLL_INTERVAL_SECONDS", "3601"),
+        ("NETWORK_REPORT_IRF_INTERVAL_SECONDS", "nope"),
+        ("NETWORK_REPORT_POLL_MAX_WORKERS", "0"),
+        ("NETWORK_REPORT_POLL_MAX_WORKERS", "33"),
+        ("NETWORK_REPORT_POLL_STAGGER_SECONDS", "-1"),
+        ("NETWORK_REPORT_POLL_DEADLINE_SECONDS", "0"),
+    ],
+)
+def test_invalid_polling_settings_fail_fast(
+    monkeypatch: pytest.MonkeyPatch, name: str, raw: str
+) -> None:
+    monkeypatch.setenv(name, raw)
+    with pytest.raises(ConfigError, match=name):
+        load_settings()
+
+
+def test_poll_deadline_must_be_less_than_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NETWORK_REPORT_POLL_INTERVAL_SECONDS", "600")
+    monkeypatch.setenv("NETWORK_REPORT_POLL_DEADLINE_SECONDS", "600")
+    with pytest.raises(ConfigError, match="must be less than"):
         load_settings()

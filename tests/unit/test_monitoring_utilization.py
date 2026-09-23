@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from backend.monitoring.utilization import (
-    MAX_SAMPLE_INTERVAL_SECONDS,
+    DEFAULT_MAX_SAMPLE_INTERVAL_SECONDS,
     PreviousSample,
     compute_utilization,
 )
@@ -101,15 +101,26 @@ def test_non_positive_interval_rebaselines() -> None:
 
 def test_stale_gap_beyond_max_interval_rebaselines() -> None:
     # Exactly three poll cycles (900 s) is still a valid averaging window.
-    beyond = PREV_TIME + timedelta(seconds=MAX_SAMPLE_INTERVAL_SECONDS + 1)
+    beyond = PREV_TIME + timedelta(seconds=DEFAULT_MAX_SAMPLE_INTERVAL_SECONDS + 1)
     result = compute_utilization(_prev(), beyond, 1_750, 2_500, SPEED)
     assert result.rebaselined is True
     assert result.in_utilization_percent is None
 
-    just_within = PREV_TIME + timedelta(seconds=MAX_SAMPLE_INTERVAL_SECONDS)
+    just_within = PREV_TIME + timedelta(seconds=DEFAULT_MAX_SAMPLE_INTERVAL_SECONDS)
     ok = compute_utilization(_prev(), just_within, 1_750, 2_500, SPEED)
     assert ok.rebaselined is False
-    assert ok.elapsed_seconds == MAX_SAMPLE_INTERVAL_SECONDS
+    assert ok.elapsed_seconds == DEFAULT_MAX_SAMPLE_INTERVAL_SECONDS
+
+
+def test_thirty_minute_staggered_sample_uses_actual_elapsed_time() -> None:
+    collected = PREV_TIME + timedelta(minutes=30, seconds=17)
+    elapsed = (collected - PREV_TIME).total_seconds()
+    delta = int(0.8 * elapsed * SPEED / 8)
+    result = compute_utilization(
+        _prev(in_octets=0, out_octets=0), collected, delta, delta, SPEED
+    )
+    assert result.elapsed_seconds == elapsed
+    assert result.in_utilization_percent == pytest.approx(80.0)
 
 
 def test_impossible_utilization_rebaselines() -> None:

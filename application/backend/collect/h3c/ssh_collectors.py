@@ -7,8 +7,8 @@ static data only — never metrics, and never configuration changes
 (SYSTEM_SPEC.md §7.2/§7.4).
 
 Callers decide *when* to run these (the static collection is deliberately
-not part of the 5-minute DEVICE_POLL; the IRF part is sized for the ~15
-minute IRF observation cadence of SYSTEM_SPEC.md §7.3 / Wave 2).
+not part of DEVICE_POLL; the IRF part runs on the configured observation
+cadence of SYSTEM_SPEC.md §7.3 / Wave 2).
 """
 
 import logging

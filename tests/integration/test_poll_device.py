@@ -41,7 +41,7 @@ pytestmark = pytest.mark.integration
 
 CYCLE = datetime(2026, 9, 5, 9, 5, 0, tzinfo=UTC)
 NOW = datetime(2026, 9, 5, 9, 5, 4, tzinfo=UTC)
-STEP = timedelta(seconds=300)
+STEP = timedelta(minutes=30)
 
 
 @pytest.fixture(autouse=True)
@@ -136,6 +136,31 @@ def test_poll_device_failed_collection_still_records_run(
         device = session.get(Device, device_id)
         assert device is not None
         assert device.sys_name is None  # nothing valid: no identity overwrite
+
+
+def test_poll_deadline_persists_partial_data_without_reachability_evidence(
+    db_engine: Engine, device_id: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outcome = DeviceCollectionOutcome(
+        device_name="core-1",
+        sections=[
+            SectionResult("identity", "SUCCESS"),
+            SectionResult("cpu", "FAILED", error="device poll deadline exceeded"),
+        ],
+        identity=DeviceIdentity("core-1", None, None, 5.0),
+        deadline_exceeded=True,
+    )
+    monkeypatch.setattr(poll_module, "run_collection", lambda *a, **k: outcome)
+
+    status = poll_device(
+        _context(device_id), CYCLE, session_factory=sessionmaker(bind=db_engine)
+    )
+    assert status == "PARTIAL"
+    with Session(db_engine) as session:
+        run = session.execute(select(DevicePollRun)).scalar_one()
+        assert run.status == "PARTIAL"
+        assert run.failed_sections == "cpu"
+        assert session.get(DeviceMonitoringState, device_id) is None
 
 
 def _dead(device_name: str, ssh_reachable: bool) -> DeviceCollectionOutcome:

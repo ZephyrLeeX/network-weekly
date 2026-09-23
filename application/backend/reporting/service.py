@@ -34,7 +34,7 @@ template — no external service, no randomness (§19).
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -129,6 +129,7 @@ def build_weekly_report_data(
     period: ReportPeriod,
     *,
     generated_at: datetime | None = None,
+    poll_interval: timedelta = timedelta(minutes=30),
 ) -> WeeklyReportData:
     """Compose every §6 report value for one period from persisted data (§27.10).
 
@@ -138,7 +139,7 @@ def build_weekly_report_data(
 
     generated_at = generated_at or datetime.now(UTC)
 
-    coverage = weekly_coverage(session, period)
+    coverage = weekly_coverage(session, period, poll_interval)
     device_incidents = weekly_device_incidents(session, period)
     interface_incidents = weekly_interface_incidents(session, period)
     irf_summaries = weekly_irf_summaries(session, period)
@@ -154,7 +155,12 @@ def build_weekly_report_data(
     ).all():
         stats = device_resource_statistics(session, device_id, device_name, period)
         sustained = detect_device_sustained_high(
-            session, device_id, period.start, period.end, thresholds=thresholds
+            session,
+            device_id,
+            period.start,
+            period.end,
+            thresholds=thresholds,
+            poll_interval=poll_interval,
         )
         if sustained["cpu"]:
             cpu_sustained += 1
@@ -171,7 +177,9 @@ def build_weekly_report_data(
             )
         )
 
-    high_utilization = _high_utilization_entries(session, period, thresholds)
+    high_utilization = _high_utilization_entries(
+        session, period, thresholds, poll_interval
+    )
 
     overall_status = _overall_status(
         coverage=coverage,
@@ -214,7 +222,10 @@ def build_weekly_report_data(
 
 
 def _high_utilization_entries(
-    session: Session, period: ReportPeriod, thresholds: dict[str, float]
+    session: Session,
+    period: ReportPeriod,
+    thresholds: dict[str, float],
+    poll_interval: timedelta,
 ) -> list[HighUtilizationEntry]:
     """Sustained high-utilization intervals for monitored interfaces (§15.3)."""
 
@@ -227,7 +238,12 @@ def _high_utilization_entries(
     ).all()
     for interface, device_name in monitored:
         intervals = detect_interface_high_utilization(
-            session, interface.id, period.start, period.end, thresholds=thresholds
+            session,
+            interface.id,
+            period.start,
+            period.end,
+            thresholds=thresholds,
+            poll_interval=poll_interval,
         )
         if intervals:
             entries.append(

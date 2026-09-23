@@ -1,15 +1,12 @@
 """Configurable monitoring thresholds and sustained-high detection entry
 points (W02-T007, SYSTEM_SPEC.md §14/§15.3).
 
-Defaults per spec:
-
-    CPU >= 80% for 15 minutes        (3 consecutive 5-minute samples)
-    Memory >= 80% for 15 minutes     (3 consecutive 5-minute samples)
-    Priority interface utilization >= 80% for 15 minutes
+Defaults per spec are 2 consecutive valid samples at the configured poll
+interval (60 minutes at the production 30-minute interval).
 
 Thresholds are stored in `system_settings` (migration 0006) and are
 therefore runtime-configurable without a redeploy. Series are read from the
-W02-T001 raw tables over the planned 5-minute cycle grid, so a cycle with no
+W02-T001 raw tables over the configured planned-cycle grid, so a cycle with no
 row is a None point — a missing sample that breaks continuity (§14) — and
 is never interpolated.
 
@@ -24,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.config import DEFAULT_POLL_INTERVAL_SECONDS
 from backend.db.models import (
     DeviceMetric,
     DevicePollRun,
@@ -38,7 +36,7 @@ from backend.monitoring.sustained import (
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL = timedelta(seconds=300)
+DEFAULT_POLL_INTERVAL = timedelta(seconds=DEFAULT_POLL_INTERVAL_SECONDS)
 
 CPU_KEY = "cpu_sustained_high_percent"
 MEMORY_KEY = "memory_sustained_high_percent"
@@ -50,7 +48,7 @@ _THRESHOLDS: dict[str, tuple[float, float, float]] = {
     CPU_KEY: (80.0, 0.0, 100.0),
     MEMORY_KEY: (80.0, 0.0, 100.0),
     INTERFACE_UTIL_KEY: (80.0, 0.0, 100.0),
-    REQUIRED_SAMPLES_KEY: (3.0, 1.0, 288.0),  # at most one day of 5-min cycles
+    REQUIRED_SAMPLES_KEY: (2.0, 1.0, 10_000.0),
 }
 
 PERCENT_KEYS = (CPU_KEY, MEMORY_KEY, INTERFACE_UTIL_KEY)
@@ -110,12 +108,18 @@ def load_thresholds(session: Session) -> dict[str, float]:
     return thresholds
 
 
-def cycle_slots(start: datetime, end: datetime) -> list[datetime]:
-    """Aligned 5-minute planned-cycle timestamps in [start, end)."""
+def cycle_slots(
+    start: datetime,
+    end: datetime,
+    poll_interval: timedelta = DEFAULT_POLL_INTERVAL,
+) -> list[datetime]:
+    """Aligned configured planned-cycle timestamps in [start, end)."""
 
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("cycle_slots requires timezone-aware datetimes")
-    seconds = int(POLL_INTERVAL.total_seconds())
+    seconds = int(poll_interval.total_seconds())
+    if seconds <= 0:
+        raise ValueError("poll_interval must be positive")
     epoch = datetime(1970, 1, 1, tzinfo=start.tzinfo)
     remainder = (start - epoch).total_seconds() % seconds
     offset = (seconds - remainder) if remainder else 0.0
@@ -123,7 +127,7 @@ def cycle_slots(start: datetime, end: datetime) -> list[datetime]:
     current = start + timedelta(seconds=offset)
     while current < end:
         slots.append(current)
-        current += POLL_INTERVAL
+        current += poll_interval
     return slots
 
 
@@ -133,6 +137,7 @@ def device_metric_series(
     field: str,
     start: datetime,
     end: datetime,
+    poll_interval: timedelta = DEFAULT_POLL_INTERVAL,
 ) -> list[tuple[datetime, float | None]]:
     """CPU or memory values over the planned cycle grid (None = missing).
 
@@ -152,7 +157,10 @@ def device_metric_series(
         )
     ).all()
     by_cycle: dict[datetime, float | None] = {cycle: value for cycle, value in rows}
-    return [(cycle, by_cycle.get(cycle)) for cycle in cycle_slots(start, end)]
+    return [
+        (cycle, by_cycle.get(cycle))
+        for cycle in cycle_slots(start, end, poll_interval)
+    ]
 
 
 def interface_utilization_series(
@@ -160,6 +168,7 @@ def interface_utilization_series(
     interface_id: int,
     start: datetime,
     end: datetime,
+    poll_interval: timedelta = DEFAULT_POLL_INTERVAL,
 ) -> list[tuple[datetime, float | None]]:
     """Per-cycle max(ingress, egress) utilization (§15.4); None when missing."""
 
@@ -179,7 +188,10 @@ def interface_utilization_series(
     by_cycle: dict[datetime, float | None] = {
         cycle: max_direction_utilization(in_util, out_util) for cycle, in_util, out_util in rows
     }
-    return [(cycle, by_cycle.get(cycle)) for cycle in cycle_slots(start, end)]
+    return [
+        (cycle, by_cycle.get(cycle))
+        for cycle in cycle_slots(start, end, poll_interval)
+    ]
 
 
 def detect_device_sustained_high(
@@ -188,22 +200,27 @@ def detect_device_sustained_high(
     start: datetime,
     end: datetime,
     thresholds: dict[str, float] | None = None,
+    poll_interval: timedelta = DEFAULT_POLL_INTERVAL,
 ) -> dict[str, list[SustainedHighInterval]]:
     """CPU and memory sustained-high intervals for one device (§14)."""
 
     thresholds = thresholds or load_thresholds(session)
     return {
         "cpu": find_sustained_high_intervals(
-            device_metric_series(session, device_id, CPU_FIELD, start, end),
+            device_metric_series(
+                session, device_id, CPU_FIELD, start, end, poll_interval
+            ),
             thresholds[CPU_KEY],
             required_samples=int(thresholds[REQUIRED_SAMPLES_KEY]),
-            sample_interval=POLL_INTERVAL,
+            sample_interval=poll_interval,
         ),
         "memory": find_sustained_high_intervals(
-            device_metric_series(session, device_id, MEMORY_FIELD, start, end),
+            device_metric_series(
+                session, device_id, MEMORY_FIELD, start, end, poll_interval
+            ),
             thresholds[MEMORY_KEY],
             required_samples=int(thresholds[REQUIRED_SAMPLES_KEY]),
-            sample_interval=POLL_INTERVAL,
+            sample_interval=poll_interval,
         ),
     }
 
@@ -214,13 +231,16 @@ def detect_interface_high_utilization(
     start: datetime,
     end: datetime,
     thresholds: dict[str, float] | None = None,
+    poll_interval: timedelta = DEFAULT_POLL_INTERVAL,
 ) -> list[SustainedHighInterval]:
     """Priority-interface sustained high-utilization intervals (§15.3)."""
 
     thresholds = thresholds or load_thresholds(session)
     return find_sustained_high_intervals(
-        interface_utilization_series(session, interface_id, start, end),
+        interface_utilization_series(
+            session, interface_id, start, end, poll_interval
+        ),
         thresholds[INTERFACE_UTIL_KEY],
         required_samples=int(thresholds[REQUIRED_SAMPLES_KEY]),
-        sample_interval=POLL_INTERVAL,
+        sample_interval=poll_interval,
     )

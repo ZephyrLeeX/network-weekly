@@ -44,8 +44,8 @@ def test_align_up_on_boundary_returns_itself() -> None:
 
 
 def test_align_up_mid_interval() -> None:
-    assert align_up(BASE + timedelta(seconds=1)) == BASE + timedelta(minutes=5)
-    assert align_up(BASE + timedelta(minutes=4, seconds=59)) == BASE + timedelta(minutes=5)
+    assert align_up(BASE + timedelta(seconds=1)) == BASE + timedelta(minutes=30)
+    assert align_up(BASE + timedelta(minutes=29, seconds=59)) == BASE + timedelta(minutes=30)
 
 
 def test_align_up_requires_aware_datetime() -> None:
@@ -57,12 +57,12 @@ def test_next_cycle_is_strictly_in_future() -> None:
     clock = FakeClock(BASE + timedelta(seconds=30))
     scheduler = DevicePollScheduler(load_devices=lambda: [], clock=clock)
     first = scheduler.next_cycle()
-    assert first == BASE + timedelta(minutes=5)
+    assert first == BASE + timedelta(minutes=30)
 
     # After "executing" a cycle the next one never repeats the same boundary.
     scheduler._last_cycle = first  # noqa: SLF001  (white-box timing guard)
     clock.advance(1)
-    assert scheduler.next_cycle() == BASE + timedelta(minutes=10)
+    assert scheduler.next_cycle() == BASE + timedelta(minutes=60)
 
 
 def test_run_loop_starts_at_next_boundary_without_backfill() -> None:
@@ -78,7 +78,7 @@ def test_run_loop_starts_at_next_boundary_without_backfill() -> None:
 
     DevicePollScheduler(lambda: [], clock=clock, sleep_until=sleep_until).run_loop(stop)
 
-    assert waits == [BASE + timedelta(minutes=5)]
+    assert waits == [BASE + timedelta(minutes=30)]
     assert not any(target < clock.now for target in waits)  # nothing in the past
 
 
@@ -102,8 +102,8 @@ def test_run_loop_executes_cycles_until_stop() -> None:
     )
     scheduler.run_loop(stop)
 
-    assert executed == [BASE + timedelta(minutes=5), BASE + timedelta(minutes=10)]
-    assert waits[-1] == BASE + timedelta(minutes=15)
+    assert executed == [BASE + timedelta(minutes=30), BASE + timedelta(minutes=60)]
+    assert waits[-1] == BASE + timedelta(minutes=90)
 
 
 def test_run_cycle_polls_every_device() -> None:
@@ -363,4 +363,66 @@ def test_fresh_scheduler_instance_does_not_backfill() -> None:
     clock = FakeClock(BASE + timedelta(minutes=47))
     scheduler = DevicePollScheduler(load_devices=lambda: [], clock=clock)
     # The first planned cycle is the next future boundary only.
-    assert scheduler.next_cycle() == BASE + timedelta(minutes=50)
+    assert scheduler.next_cycle() == BASE + timedelta(minutes=60)
+
+
+def test_deterministic_stagger_keeps_one_logical_cycle_and_does_not_sleep_workers() -> None:
+    starts: list[tuple[str, datetime]] = []
+    waits: list[float] = []
+    executor = ThreadPoolExecutor(max_workers=3)
+
+    def record(ctx: DevicePollContext, cycle: datetime) -> str:
+        starts.append((ctx.device_name, cycle))
+        return "SUCCESS"
+
+    def record_wait(seconds: float) -> bool:
+        waits.append(seconds)
+        return True
+
+    scheduler = DevicePollScheduler(
+        lambda: [_ctx("c"), _ctx("a"), _ctx("b")],
+        executor=executor,
+        poll=record,
+        stagger_seconds=20,
+        stagger_wait=record_wait,
+    )
+    try:
+        scheduler.run_cycle(BASE)
+    finally:
+        executor.shutdown(wait=True)
+
+    assert waits == [20, 20]
+    assert starts == [("a", BASE), ("b", BASE), ("c", BASE)]
+
+
+def test_internal_executor_limits_concurrent_device_polls_to_three() -> None:
+    release = threading.Event()
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+    three_started = threading.Event()
+
+    def blocking(ctx: DevicePollContext, cycle: datetime) -> str:
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+            if active == 3:
+                three_started.set()
+        release.wait(timeout=5)
+        with lock:
+            active -= 1
+        return "SUCCESS"
+
+    scheduler = DevicePollScheduler(
+        lambda: [_ctx(f"d{i}") for i in range(5)],
+        max_workers=3,
+        poll=blocking,
+    )
+    scheduler.run_cycle(BASE)
+    assert three_started.wait(timeout=5)
+    assert peak == 3
+    release.set()
+    executor = scheduler._executor  # noqa: SLF001
+    assert isinstance(executor, ThreadPoolExecutor)
+    executor.shutdown(wait=True)

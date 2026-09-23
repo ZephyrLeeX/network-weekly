@@ -1,6 +1,6 @@
 """Per-cycle monitoring pipeline (W02-T001/T003).
 
-One call per planned 5-minute cycle per device turns a Wave 1
+One call per planned configured cycle per device turns a Wave 1
 :class:`DeviceCollectionOutcome` into the Wave 2 raw-data rows:
 
 - one `device_poll_runs` row — SUCCESS / PARTIAL / FAILED (§8) — whatever
@@ -82,11 +82,17 @@ def _interface_metric(
     collected_at: datetime,
     sample: InterfaceSample,
     previous: PreviousSample | None,
+    max_sample_interval_seconds: float,
 ) -> InterfaceMetric:
     """Build one interface metric row, with §15 utilization / rebaseline."""
 
     result = compute_utilization(
-        previous, collected_at, sample.in_octets, sample.out_octets, sample.speed_bps
+        previous,
+        collected_at,
+        sample.in_octets,
+        sample.out_octets,
+        sample.speed_bps,
+        max_sample_interval_seconds=max_sample_interval_seconds,
     )
     return InterfaceMetric(
         poll_run_id=poll_run_id,
@@ -153,6 +159,8 @@ def persist_poll_result(
     cycle_started_at: datetime,
     outcome: DeviceCollectionOutcome,
     collected_at: datetime,
+    *,
+    max_sample_interval_seconds: float = 3 * 1800.0,
 ) -> PersistedPollRun | None:
     """Persist one cycle's poll run + raw metric rows.
 
@@ -232,7 +240,13 @@ def persist_poll_result(
             )
             session.add(
                 _interface_metric(
-                    run_id, device_id, interface_id, collected_at, sample, previous
+                    run_id,
+                    device_id,
+                    interface_id,
+                    collected_at,
+                    sample,
+                    previous,
+                    max_sample_interval_seconds,
                 )
             )
         if skipped:

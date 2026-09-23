@@ -30,7 +30,7 @@ from backend.monitoring.poll import DevicePollContext
 
 pytestmark = pytest.mark.integration
 
-STEP = timedelta(seconds=300)
+STEP = timedelta(minutes=30)
 T0 = datetime(2026, 9, 5, 8, 0, 0, tzinfo=UTC)
 
 

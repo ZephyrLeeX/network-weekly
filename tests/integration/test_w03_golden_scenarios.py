@@ -51,8 +51,8 @@ from backend.reporting.service import (
 
 pytestmark = pytest.mark.integration
 
-STEP = timedelta(minutes=5)
-FULL_WEEK = 7 * 24 * 12
+STEP = timedelta(minutes=30)
+FULL_WEEK = 7 * 24 * 2
 
 
 @pytest.fixture(autouse=True)
@@ -259,16 +259,16 @@ def test_missing_sample_breaks_continuity(db_engine: Engine) -> None:
         device_row = data.device_resources[0]
         assert device_row.cpu is not None
         assert device_row.cpu.sample_count == 5
-        # Sustained-high: only the trailing 3-sample run confirms.
-        assert len(device_row.cpu_sustained_high) == 1
-        interval = device_row.cpu_sustained_high[0]
+        # Missing breaks continuity; both 2+ sample runs are distinct.
+        assert len(device_row.cpu_sustained_high) == 2
+        interval = device_row.cpu_sustained_high[1]
         assert interval.start == period.start + 3 * STEP
         assert interval.end == period.start + 6 * STEP
-        assert interval.duration_seconds == 900.0
+        assert interval.duration_seconds == 5400.0
         assert "CPU 持续高负载 1 台" in data.summary_text
         # The same implementation drives the monitoring-side detection.
         sustained = detect_device_sustained_high(session, device.id, period.start, period.end)
-        assert len(sustained["cpu"]) == 1
+        assert len(sustained["cpu"]) == 2
 
 
 def test_cpu_memory_p95(db_engine: Engine) -> None:
@@ -456,13 +456,13 @@ def test_coverage_below_target(db_engine: Engine) -> None:
         )
         session.add(device)
         session.flush()
-        # 1900 of 2016 = 94.25% < 95%.
-        for i in range(1900):
+        # 319 of 336 = 94.94% < 95%.
+        for i in range(319):
             _seed_run(session, device.id, period.start + i * STEP, cpu=20.0)
         session.commit()
 
         data = build_weekly_report_data(session, period)
-        assert data.coverage.coverage_percent == pytest.approx(1900 / FULL_WEEK * 100)
+        assert data.coverage.coverage_percent == pytest.approx(319 / FULL_WEEK * 100)
         assert data.coverage.below_target
         assert "数据完整性不足" in data.summary_text
         assert data.overall_status == STATUS_ATTENTION

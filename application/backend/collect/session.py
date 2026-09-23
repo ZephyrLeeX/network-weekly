@@ -23,6 +23,7 @@ name.
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from time import monotonic
 from typing import Any
 
 from backend.collect.dto import (
@@ -48,7 +49,7 @@ from backend.collect.h3c.ssh_collectors import (
 from backend.collect.h3c.ssh_collectors import (
     collect_software_info as collect_software_info_ssh,
 )
-from backend.collect.snmp import SnmpClient, SnmpConfig, SnmpError
+from backend.collect.snmp import PollDeadlineExceeded, SnmpClient, SnmpConfig, SnmpError
 from backend.collect.ssh import H3CSshClient, SshConfig
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,9 @@ class DeviceCollectionOutcome:
     software: DeviceSoftwareInfo | None = None
     # Reachability probe result after SNMP trouble (§9.1); None = not probed.
     ssh_reachable: bool | None = None
+    # A scheduler/transport deadline is collection control state, never
+    # device reachability evidence.
+    deadline_exceeded: bool = False
 
     @property
     def failed_sections(self) -> tuple[str, ...]:
@@ -127,6 +131,10 @@ def _run_section(
 ) -> Any:
     try:
         result = func()
+    except PollDeadlineExceeded as exc:
+        outcome.deadline_exceeded = True
+        outcome.sections.append(SectionResult(name=name, status=FAILED, error=str(exc)))
+        return None
     except CollectionSectionError as exc:
         # Our own section-failure signal; message is secret-free by construction.
         outcome.sections.append(SectionResult(name=name, status=FAILED, error=str(exc)))
@@ -166,6 +174,10 @@ def _run_interfaces_section(outcome: DeviceCollectionOutcome, client: SnmpClient
 
     try:
         result = collect_interfaces(client)
+    except PollDeadlineExceeded as exc:
+        outcome.deadline_exceeded = True
+        outcome.sections.append(SectionResult(name="interfaces", status=FAILED, error=str(exc)))
+        return
     except CollectionSectionError as exc:
         # Our own section-failure signal; message is secret-free by construction.
         outcome.sections.append(SectionResult(name="interfaces", status=FAILED, error=str(exc)))
@@ -203,7 +215,12 @@ def _run_interfaces_section(outcome: DeviceCollectionOutcome, client: SnmpClient
 
 
 def run_collection(
-    snmp: SnmpConfig, ssh: SshConfig | None, device_name: str
+    snmp: SnmpConfig,
+    ssh: SshConfig | None,
+    device_name: str,
+    *,
+    deadline_seconds: float | None = None,
+    monotonic_clock: Callable[[], float] = monotonic,
 ) -> DeviceCollectionOutcome:
     """Run all SNMP sections for one device; never raises (§7/§8).
 
@@ -212,22 +229,64 @@ def run_collection(
     The probe result is recorded on the outcome; Down/Recovery decisions
     are Wave 2 semantics. SSH static collection (version/IRF) is a
     separate, caller-scheduled flow (:func:`run_static_ssh_collection` /
-    :func:`run_irf_observation`) and is never forced into this 5-minute
-    poll.
+    :func:`run_irf_observation`) and is never forced into DEVICE_POLL.
     """
 
     outcome = DeviceCollectionOutcome(device_name=device_name)
 
-    with SnmpClient(snmp) as client:
-        outcome.identity = _run_section(outcome, "identity", lambda: collect_identity(client))
-        outcome.cpu = _run_section(outcome, "cpu", lambda: collect_cpu(client))
-        outcome.memory = _run_section(outcome, "memory", lambda: collect_memory(client))
-        _run_interfaces_section(outcome, client)
-        outcome.aggregations = _run_section(
-            outcome, "aggregations", lambda: collect_aggregations(client)
+    absolute_deadline = (
+        monotonic_clock() + deadline_seconds if deadline_seconds is not None else None
+    )
+    with SnmpClient(
+        snmp,
+        absolute_deadline=absolute_deadline,
+        monotonic_clock=monotonic_clock,
+    ) as client:
+        sections: tuple[tuple[str, Callable[[], Any]], ...] = (
+            ("identity", lambda: collect_identity(client)),
+            ("cpu", lambda: collect_cpu(client)),
+            ("memory", lambda: collect_memory(client)),
         )
+        for name, collect in sections:
+            if outcome.deadline_exceeded or client.deadline_expired():
+                outcome.deadline_exceeded = True
+                outcome.sections.append(
+                    SectionResult(name=name, status=FAILED, error="device poll deadline exceeded")
+                )
+                continue
+            setattr(outcome, name, _run_section(outcome, name, collect))
 
-    if _snmp_channel_failed(outcome) and ssh is not None:
+        if outcome.deadline_exceeded or client.deadline_expired():
+            outcome.deadline_exceeded = True
+            outcome.sections.append(
+                SectionResult(
+                    name="interfaces", status=FAILED, error="device poll deadline exceeded"
+                )
+            )
+        else:
+            _run_interfaces_section(outcome, client)
+
+        if outcome.deadline_exceeded or client.deadline_expired():
+            outcome.deadline_exceeded = True
+            outcome.sections.append(
+                SectionResult(
+                    name="aggregations", status=FAILED, error="device poll deadline exceeded"
+                )
+            )
+        else:
+            outcome.aggregations = _run_section(
+                outcome, "aggregations", lambda: collect_aggregations(client)
+            )
+
+    if absolute_deadline is not None and monotonic_clock() >= absolute_deadline:
+        outcome.deadline_exceeded = True
+
+    if (
+        _snmp_channel_failed(outcome)
+        and ssh is not None
+        and not outcome.deadline_exceeded
+        and (absolute_deadline is None or monotonic_clock() < absolute_deadline)
+    ):
         logger.info(
             "snmp management channel failed for %s (%s); probing ssh reachability",
             device_name,
@@ -249,8 +308,8 @@ def run_static_ssh_collection(
 ) -> DeviceCollectionOutcome:
     """Collect SSH static data: software version + IRF members (§7.2).
 
-    A standalone, caller-scheduled flow (not part of the 5-minute
-    DEVICE_POLL): sections run with the same isolation rules, and the
+    A standalone, caller-scheduled flow (not part of DEVICE_POLL): sections
+    run with the same isolation rules, and the
     returned outcome persists through :func:`persist_collection` — device
     software_version and IRF member id/role (§17).
     """
@@ -273,7 +332,7 @@ def run_static_ssh_collection(
 
 
 def run_irf_observation(ssh: SshConfig, device_name: str) -> list[IrfMemberSample] | None:
-    """One IRF member observation (§7.3), sized for the ~15-minute cadence.
+    """One IRF member observation (§7.3), scheduled at the configured cadence.
 
     Standalone entry point for the Wave 2 IRF scheduler: returns the
     observed members, or None when the observation failed. Never raises.

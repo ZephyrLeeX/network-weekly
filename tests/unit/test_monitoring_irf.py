@@ -36,10 +36,10 @@ def _report(device_id: int = 1) -> IrfObservationReport:
     )
 
 
-def test_interval_is_fifteen_minutes() -> None:
-    """§7.3: the IRF cadence is ~15 minutes."""
+def test_interval_is_thirty_minutes() -> None:
+    """§7.3: the default IRF cadence is 30 minutes."""
 
-    assert IRF_OBSERVATION_INTERVAL == timedelta(seconds=900)
+    assert IRF_OBSERVATION_INTERVAL == timedelta(seconds=1800)
 
 
 def test_pass_observes_every_loaded_device() -> None:
@@ -91,7 +91,7 @@ def test_run_loop_survives_pass_exceptions() -> None:
     def sleep_until(_target: datetime) -> bool:
         nonlocal waits
         waits += 1
-        clock.now = BASE + timedelta(minutes=15 * waits)
+        clock.now = BASE + timedelta(minutes=30 * waits)
         return waits < 3
 
     def observe(ctx: IrfDeviceContext) -> IrfObservationReport | None:
@@ -125,9 +125,9 @@ def test_run_loop_executes_passes_at_boundaries_until_stop() -> None:
     )
     loop.run_loop(stop)
 
-    # 15-minute aligned boundaries only.
+    # 30-minute aligned boundaries only.
     assert targets == [
-        BASE + timedelta(minutes=15),
         BASE + timedelta(minutes=30),
-        BASE + timedelta(minutes=45),
+        BASE + timedelta(minutes=60),
+        BASE + timedelta(minutes=90),
     ]

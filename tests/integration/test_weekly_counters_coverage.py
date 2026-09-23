@@ -21,7 +21,7 @@ pytestmark = pytest.mark.integration
 
 # ISO 2026-W36: [2026-08-31, 2026-09-07) Asia/Shanghai.
 PERIOD = period_for_iso_week(2026, 36)
-STEP = timedelta(minutes=5)
+STEP = timedelta(minutes=30)
 
 
 @pytest.fixture(autouse=True)
@@ -234,12 +234,12 @@ def test_coverage_counts_statuses_over_full_week(db_engine: Engine) -> None:
         summary = weekly_coverage(session, PERIOD)
         assert len(summary.devices) == 1
         coverage = summary.devices[0]
-        assert coverage.expected == 7 * 24 * 12  # §18.1 full week
+        assert coverage.expected == 7 * 24 * 2
         assert coverage.success == 2
         assert coverage.partial == 1
         assert coverage.failed == 1
         assert summary.partial == 1  # PARTIAL shown separately (§18.2)
-        assert summary.coverage_percent == pytest.approx(3 / 2016 * 100)
+        assert summary.coverage_percent == pytest.approx(3 / 336 * 100)
         assert summary.below_target  # far below 95%
 
 
@@ -249,25 +249,24 @@ def test_coverage_below_target_marks_data_integrity_warning(db_engine: Engine) -
     with Session(db_engine) as session:
         good = _device(session, "core-good")
         bad = _device(session, "core-bad")
-        # good: SUCCESS for every planned cycle is 2016 rows — simulate a
-        # near-perfect week with 2000 SUCCESS + 16 FAILED (>= 99%).
-        for i in range(2000):
+        # good: near-perfect week with 333 SUCCESS + 3 FAILED.
+        for i in range(333):
             _cycle(session, good.id, PERIOD.start + i * STEP, "SUCCESS")
-        for i in range(2000, 2016):
+        for i in range(333, 336):
             _cycle(session, good.id, PERIOD.start + i * STEP, "FAILED")
-        # bad: 94% success+partial (1895 of 2016).
-        for i in range(1800):
+        # bad: below 95% success+partial (316 of 336).
+        for i in range(300):
             _cycle(session, bad.id, PERIOD.start + i * STEP, "SUCCESS")
-        for i in range(1800, 1895):
+        for i in range(300, 316):
             _cycle(session, bad.id, PERIOD.start + i * STEP, "PARTIAL")
         session.commit()
 
         summary = weekly_coverage(session, PERIOD)
         by_name = {d.device_name: d for d in summary.devices}
         good_cov, bad_cov = by_name["core-good"], by_name["core-bad"]
-        assert good_cov.coverage_percent == pytest.approx(2000 / 2016 * 100)
+        assert good_cov.coverage_percent == pytest.approx(333 / 336 * 100)
         assert good_cov.below_target is False
-        assert bad_cov.coverage_percent == pytest.approx(1895 / 2016 * 100)
+        assert bad_cov.coverage_percent == pytest.approx(316 / 336 * 100)
         assert bad_cov.below_target is True
         assert summary.below_target is True  # single-device breach is enough
 
@@ -275,13 +274,13 @@ def test_coverage_below_target_marks_data_integrity_warning(db_engine: Engine) -
 def test_coverage_exactly_at_target_is_not_below(db_engine: Engine) -> None:
     with Session(db_engine) as session:
         device = _device(session, "core-1")
-        # 1916 of 2016 = 95.04% >= 95%.
-        for i in range(1916):
+        # 320 of 336 = 95.24% >= 95%.
+        for i in range(320):
             _cycle(session, device.id, PERIOD.start + i * STEP, "SUCCESS")
         session.commit()
 
         summary = weekly_coverage(session, PERIOD)
-        assert summary.devices[0].coverage_percent == pytest.approx(1916 / 2016 * 100)
+        assert summary.devices[0].coverage_percent == pytest.approx(320 / 336 * 100)
         assert summary.devices[0].below_target is False
         assert summary.below_target is False
 
@@ -295,7 +294,7 @@ def test_coverage_full_week_without_data(db_engine: Engine) -> None:
 
         summary = weekly_coverage(session, PERIOD)
         coverage = summary.devices[0]
-        assert coverage.expected == 2016
+        assert coverage.expected == 336
         assert coverage.success == 0
         assert coverage.partial == 0
         assert coverage.failed == 0  # no rows at all — distinct from FAILED runs

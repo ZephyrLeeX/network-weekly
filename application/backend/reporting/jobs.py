@@ -739,6 +739,7 @@ def execute_report_job(
     *,
     now: datetime | None = None,
     render: Callable[..., RenderedReport] = render_report_candidate,
+    poll_interval: timedelta = timedelta(minutes=30),
 ) -> ReportOutcome:
     """Run one report job end-to-end (§4/§5/§27.10).
 
@@ -781,7 +782,9 @@ def execute_report_job(
             job = session.get(ReportJob, job_id)
             assert job is not None
             period = _load_period(job)
-            data = build_weekly_report_data(session, period, generated_at=at)
+            data = build_weekly_report_data(
+                session, period, generated_at=at, poll_interval=poll_interval
+            )
         rendered = render(data, Path(output_dir), job_id=job_id)
     except Exception as exc:  # noqa: BLE001 — every failure must be recorded (§4.3)
         return _record_failed_attempt(session_factory, job_id, week_code, exc, now=at)

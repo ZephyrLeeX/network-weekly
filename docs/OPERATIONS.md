@@ -194,7 +194,9 @@ ls -la /data/network-report/reports
 
 ## 9. 采集排查（DEVICE_POLL / PARTIAL / FAILED）
 
-每台逻辑设备每天应有 288 个计划周期（5 分钟一次），每周期必有一行：
+默认配置下每台逻辑设备每天应有 48 个计划周期（30 分钟一次），完整周为
+336 个周期。实际 expected 由 `NETWORK_REPORT_POLL_INTERVAL_SECONDS` 计算，
+不能固定按 336 或历史 2016 推断；每个已调度周期必有一行：
 
 ```bash
 docker exec -it network-report-postgres-1 psql -U network_report -d network_report -c \
@@ -217,10 +219,18 @@ docker exec -it network-report-postgres-1 psql -U network_report -d network_repo
   动恢复。
 - `failed_sections` 含 `overlap`：上一周期还没跑完（设备响应过慢），通常
   瞬时，连续出现才需要关注。
+- `failed_sections` 含因 poll deadline 产生的 section：默认单设备总预算
+  240 秒；已成功 section 会保留并形成 PARTIAL，到期后不会再发起新 SNMP
+  request，且该控制性超时不作为设备 Down 证据。
 - 语义提醒：**采集失败 ≠ 设备故障**。设备 DOWN/RECOVERED 由 2 连续周期
   SNMP+SSH 双失败/恢复的状态机判定，记录在
   `device_reachability_incidents`；PARTIAL 周期保留的有效数据参与周报统
   计；单设备失败不影响其他设备。
+
+生产默认：poll/IRF interval 均为 1800 秒、最大并发 3、设备错峰 20 秒、
+单设备 deadline 240 秒。worker 启动日志会打印这些非敏感值。修改 poll
+interval 必须安排在新的完整统计周开始前并重启 worker，禁止在统计周中途
+切换，否则本版本无法用 interval history 还原 expected Coverage。
 
 ## 10. SNMP / SSH 排查
 

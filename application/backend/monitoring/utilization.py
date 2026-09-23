@@ -29,8 +29,9 @@ its counters are valid, it just yields no utilization value (§15.2).
 from dataclasses import dataclass
 from datetime import datetime
 
-# A utilization interval longer than three poll cycles is a stale gap.
-MAX_SAMPLE_INTERVAL_SECONDS = 900.0
+# Production default: a utilization interval longer than three configured
+# poll cycles is a stale gap. Callers pass the deployment-specific value.
+DEFAULT_MAX_SAMPLE_INTERVAL_SECONDS = 3 * 1800.0
 
 
 @dataclass(frozen=True)
@@ -85,6 +86,8 @@ def compute_utilization(
     cur_in_octets: int | None,
     cur_out_octets: int | None,
     cur_speed_bps: int | None,
+    *,
+    max_sample_interval_seconds: float = DEFAULT_MAX_SAMPLE_INTERVAL_SECONDS,
 ) -> UtilizationResult:
     """Compute one sample's utilization against the previous valid sample."""
 
@@ -102,7 +105,7 @@ def compute_utilization(
         )
 
     elapsed = (now - previous.collected_at).total_seconds()
-    if elapsed <= 0 or elapsed > MAX_SAMPLE_INTERVAL_SECONDS:
+    if elapsed <= 0 or elapsed > max_sample_interval_seconds:
         return UtilizationResult(
             in_utilization_percent=None,
             out_utilization_percent=None,

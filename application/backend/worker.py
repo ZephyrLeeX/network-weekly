@@ -1,8 +1,8 @@
 """Worker process entrypoint, run as `python -m backend.worker`.
 
 Wave 0 scope: process lifecycle plus the persistent heartbeat loop
-(SYSTEM_SPEC.md §25). Wave 2 adds the five-minute DEVICE_POLL scheduler
-(W02-T002), the ~15-minute IRF observation loop (W02-T008) and the §24
+(SYSTEM_SPEC.md §25). Wave 2 adds the configurable DEVICE_POLL scheduler
+(W02-T002), the IRF observation loop (W02-T008) and the §24
 retention pass (W02-T009). Wave 3 adds the weekly report loop
 (W03-T009): Monday 00:10 generation, 10-minute retry and restart
 recovery from the persistent `report_jobs` rows (§4).
@@ -16,7 +16,8 @@ import logging
 import signal
 import socket
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -33,9 +34,10 @@ from backend.monitoring.credentials import (
     build_unpollable_contexts,
 )
 from backend.monitoring.irf import IrfDeviceContext, IrfObservationLoop
-from backend.monitoring.poll import DevicePollContext
+from backend.monitoring.poll import DevicePollContext, poll_device
 from backend.monitoring.retention import run_retention
 from backend.monitoring.scheduler import DevicePollScheduler
+from backend.reporting.jobs import execute_report_job
 from backend.reporting.schedule import WeeklyReportLoop
 from backend.secrets import SecretsError, load_secrets
 
@@ -143,7 +145,16 @@ def main() -> None:
     started_at = datetime.now(UTC)
     hostname = socket.gethostname()
     session_factory = get_session_factory()
-    logger.info("worker %s started (version %s)", settings.worker_id, __version__)
+    logger.info(
+        "worker %s started (version %s; poll=%ds irf=%ds workers=%d stagger=%ds deadline=%ds)",
+        settings.worker_id,
+        __version__,
+        settings.poll_interval_seconds,
+        settings.irf_interval_seconds,
+        settings.poll_max_workers,
+        settings.poll_stagger_seconds,
+        settings.poll_deadline_seconds,
+    )
 
     heartbeat = threading.Thread(
         target=_heartbeat_loop,
@@ -159,7 +170,15 @@ def main() -> None:
         daemon=True,
     )
     scheduler = DevicePollScheduler(
-        load_devices=lambda: _load_devices(session_factory, settings.secrets_file)
+        load_devices=lambda: _load_devices(session_factory, settings.secrets_file),
+        interval=timedelta(seconds=settings.poll_interval_seconds),
+        max_workers=settings.poll_max_workers,
+        stagger_seconds=settings.poll_stagger_seconds,
+        poll=partial(
+            poll_device,
+            poll_interval=timedelta(seconds=settings.poll_interval_seconds),
+            deadline_seconds=settings.poll_deadline_seconds,
+        ),
     )
     poller = threading.Thread(
         target=scheduler.run_loop, args=(stop,), name="device-poll", daemon=True
@@ -170,7 +189,10 @@ def main() -> None:
         with session_factory() as session:
             return build_irf_contexts(session, secrets)
 
-    irf_loop = IrfObservationLoop(load_devices=_load_irf_devices)
+    irf_loop = IrfObservationLoop(
+        load_devices=_load_irf_devices,
+        interval=timedelta(seconds=settings.irf_interval_seconds),
+    )
     irf_observer = threading.Thread(
         target=irf_loop.run_loop, args=(stop,), name="irf-observation", daemon=True
     )
@@ -180,7 +202,14 @@ def main() -> None:
         name="retention",
         daemon=True,
     )
-    report_loop = WeeklyReportLoop(session_factory, settings.report_dir)
+    report_loop = WeeklyReportLoop(
+        session_factory,
+        settings.report_dir,
+        execute=partial(
+            execute_report_job,
+            poll_interval=timedelta(seconds=settings.poll_interval_seconds),
+        ),
+    )
     reporter = threading.Thread(
         target=report_loop.run_loop, args=(stop,), name="weekly-report", daemon=True
     )

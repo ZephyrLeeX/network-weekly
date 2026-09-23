@@ -1,8 +1,8 @@
-"""Aligned five-minute DEVICE_POLL scheduler (W02-T002, SYSTEM_SPEC.md §7.1/§27).
+"""Aligned configurable DEVICE_POLL scheduler (SYSTEM_SPEC.md §7.1/§27).
 
 Invariants:
 
-- Cycles are planned on wall-clock 5-minute boundaries; every device gets at
+- Cycles are planned on configured wall-clock boundaries; every device gets at
   most one planned poll per boundary, and a poll that outlives its cycle is
   never started twice (`_in_flight` per device). A device whose previous poll
   is still running is skipped for the new cycle — the cycle is never
@@ -32,15 +32,16 @@ from collections.abc import Callable
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
+from backend.config import DEFAULT_POLL_INTERVAL_SECONDS
 from backend.monitoring.poll import DevicePollContext, poll_device, record_skipped_poll
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL = timedelta(seconds=300)
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+DEFAULT_POLL_INTERVAL = timedelta(seconds=DEFAULT_POLL_INTERVAL_SECONDS)
 
 
-def align_up(now: datetime, interval: timedelta = POLL_INTERVAL) -> datetime:
+def align_up(now: datetime, interval: timedelta = DEFAULT_POLL_INTERVAL) -> datetime:
     """The interval boundary at or after `now` (epoch-aligned, TZ-agnostic)."""
 
     if now.tzinfo is None:
@@ -51,24 +52,30 @@ def align_up(now: datetime, interval: timedelta = POLL_INTERVAL) -> datetime:
 
 
 class DevicePollScheduler:
-    """Runs one planned DEVICE_POLL cycle per 5-minute boundary."""
+    """Runs one planned DEVICE_POLL cycle per configured boundary."""
 
     def __init__(
         self,
         load_devices: Callable[[], list[DevicePollContext]],
         *,
-        interval: timedelta = POLL_INTERVAL,
+        interval: timedelta = DEFAULT_POLL_INTERVAL,
+        max_workers: int = 3,
+        stagger_seconds: float = 0,
         clock: Callable[[], datetime] | None = None,
         sleep_until: Callable[[datetime], bool] | None = None,
         executor: Executor | None = None,
+        stagger_wait: Callable[[float], bool] | None = None,
         poll: Callable[[DevicePollContext, datetime], str] = poll_device,
         record_skipped: Callable[[DevicePollContext, datetime], str] = record_skipped_poll,
     ) -> None:
         self._load_devices = load_devices
         self._interval = interval
+        self._max_workers = max_workers
+        self._stagger_seconds = stagger_seconds
         self._clock = clock or (lambda: datetime.now(UTC))
         self._sleep_until = sleep_until
         self._executor = executor
+        self._stagger_wait = stagger_wait
         # An internally created executor is drained on loop exit; an injected
         # one belongs to its caller.
         self._owns_executor = executor is None
@@ -80,7 +87,7 @@ class DevicePollScheduler:
     def _ensure_executor(self) -> Executor:
         if self._executor is None:
             self._executor = ThreadPoolExecutor(
-                max_workers=32, thread_name_prefix="device-poll"
+                max_workers=self._max_workers, thread_name_prefix="device-poll"
             )
         return self._executor
 
@@ -100,7 +107,14 @@ class DevicePollScheduler:
             cycle += self._interval
         return cycle
 
-    def run_cycle(self, cycle: datetime) -> None:
+    def _wait_between_devices(self, stop: threading.Event) -> bool:
+        if self._stagger_seconds <= 0:
+            return True
+        if self._stagger_wait is not None:
+            return self._stagger_wait(self._stagger_seconds)
+        return not stop.wait(self._stagger_seconds)
+
+    def run_cycle(self, cycle: datetime, stop: threading.Event | None = None) -> None:
         """Start one poll per enabled device that is not already in flight."""
 
         try:
@@ -111,7 +125,14 @@ class DevicePollScheduler:
 
         executor = self._ensure_executor()
         skipped: list[str] = []
-        for context in devices:
+        scheduled = 0
+        dispatch_stop = stop or threading.Event()
+        # Stable order makes stagger slots reproducible across restarts/tests.
+        devices = sorted(devices, key=lambda item: (item.device_name, item.device_id))
+        for index, context in enumerate(devices):
+            if index and not self._wait_between_devices(dispatch_stop):
+                logger.info("cycle %s: dispatch stopped during device stagger", cycle)
+                break
             previous = self._in_flight.get(context.device_name)
             if previous is not None and not previous.done():
                 skipped.append(context.device_name)
@@ -128,13 +149,14 @@ class DevicePollScheduler:
             self._in_flight[context.device_name] = executor.submit(
                 self._run_poll, context, cycle
             )
+            scheduled += 1
         if skipped:
             logger.warning(
                 "cycle %s: previous poll still running, skipped for %s",
                 cycle,
                 ", ".join(sorted(skipped)),
             )
-        logger.info("cycle %s: scheduled %d device poll(s)", cycle, len(devices) - len(skipped))
+        logger.info("cycle %s: scheduled %d device poll(s)", cycle, scheduled)
 
     def _run_poll(self, context: DevicePollContext, cycle: datetime) -> str:
         try:
@@ -171,7 +193,7 @@ class DevicePollScheduler:
             if not self._wait_until(cycle, stop):
                 break
             self._last_cycle = cycle
-            self.run_cycle(cycle)
+            self.run_cycle(cycle, stop)
         if self._owns_executor and isinstance(self._executor, ThreadPoolExecutor):
             # Graceful shutdown: let in-flight polls finish before exit.
             self._executor.shutdown(wait=True)

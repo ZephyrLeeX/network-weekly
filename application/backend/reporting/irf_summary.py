@@ -1,7 +1,7 @@
 """Weekly IRF member summary (W03-T004, SYSTEM_SPEC.md §17).
 
 Reads the long-term `irf_member_observations` history persisted by the
-W02-T008 ~15-minute loop. Because a *failed* observation records nothing,
+W02-T008 configured loop. Because a *failed* observation records nothing,
 any in-week row means the device itself reported the member state — member
 absence is visible even when the logical management IP stayed reachable
 (§17).

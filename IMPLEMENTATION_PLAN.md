@@ -125,7 +125,7 @@ secrets absent from logs and fixtures
 
 ## Objective
 
-形成稳定的 5 分钟采集、指标处理和最小故障状态语义。
+形成稳定、低冲击、可配置周期的采集、指标处理和最小故障状态语义。
 
 ## Outputs
 
@@ -133,7 +133,7 @@ secrets absent from logs and fixtures
 device_poll_runs
 device_metrics
 interface_metrics
-5-minute DEVICE_POLL scheduler
+configurable DEVICE_POLL scheduler (30-minute production default)
 actual-elapsed utilization
 counter reset / rebaseline
 device reachability state machine
@@ -167,14 +167,15 @@ missing samples do not count as UP or DOWN
 ### Thresholds
 
 ```text
-CPU >= 80% for 15 min
-Memory >= 80% for 15 min
-Priority interface utilization >= 80% for 15 min
+CPU >= 80% for 2 consecutive valid samples
+Memory >= 80% for 2 consecutive valid samples
+Priority interface utilization >= 80% for 2 consecutive valid samples
 ```
 
 ## Exit Gate
 
-- 5 分钟调度不会重复执行同一设备并发采集。
+- configured interval 调度不会重复执行同一设备并发采集。
+- 不同设备全局并发、确定性错峰与单设备总 deadline 生效。
 - 单设备失败不阻塞其他设备。
 - PARTIAL 正确保留有效数据。
 - Counter Reset 不产生假流量峰值。
@@ -247,7 +248,7 @@ manual regenerate service
 - 跨周设备 Down。
 - 周内 Down + Recovery。
 - 重点接口 Down + Recovery。
-- Missing sample 中断 2-cycle / 15-minute 连续性。
+- Missing sample 中断 2-cycle sustained-high 连续性。
 - CPU/Memory P95。
 - Interface Top 10 P95 算法。
 - Counter Reset。

@@ -8,6 +8,11 @@
 
 > 对一个隔离网络中的指定 H3C 核心交换机进行可靠周期采集，并在每周一稳定生成上一完整自然周的 DOCX 网络运维周报，供运维人员下载后手工补充“本周处理问题”并发送。
 
+本系统用于周报数据采集和周级趋势分析，不承担实时 NMS 或实时告警职责。
+默认 30 分钟采样可靠支持周平均值、Maximum、P95、累计 Counter 增量和长期
+趋势，但不保证捕获数分钟级瞬时峰值，也不用于分钟级故障告警；这是为降低核心
+交换机管理面压力而明确选择的生产策略。
+
 设计优先级：
 
 ```text
@@ -209,11 +214,14 @@ DOCX 固定包含以下 8 部分：
 
 ### 7.1 DEVICE_POLL
 
-周期：
+计划周期由 deployment-level `DEVICE_POLL` interval 配置：
 
 ```text
-5 minutes
+default 30 minutes (1800 seconds)
 ```
+
+允许范围为 300–3600 秒。修改周期必须在新的完整统计周开始前完成并重启
+worker；本版本不保存周内 interval history，也不支持一周中途动态变更。
 
 SNMP 是周期指标采集主通道。
 
@@ -240,13 +248,15 @@ SSH 只用于受控读取：
 - SNMP 无法可靠获得的少量静态信息。
 - SNMP 失败时的一次轻量管理面连通性确认。
 
-SSH 不作为 5 分钟高频指标主采集通道。
+SSH 不作为 DEVICE_POLL 周期指标主采集通道。
 
 允许执行的命令必须在代码中明确列出，且全部为只读命令。
 
 ### 7.3 IRF observation
 
-IRF 成员状态建议每 15 分钟刷新一次。
+IRF 成员状态默认每 30 分钟刷新一次，可在 300–3600 秒范围内配置。
+仅 `expected_irf_member_count > 1` 的设备执行 IRF 查询；standalone 设备绝不
+执行 IRF SSH 查询。
 
 可以使用经过真实设备验证后更稳定、负载更低的 SNMP 或受控 SSH 路径。
 
@@ -299,7 +309,7 @@ FAILED
 
 ### 9.1 Failed cycle
 
-每个 5 分钟周期：
+每个 configured DEVICE_POLL 周期：
 
 1. 执行 SNMP 采集。
 2. SNMP 成功：管理面可达。
@@ -312,10 +322,12 @@ FAILED
 连续：
 
 ```text
-2 个 5 分钟周期
+2 个连续已处理周期
 ```
 
 SNMP 与 SSH 都失败，确认设备 `DOWN`。
+
+默认 30 分钟周期下，确认窗口约为两个采样周期，即约 60 分钟。
 
 ### 9.3 Recovery confirmation
 
@@ -445,16 +457,17 @@ monitored = false
 
 ## 14. CPU and memory statistics
 
-默认阈值：
+默认阈值与持续条件：
 
 ```text
-CPU >= 80% for 15 minutes
-Memory >= 80% for 15 minutes
+CPU >= 80% for 2 consecutive valid samples
+Memory >= 80% for 2 consecutive valid samples
 ```
 
 阈值必须可配置。
 
-5 分钟周期下，15 分钟要求至少连续 3 个有效样本达到阈值。
+默认 30 分钟周期下对应约 60 分钟 sustained-high observation。持续时间按
+configured interval 计算，不声称精确捕获采样间隔内的瞬时变化。
 
 缺失样本会中断连续区间，不得人为补齐。
 
@@ -500,13 +513,15 @@ percentile_cont(0.95)
 
 ### 15.3 High utilization
 
-重点接口默认阈值：
+重点接口默认阈值与持续条件：
 
 ```text
->= 80% for 15 minutes
+>= 80% for 2 consecutive valid samples
 ```
 
-即至少连续 3 个有效 5 分钟样本。
+默认 30 分钟周期下对应约 60 分钟观察。利用率本身始终使用累计 Counter Delta、
+实际 `collected_at` 时间差与有效速率计算，不能用 configured interval 代替真实
+时间差。
 
 ### 15.4 Top 10
 
@@ -577,13 +592,13 @@ Monitoring Coverage 表示采集数据完整程度。
 对每个逻辑设备：
 
 ```text
-expected = 统计周期内计划的 5 分钟 DEVICE_POLL 次数
+expected = 统计周期内按 configured DEVICE_POLL interval 计划的周期数
 ```
 
 完整 7 天正常情况下为：
 
 ```text
-7 * 24 * 12 = 2016 cycles
+7 * 24 * 2 = 336 cycles (default 30-minute interval)
 ```
 
 ### 18.2 Counts
@@ -944,8 +959,14 @@ postgres
 8. 单 section 失败允许保留有效数据并形成 PARTIAL。
 9. PostgreSQL 短暂不可用后 Worker 能继续恢复循环。
 10. 报告统计只读取持久化数据。
-11. 5 分钟调度不会对同一设备产生重叠采集。
+11. configured interval 调度不会对同一设备产生重叠采集。
 12. Worker 启动后不会补跑大量过期实时采集周期，只继续未来周期；周报则按持久化任务状态恢复。
+13. 不同设备的单周期采集受全局并发限制（默认 3），并按稳定设备顺序错峰
+    启动（默认间隔 20 秒）；错峰等待不占用采集 worker。
+14. 单设备整个 DEVICE_POLL 使用 cooperative / transport-aware 总预算（默认
+    240 秒且必须小于 poll interval）。到期后不再发起新 SNMP request；已成功
+    section 保留并形成 PARTIAL，无有效数据时形成 FAILED。deadline/overlap 等
+    调度控制结果不作为设备 Down/Recovery 业务证据。
 
 ---
 
@@ -959,7 +980,7 @@ postgres
 4. 设备 CPU、内存、接口状态和计数器能够稳定持久化。
 5. 聚合接口和成员关系能够正确识别。
 6. Web 能手工选择重点接口，聚合口不会自动选择成员口。
-7. 5 分钟采集连续运行至少两个完整报告周，无系统性中断。
+7. configured DEVICE_POLL interval 采集连续运行至少两个完整报告周，无系统性中断。
 8. CPU/内存平均值、最大值、P95 与人工抽查一致。
 9. 接口利用率与人工抽查一致，Counter Reset 不产生假峰值。
 10. 设备 Down / Recovery 符合 2-cycle 规则。

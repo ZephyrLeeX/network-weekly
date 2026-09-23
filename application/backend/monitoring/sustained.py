@@ -8,15 +8,14 @@ run of consecutive *valid* samples all at or above the threshold, with
   不得人为补齐) — unlike the §13 interface Down counting, which follows the
   valid-sample wording of §13.3, thresholds are explicitly continuity-
   breaking per §14;
-- the default requirement of 3 consecutive 5-minute samples (>= 80% for
-  15 minutes); thresholds and sample counts are configurable (W02-T007).
+- the default requirement of 2 consecutive samples; the interval is supplied
+  by the caller and missing samples break continuity.
 
 Interval semantics (§14: 开始时间、结束时间和持续时间): each sample
-represents its own 5-minute cycle slot `[t, t + 5 min)`, so an interval is
-the half-open window `[first sample ts, last sample ts + 5 min)`. Three
-consecutive samples therefore last 15 minutes — `duration_seconds` is
-`sample_count * 5 min` on the planned grid, never `(last - first)` (which
-would under-report 3 samples as 10 minutes).
+represents its configured cycle slot `[t, t + interval)`, so an interval is
+the half-open window `[first sample ts, last sample ts + interval)`.
+`duration_seconds` is `sample_count * interval` on the planned grid, never
+`(last - first)`.
 
 The detection is a pure function over `(timestamp, value | None)` points, so
 weekly statistics (Wave 3) reuse exactly this implementation for report
@@ -27,7 +26,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-FIVE_MINUTES = timedelta(seconds=300)
+DEFAULT_SAMPLE_INTERVAL = timedelta(minutes=30)
 
 
 @dataclass(frozen=True)
@@ -52,8 +51,8 @@ def find_sustained_high_intervals(
     points: Sequence[tuple[datetime, float | None]],
     threshold_percent: float,
     *,
-    required_samples: int = 3,
-    sample_interval: timedelta = FIVE_MINUTES,
+    required_samples: int = 2,
+    sample_interval: timedelta = DEFAULT_SAMPLE_INTERVAL,
 ) -> list[SustainedHighInterval]:
     """Detect runs of `required_samples`+ consecutive valid samples >= threshold.
 

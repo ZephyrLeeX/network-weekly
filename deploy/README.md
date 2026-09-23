@@ -34,7 +34,16 @@ NETWORK_REPORT_APP_IMAGE=network-weekly-app:0.1.0   # pre-built, loaded offline
 NETWORK_REPORT_DATA_DIR=/data/network-report
 NETWORK_REPORT_CONFIG_DIR=/etc/network-report
 NETWORK_REPORT_WEB_PORT=8000                        # host port for the web UI
+NETWORK_REPORT_POLL_INTERVAL_SECONDS=1800           # optional; Compose default
+NETWORK_REPORT_IRF_INTERVAL_SECONDS=1800            # optional; Compose default
+NETWORK_REPORT_POLL_MAX_WORKERS=3                   # optional; Compose default
+NETWORK_REPORT_POLL_STAGGER_SECONDS=20              # optional; Compose default
+NETWORK_REPORT_POLL_DEADLINE_SECONDS=240            # optional; Compose default
 ```
+
+旧生产 `.env` 不含这些新增项时会安全使用上述 Compose/application 默认值。
+poll interval 是 deployment-level 配置；只在新的完整统计周开始前修改并重启
+worker，不在 report week 中途切换。
 
 ## Persistence guarantees
 

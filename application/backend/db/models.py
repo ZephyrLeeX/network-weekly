@@ -207,10 +207,10 @@ class AggregationMember(Base):
 
 
 class DevicePollRun(Base):
-    """One planned 5-minute DEVICE_POLL of one logical device (SYSTEM_SPEC.md §7.1/§8).
+    """One planned configured DEVICE_POLL of one logical device (§7.1/§8).
 
     Exactly one row per `(device_id, cycle_started_at)` — the planned cycle
-    start, aligned to the 5-minute boundary — whatever the outcome, so
+    start, aligned to the configured interval boundary — whatever the outcome, so
     Coverage counts stay honest (§18): every planned cycle lands a row. A
     cycle that could not even be attempted is bookkept as FAILED with the
     reason as its failed section (`overlap` = the device's previous poll was
@@ -487,7 +487,7 @@ class SystemSetting(Base):
 
 
 class IrfMemberObservation(Base):
-    """One member of one ~15-minute IRF observation (SYSTEM_SPEC.md §17).
+    """One member of one configured IRF observation (SYSTEM_SPEC.md §17).
 
     Only SUCCESSFUL observations produce rows: an SSH failure records
     nothing, so "missing" always means "the device itself reported the

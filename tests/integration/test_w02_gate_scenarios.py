@@ -37,7 +37,7 @@ from backend.monitoring.thresholds import CPU_KEY, detect_device_sustained_high
 
 pytestmark = pytest.mark.integration
 
-STEP = timedelta(seconds=300)
+STEP = timedelta(minutes=30)
 T0 = datetime(2026, 9, 5, 8, 0, 0, tzinfo=UTC)
 
 
@@ -139,7 +139,7 @@ def test_gate_scenario_success_failure_down_recovery_rebaseline(
     script = iter(
         [
             ok(1_000, 30.0),  # t0: baseline cycle
-            ok(1_000 + 300_000_000_000, 30.0),  # t1: valid delta (80%)
+            ok(1_000 + 1_800_000_000_000, 30.0),  # t1: valid delta (80%)
             ok(500, 30.0),  # t2: counter reset -> rebaseline
             dead(False),  # t3: failed cycle 1
             dead(False),  # t4: failed cycle 2 -> DOWN
@@ -166,7 +166,7 @@ def test_gate_scenario_success_failure_down_recovery_rebaseline(
             "SUCCESS", "SUCCESS", "SUCCESS", "FAILED", "FAILED", "SUCCESS", "SUCCESS",
         ]
 
-        # Utilization: baseline -> 80% over the real 300 s -> reset rebaseline.
+            # Utilization: baseline -> 80% over the real 1800 s -> reset rebaseline.
         utilizations = [
             row.in_utilization_percent
             for row in session.execute(

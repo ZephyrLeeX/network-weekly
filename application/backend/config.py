@@ -22,6 +22,11 @@ DEFAULT_DATA_DIR = "./data"
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_WORKER_ID = "worker"
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30
+DEFAULT_POLL_INTERVAL_SECONDS = 1800
+DEFAULT_IRF_INTERVAL_SECONDS = 1800
+DEFAULT_POLL_MAX_WORKERS = 3
+DEFAULT_POLL_STAGGER_SECONDS = 20
+DEFAULT_POLL_DEADLINE_SECONDS = 240
 # §24: raw metrics/poll runs are kept at least 90 days.
 DEFAULT_RETENTION_DAYS = 90
 MIN_RETENTION_DAYS = 90
@@ -45,6 +50,11 @@ class Settings:
     log_level: str = DEFAULT_LOG_LEVEL
     worker_id: str = DEFAULT_WORKER_ID
     heartbeat_interval_seconds: int = DEFAULT_HEARTBEAT_INTERVAL_SECONDS
+    poll_interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS
+    irf_interval_seconds: int = DEFAULT_IRF_INTERVAL_SECONDS
+    poll_max_workers: int = DEFAULT_POLL_MAX_WORKERS
+    poll_stagger_seconds: int = DEFAULT_POLL_STAGGER_SECONDS
+    poll_deadline_seconds: int = DEFAULT_POLL_DEADLINE_SECONDS
     # Raw metrics/poll-run retention in days (§24: at least 90).
     retention_days: int = DEFAULT_RETENTION_DAYS
     devices_file: Path = Path(DEFAULT_DEVICES_FILE)
@@ -108,6 +118,34 @@ def load_settings() -> Settings:
             f"got {heartbeat_interval}"
         )
 
+    poll_interval = _integer_setting(
+        "NETWORK_REPORT_POLL_INTERVAL_SECONDS",
+        DEFAULT_POLL_INTERVAL_SECONDS,
+        minimum=300,
+        maximum=3600,
+    )
+    irf_interval = _integer_setting(
+        "NETWORK_REPORT_IRF_INTERVAL_SECONDS",
+        DEFAULT_IRF_INTERVAL_SECONDS,
+        minimum=300,
+        maximum=3600,
+    )
+    poll_max_workers = _integer_setting(
+        "NETWORK_REPORT_POLL_MAX_WORKERS", DEFAULT_POLL_MAX_WORKERS, minimum=1, maximum=32
+    )
+    poll_stagger = _integer_setting(
+        "NETWORK_REPORT_POLL_STAGGER_SECONDS", DEFAULT_POLL_STAGGER_SECONDS, minimum=0
+    )
+    poll_deadline = _integer_setting(
+        "NETWORK_REPORT_POLL_DEADLINE_SECONDS", DEFAULT_POLL_DEADLINE_SECONDS, minimum=1
+    )
+    if poll_deadline >= poll_interval:
+        raise ConfigError(
+            "NETWORK_REPORT_POLL_DEADLINE_SECONDS must be less than "
+            "NETWORK_REPORT_POLL_INTERVAL_SECONDS; "
+            f"got {poll_deadline} >= {poll_interval}"
+        )
+
     raw_retention = os.environ.get("NETWORK_REPORT_RETENTION_DAYS", "").strip()
     if not raw_retention:
         retention_days = DEFAULT_RETENTION_DAYS
@@ -133,7 +171,33 @@ def load_settings() -> Settings:
         log_level=log_level,
         worker_id=worker_id,
         heartbeat_interval_seconds=heartbeat_interval,
+        poll_interval_seconds=poll_interval,
+        irf_interval_seconds=irf_interval,
+        poll_max_workers=poll_max_workers,
+        poll_stagger_seconds=poll_stagger,
+        poll_deadline_seconds=poll_deadline,
         retention_days=retention_days,
         devices_file=devices_file,
         secrets_file=secrets_file,
     )
+
+
+def _integer_setting(
+    name: str,
+    default: int,
+    *,
+    minimum: int,
+    maximum: int | None = None,
+) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        value = default
+    else:
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ConfigError(f"{name} must be an integer; got {raw!r}") from exc
+    if value < minimum or (maximum is not None and value > maximum):
+        allowed = f">= {minimum}" if maximum is None else f"between {minimum} and {maximum}"
+        raise ConfigError(f"{name} must be {allowed}; got {value}")
+    return value

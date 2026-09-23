@@ -1,6 +1,6 @@
 """Periodic IRF member observation (W02-T008, SYSTEM_SPEC.md §7.3/§17).
 
-Roughly every 15 minutes, each device *configured* as an IRF fabric
+At the configured interval (30 minutes by default), each device *configured* as an IRF fabric
 (`expected_irf_member_count > 1`) is observed once over the Wave 1 SSH
 collector (:func:`backend.collect.session.run_irf_observation`, re-used
 unchanged). Standalone devices are never SSH-probed for IRF — there is
@@ -31,13 +31,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.collect.dto import IrfMemberSample
 from backend.collect.session import run_irf_observation
 from backend.collect.ssh import SshConfig
+from backend.config import DEFAULT_IRF_INTERVAL_SECONDS
 from backend.db.engine import get_session_factory
 from backend.db.models import DeviceMember, IrfMemberObservation
 
 logger = logging.getLogger(__name__)
 
-# §7.3: IRF member state refresh ~every 15 minutes.
-IRF_OBSERVATION_INTERVAL = timedelta(seconds=900)
+IRF_OBSERVATION_INTERVAL = timedelta(seconds=DEFAULT_IRF_INTERVAL_SECONDS)
 
 
 @dataclass(frozen=True)
@@ -219,7 +219,7 @@ def observe_irf_device(
 
 
 class IrfObservationLoop:
-    """Runs one IRF observation pass per ~15-minute boundary until stopped.
+    """Runs one IRF observation pass per configured boundary until stopped.
 
     Passes run inline (single thread): a pass that overruns the interval
     simply delays the next one — the cadence stays approximate (§7.3), and

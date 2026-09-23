@@ -25,7 +25,7 @@ Down from one duplicated sample).
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import sessionmaker
 
@@ -140,8 +140,10 @@ def poll_device(
     *,
     session_factory: sessionmaker | None = None,
     now: datetime | None = None,
+    poll_interval: timedelta = timedelta(minutes=30),
+    deadline_seconds: float | None = None,
 ) -> str:
-    """Run one 5-minute poll for one device; returns the §8 status.
+    """Run one configured DEVICE_POLL for one device; returns the §8 status.
 
     Never raises for collection trouble (the Wave 1 orchestration normalizes
     everything into the outcome); database errors propagate to the scheduler,
@@ -174,16 +176,30 @@ def poll_device(
             collected_at=collected_at,
         )
 
-    outcome = run_collection(context.snmp, context.ssh, context.device_name)
+    outcome = run_collection(
+        context.snmp,
+        context.ssh,
+        context.device_name,
+        deadline_seconds=deadline_seconds,
+    )
 
     with factory() as session:
         persist_collection(session, context.device_id, outcome, collected_at)
         persisted = persist_poll_result(
-            session, context.device_id, cycle_started_at, outcome, collected_at
+            session,
+            context.device_id,
+            cycle_started_at,
+            outcome,
+            collected_at,
+            max_sample_interval_seconds=3 * poll_interval.total_seconds(),
         )
         # §9/§13 state machines advance only when THIS call created the run
         # row; a cycle persisted by an earlier attempt is already final.
-        if persisted is not None and persisted.newly_persisted:
+        if (
+            persisted is not None
+            and persisted.newly_persisted
+            and not outcome.deadline_exceeded
+        ):
             # §9: the SNMP channel yielded valid data == reachable; the SSH
             # probe ran only on a real channel failure (Wave 1 gating).
             apply_device_reachability(
@@ -194,6 +210,7 @@ def poll_device(
                     snmp_ok=outcome.has_valid_data(),
                     ssh_reachable=outcome.ssh_reachable,
                 ),
+                interval=poll_interval,
             )
             # §13: monitored interface Down/Recovery (only when the interfaces
             # section delivered samples; a failed section is a missing sample).

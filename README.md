@@ -3,6 +3,9 @@
 网络运维自动周报系统。产品与架构需求见 `SYSTEM_SPEC.md`，任务状态见
 `TASK_GRAPH.md` 与 `EXECUTION_STATE.md`。
 
+系统面向周报与周级趋势，不是实时 NMS/告警平台。生产默认每 30 分钟低冲击
+采集一次，并对核心设备查询实施全局并发、确定性错峰和单设备总时间预算。
+
 当前阶段与进行中的 Task 以 `EXECUTION_STATE.md` / `TASK_GRAPH.md` 为准。
 
 ## Toolchain
@@ -73,6 +76,14 @@ docker compose run --rm web alembic upgrade head   # schema 全部由迁移驱�
 | `NETWORK_REPORT_LOG_LEVEL` | `INFO` | 日志级别 |
 | `NETWORK_REPORT_WORKER_ID` | `worker` | Worker 身份标识 |
 | `NETWORK_REPORT_HEARTBEAT_INTERVAL_SECONDS` | `30` | 心跳周期（秒，必须为正） |
+| `NETWORK_REPORT_POLL_INTERVAL_SECONDS` | `1800` | DEVICE_POLL 周期（300–3600 秒） |
+| `NETWORK_REPORT_IRF_INTERVAL_SECONDS` | `1800` | IRF observation 周期（300–3600 秒） |
+| `NETWORK_REPORT_POLL_MAX_WORKERS` | `3` | 不同设备采集的全局最大并发（1–32） |
+| `NETWORK_REPORT_POLL_STAGGER_SECONDS` | `20` | 同一 logical cycle 内设备启动间隔（秒） |
+| `NETWORK_REPORT_POLL_DEADLINE_SECONDS` | `240` | 单设备整次 poll 总预算，必须小于 poll interval |
+
+变更 poll interval 时应在新的完整统计周开始前修改环境变量并重启 worker；
+不要在一个完整 report week 中途切换周期。
 
 ## 仓库布局
 

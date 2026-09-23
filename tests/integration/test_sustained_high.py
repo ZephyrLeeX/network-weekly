@@ -33,9 +33,9 @@ from backend.monitoring.thresholds import (
 
 pytestmark = pytest.mark.integration
 
-STEP = timedelta(seconds=300)
+STEP = timedelta(minutes=30)
 T0 = datetime(2026, 9, 5, 8, 0, 0, tzinfo=UTC)
-WINDOW_END = T0 + timedelta(minutes=30)  # six planned cycles
+WINDOW_END = T0 + 6 * STEP
 
 
 @pytest.fixture(autouse=True)
@@ -103,7 +103,7 @@ def test_load_thresholds_defaults_when_empty(db_engine: Engine) -> None:
     with Session(db_engine) as session:
         thresholds = load_thresholds(session)
         assert thresholds[CPU_KEY] == 80.0
-        assert thresholds[REQUIRED_SAMPLES_KEY] == 3.0
+        assert thresholds[REQUIRED_SAMPLES_KEY] == 2.0
 
 
 def test_set_and_reload_threshold_override(db_engine: Engine) -> None:
@@ -122,7 +122,7 @@ def test_set_and_reload_threshold_override(db_engine: Engine) -> None:
             set_threshold(session, "nope", 1.0)
 
 
-def test_sustained_high_requires_three_consecutive_valid_cycles(
+def test_sustained_high_requires_two_consecutive_valid_cycles(
     db_engine: Engine, device_id: int
 ) -> None:
     with Session(db_engine) as session:
@@ -137,14 +137,13 @@ def test_sustained_high_requires_three_consecutive_valid_cycles(
 
         result = detect_device_sustained_high(session, device_id, T0, WINDOW_END)
         assert result["cpu"] is not None
-        # The 85/90 run died at the missing cycle; the last three confirm.
-        assert len(result["cpu"]) == 1
-        interval = result["cpu"][0]
+        # The missing sample splits the two qualifying runs.
+        assert len(result["cpu"]) == 2
+        interval = result["cpu"][1]
         assert interval.start == T0 + 3 * STEP
-        # Exclusive end of the last sample's 5-minute slot: 3 samples = 15 min.
         assert interval.end == T0 + 6 * STEP
         assert interval.sample_count == 3
-        assert interval.duration_seconds == 900.0
+        assert interval.duration_seconds == 5400.0
         assert result["memory"] == []
 
 
@@ -219,7 +218,7 @@ def test_all_device_metrics_series_helper(db_engine: Engine, device_id: int) -> 
 
         cpu_series = device_metric_series(session, device_id, "cpu_usage_percent", T0, WINDOW_END)
         assert cpu_series[0] == (T0, 50.0)
-        assert len(cpu_series) == 6  # 30-minute window / 5-minute cycles
+        assert len(cpu_series) == 6
 
         with pytest.raises(ValueError, match="unknown device metric field"):
             device_metric_series(session, device_id, "bogus", T0, WINDOW_END)

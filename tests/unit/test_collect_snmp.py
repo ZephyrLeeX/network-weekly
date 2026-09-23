@@ -13,8 +13,8 @@ from backend.collect.snmp import SnmpClient, SnmpConfig, SnmpError, SnmpVarbind
 class FakeClient(SnmpClient):
     """SnmpClient with scripted `_run_get`/`_run_bulk` hooks (no sockets)."""
 
-    def __init__(self, config: SnmpConfig) -> None:
-        super().__init__(config)
+    def __init__(self, config: SnmpConfig, **kwargs: object) -> None:
+        super().__init__(config, **kwargs)  # type: ignore[arg-type]
         self.get_script: list[tuple[object, int, list[SnmpVarbind]]] = []
         self.walk_script: list[tuple[object, int, list[SnmpVarbind]]] = []
         self.get_calls = 0
@@ -103,3 +103,25 @@ def test_bulk_walk_deadline_is_enforced() -> None:
     ]
     with pytest.raises(SnmpError, match="deadline"):
         client.bulk_walk(base)
+
+
+def test_whole_poll_deadline_stops_before_another_request() -> None:
+    now = [0.0]
+    client = FakeClient(
+        SnmpConfig(host="192.0.2.1", community="unused"),
+        absolute_deadline=1.0,
+        monotonic_clock=lambda: now[0],
+    )
+    base = "1.3.6.1.2.1.2.2.1.2"
+
+    async def one_then_expire(
+        start_oid: str, *, lexicographic_mode: bool
+    ) -> tuple[object, int, list[SnmpVarbind]]:
+        client.bulk_calls += 1
+        now[0] = 2.0
+        return None, 0, [SnmpVarbind(f"{base}.1", "eth0")]
+
+    client._run_bulk = one_then_expire  # type: ignore[method-assign]
+    with pytest.raises(SnmpError, match="device poll deadline"):
+        client.bulk_walk(base)
+    assert client.bulk_calls == 1

@@ -12,11 +12,11 @@ never change the overall status (§19).
 
 Coverage (§18): per logical device,
 
-    expected = planned 5-minute DEVICE_POLL cycles in [start, end)
+    expected = planned configured DEVICE_POLL cycles in [start, end)
     coverage = (SUCCESS + PARTIAL) / expected * 100%
 
-with expected taken from the planned-cycle grid (7*24*12 = 2016 for a full
-week; a disabled device has no planned cycles). PARTIAL is always shown
+with expected taken from the configured planned-cycle grid (336 for a full
+week at the 30-minute default; a disabled device has no planned cycles). PARTIAL is always shown
 separately so the percentage can never hide partial collection failures.
 Below 95% the report states 数据完整性不足 — and still generates (§18.3).
 A database with no devices at all has no coverage evidence: coverage is
@@ -27,6 +27,7 @@ Both statistics live ONLY here; the report service composes them.
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from sqlalchemy import ColumnElement, case, func, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
@@ -302,10 +303,14 @@ class CoverageSummary:
         return overall_low or any(d.below_target for d in self.devices)
 
 
-def weekly_coverage(session: Session, period: ReportPeriod) -> CoverageSummary:
+def weekly_coverage(
+    session: Session,
+    period: ReportPeriod,
+    poll_interval: timedelta = timedelta(minutes=30),
+) -> CoverageSummary:
     """§18 expected/success/partial/failed per device + overall summary.
 
-    `expected` is the planned 5-minute cycle grid over the period; the
+    `expected` is the configured planned-cycle grid over the period; the
     scheduler plans cycles for enabled devices only, so a disabled device
     has expected = 0 (coverage not computable → 数据缺失, not 0%).
     """
@@ -326,7 +331,7 @@ def weekly_coverage(session: Session, period: ReportPeriod) -> CoverageSummary:
         ).all()
     }
 
-    expected_per_device = len(cycle_slots(period.start, period.end))
+    expected_per_device = len(cycle_slots(period.start, period.end, poll_interval))
     device_coverages = []
     for device_id, device_name, enabled in devices:
         success = status_counts.get((device_id, STATUS_SUCCESS), 0)

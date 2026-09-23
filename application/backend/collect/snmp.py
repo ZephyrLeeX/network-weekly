@@ -15,7 +15,9 @@ inject canned responses/errors instead of opening UDP sockets.
 
 import asyncio
 import logging
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from functools import partial
 from time import monotonic
 from typing import Any
 
@@ -36,6 +38,10 @@ logger = logging.getLogger(__name__)
 
 class SnmpError(RuntimeError):
     """Normalized SNMP transport error (secret-free message)."""
+
+
+class PollDeadlineExceeded(SnmpError):
+    """The whole DEVICE_POLL budget expired; no more requests may start."""
 
 
 @dataclass(frozen=True)
@@ -87,8 +93,42 @@ def _is_missing(value: Any) -> bool:
 class SnmpClient:
     """Synchronous facade over the PySNMP asyncio API for one device."""
 
-    def __init__(self, config: SnmpConfig) -> None:
+    def __init__(
+        self,
+        config: SnmpConfig,
+        *,
+        absolute_deadline: float | None = None,
+        monotonic_clock: Callable[[], float] = monotonic,
+    ) -> None:
         self._config = config
+        self._absolute_deadline = absolute_deadline
+        self._monotonic = monotonic_clock
+
+    def _remaining_budget(self) -> float | None:
+        if self._absolute_deadline is None:
+            return None
+        remaining = self._absolute_deadline - self._monotonic()
+        if remaining <= 0:
+            raise PollDeadlineExceeded("device poll deadline exceeded")
+        return remaining
+
+    def deadline_expired(self) -> bool:
+        return (
+            self._absolute_deadline is not None
+            and self._monotonic() >= self._absolute_deadline
+        )
+
+    def _run_request(self, request_factory: Callable[[], Coroutine[Any, Any, Any]]) -> Any:
+        remaining = self._remaining_budget()
+        request = request_factory()
+        try:
+            if remaining is None:
+                return asyncio.run(request)
+            return asyncio.run(asyncio.wait_for(request, timeout=remaining))
+        except TimeoutError as exc:
+            if self.deadline_expired():
+                raise PollDeadlineExceeded("device poll deadline exceeded") from exc
+            raise
 
     # -- hooks overridable in tests -------------------------------------------------
 
@@ -152,9 +192,12 @@ class SnmpClient:
         if not oids:
             return []
         try:
-            error_indication, error_status, varbinds = asyncio.run(
-                self._run_get(oids)
+            self._remaining_budget()
+            error_indication, error_status, varbinds = self._run_request(
+                lambda: self._run_get(oids)
             )
+        except PollDeadlineExceeded:
+            raise
         except (TimeoutError, OSError) as exc:
             raise SnmpError(f"snmp transport failure: {type(exc).__name__}") from exc
         if error_indication is not None:
@@ -172,17 +215,18 @@ class SnmpClient:
 
         results: list[SnmpVarbind] = []
         lever = oid
-        deadline = monotonic() + self._config.walk_deadline_seconds
+        deadline = self._monotonic() + self._config.walk_deadline_seconds
         prefix = f"{oid}."
         try:
             while True:
-                if monotonic() > deadline:
+                self._remaining_budget()
+                if self._monotonic() > deadline:
                     raise SnmpError(
                         f"snmp walk of {oid} exceeded "
                         f"{self._config.walk_deadline_seconds}s deadline"
                     )
-                error_indication, error_status, varbinds = asyncio.run(
-                    self._run_bulk(lever, lexicographic_mode=False)
+                error_indication, error_status, varbinds = self._run_request(
+                    partial(self._run_bulk, lever, lexicographic_mode=False)
                 )
                 if error_indication is not None:
                     raise SnmpError(f"snmp walk failed: {error_indication}")
@@ -202,6 +246,8 @@ class SnmpClient:
                     advanced = True
                 if not advanced:
                     break
+        except PollDeadlineExceeded:
+            raise
         except SnmpError:
             raise
         except (TimeoutError, OSError) as exc:

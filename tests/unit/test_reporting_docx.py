@@ -86,8 +86,8 @@ def _report(
                 DeviceCoverage(
                     device_id=1,
                     device_name="core-1",
-                    expected=2016,
-                    success=2010,
+                    expected=336,
+                    success=330,
                     partial=4,
                     failed=2,
                 ),
@@ -130,7 +130,7 @@ def test_basic_info_section_contains_required_fields(tmp_path: Path) -> None:
     assert ("报告生成时间", "2026-09-07 08:12") in cells  # UTC 00:12 -> +08
     assert ("当前总体状态", STATUS_NORMAL) in cells
     coverage_row = next(text for label, text in cells if label == "Monitoring Coverage 摘要")
-    assert "99.90%" in coverage_row  # (2010+4)/2016 = 99.90%
+    assert "99.40%" in coverage_row  # (330+4)/336 = 99.40%
     assert "PARTIAL 4" in coverage_row
     # The summary paragraph is present as text.
     all_text = "\n".join(p.text for p in document.paragraphs)
