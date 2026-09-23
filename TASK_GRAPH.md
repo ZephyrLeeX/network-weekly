@@ -20,6 +20,28 @@ REVIEW_PASSED
 
 ---
 
+## W05-LOW-IMPACT-POLLING — Weekly-report-safe collection cadence
+**Status:** IMPLEMENTED — FIELD_REVALIDATION_PENDING (2026-09-23; not REVIEW_PASSED)
+**Depends On:** existing W01–W05 engineering implementation on `work/wave-05`
+**Blocks:** W05-GATE through W01-T007 / W05-T005 field evidence
+**Scope:** owner-approved product adjustment only: configurable DEVICE_POLL and
+IRF intervals with 1800 s defaults; global poll concurrency 3; deterministic
+20 s device stagger without sleeping executor workers; cooperative per-device
+240 s whole-poll deadline; propagate interval into reachability continuity,
+2-sample sustained-high semantics, utilization stale-gap validation and weekly
+Coverage (336 expected cycles for a default full week). Preserve same-device
+no-overlap, no backfill, PARTIAL data, standalone IRF exclusion, H3C parser/OID/
+LAG behavior and all secret boundaries. No schema change, image build, field
+deployment or main merge.
+**Acceptance:** focused low-impact + H3C regression 194 PASS; full
+non-integration 398 PASS; integration 267 PASS; ruff PASS; mypy PASS (137
+files); Alembic 0011 with no migration. Deadline starts no new SNMP requests,
+preserves successful sections, and is not Down/Recovery evidence. Field
+revalidation remains mandatory before REVIEW_PASSED.
+**Implementation checkpoint:** `4c4466e13c23937934f11befaac1f6592f549ba9`.
+
+---
+
 # Wave 0 — Engineering Foundation
 
 ## W00-T001 — Initialize repository structure
@@ -126,7 +148,7 @@ REVIEW_PASSED
 **Depends On:** W01-T006
 **Blocks:** W05-GATE (production Release Gate)
 **Acceptance:** one standalone S10500X, one S10500X IRF and one S12500 IRF validated end-to-end with anonymized fixtures/evidence: replace synthetic fixtures in `tests/fixtures/h3c/`, confirm H3C enterprise OIDs in `backend/collect/h3c/oids.py` (hh3c-entity-ext CPU/memory) and the Comware aggregation-id-ifIndex equivalence, then re-run the full gate.
-**2026-09-22 field result and compatibility fix:** the old image completed real SNMP/SSH discovery on representative S10510X standalone, S10510X IRF and S12508G-AF IRF devices. CPU/memory, interface/speed/counters/FCS and LAG Attached/Selected mapping were confirmed; the existing SNMP algorithms remain unchanged. That run exposed two SSH normalization bugs: the model regex truncated `S12508G-AF`, and `display irf` treated Slot as Role then used first-row-wins across multiple MPU slots. Initial correction checkpoint `f5cd33047e3198767b08b2792e9b9bd1b065cce1` accepts bounded alphanumeric hyphen suffixes, separates live/configuration table semantics and aggregates recognized live roles per physical member. Current implementation checkpoint `a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87`, which must be built for field revalidation, additionally recognizes Loading as a defensive compatibility role. Recognized live roles are Master, Slave, Backup, Standby and Loading: any Master wins; otherwise one consistent recognized role is retained; conflicting non-Master roles stay None. Loading is covered by synthetic compatibility regression cases; the S10510X/S12508G-AF field captures contained Master/Standby and are not claimed to contain Loading. Six anonymized real-shape SSH fixtures cover S10510X/S12508G-AF version and both IRF commands. Verification: focused SSH/parser tests 28 PASS; full non-integration 383 PASS; integration 266 PASS; ruff PASS; mypy PASS (137 files); Alembic remains 0011 with no migration. Parser smoke gives exact S10510X/S12508G-AF models, both fabrics as member 1 Master / member 2 Standby, and synthetic Loading+Loading -> Loading, Master+Loading -> Master, Standby+Loading -> None. **Not REVIEW_PASSED:** an image built from `a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87` must still be taken back to the field and revalidate the exact S12508G-AF model plus both normalized Master/Standby IRF role sets; Loading need not be manufactured in the field. W05-T005 remains IN_PROGRESS — REAL_ENVIRONMENT_EVIDENCE_PENDING and W05-GATE remains BLOCKED.
+**2026-09-22 field result and compatibility fix:** the old image completed real SNMP/SSH discovery on representative S10510X standalone, S10510X IRF and S12508G-AF IRF devices. CPU/memory, interface/speed/counters/FCS and LAG Attached/Selected mapping were confirmed; the existing SNMP algorithms remain unchanged. That run exposed two SSH normalization bugs: the model regex truncated `S12508G-AF`, and `display irf` treated Slot as Role then used first-row-wins across multiple MPU slots. Initial correction checkpoint `f5cd33047e3198767b08b2792e9b9bd1b065cce1` accepts bounded alphanumeric hyphen suffixes, separates live/configuration table semantics and aggregates recognized live roles per physical member. Historical H3C parser compatibility checkpoint `a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87` additionally recognizes Loading as a defensive compatibility role. Recognized live roles are Master, Slave, Backup, Standby and Loading: any Master wins; otherwise one consistent recognized role is retained; conflicting non-Master roles stay None. Loading is covered by synthetic compatibility regression cases; the S10510X/S12508G-AF field captures contained Master/Standby and are not claimed to contain Loading. Six anonymized real-shape SSH fixtures cover S10510X/S12508G-AF version and both IRF commands. Verification at that checkpoint: focused SSH/parser tests 28 PASS; full non-integration 383 PASS; integration 266 PASS; ruff PASS; mypy PASS (137 files); Alembic remains 0011 with no migration. Parser smoke gives exact S10510X/S12508G-AF models, both fabrics as member 1 Master / member 2 Standby, and synthetic Loading+Loading -> Loading, Master+Loading -> Master, Standby+Loading -> None. **Not REVIEW_PASSED:** the next field revalidation must use the full low-impact polling application checkpoint `4c4466e13c23937934f11befaac1f6592f549ba9` and revalidate the exact S12508G-AF model plus both normalized Master/Standby IRF role sets; Loading need not be manufactured in the field. W05-T005 remains IN_PROGRESS — REAL_ENVIRONMENT_EVIDENCE_PENDING and W05-GATE remains BLOCKED.
 
 ## W01-GATE — Wave 1 Engineering Gate
 **Status:** PASS (engineering gate)

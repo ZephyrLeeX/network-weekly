@@ -1,10 +1,40 @@
 # EXECUTION_STATE.md
 
-## W01-T007-H3C-FIELD-COMPATIBILITY — current owner-approved task
+## W05-LOW-IMPACT-POLLING — current owner-approved product adjustment
+
+Status: IMPLEMENTED / FIELD_REVALIDATION_PENDING (2026-09-23), branch
+work/wave-05; implementation checkpoint
+4c4466e13c23937934f11befaac1f6592f549ba9. The system is explicitly a
+weekly-report and weekly-trend collector, not a real-time NMS/alarm platform.
+Production defaults are now DEVICE_POLL 1800 s, IRF observation 1800 s,
+3 global poll workers, deterministic 20 s per-device stagger and a 240 s
+cooperative whole-poll deadline. Worker wiring passes the configured interval
+to scheduler, 2-cycle reachability continuity, 2-sample sustained-high
+detection, utilization stale-gap handling and report Coverage; a default full
+week is 336 cycles/device. Stagger changes actual request start only: every
+device keeps the shared logical `cycle_started_at`. Same-device no-overlap,
+FAILED/overlap bookkeeping, no backfill and failure isolation remain intact.
+Deadline expiry starts no further SNMP request, preserves successful sections
+as PARTIAL (or FAILED with no valid data), and never advances reachability or
+interface state as fabricated device evidence. IRF stays restricted to
+`expected_irf_member_count > 1`; standalone devices remain excluded. Existing
+H3C S10510X / exact S12508G-AF parsing, Master/Standby/Loading compatibility,
+verified OIDs and Attached-authoritative/Selected-fallback LAG mapping remain
+unchanged. Verification: focused low-impact + H3C regression 194 PASS; full
+non-integration 398 PASS; integration 267 PASS; ruff PASS; mypy PASS (137
+files); Alembic head 0011, no migration. This task is NOT REVIEW_PASSED until
+the new full application checkpoint is field-revalidated on the representative
+standalone S10510X, S10510X IRF and S12508G-AF IRF paths. No Docker image was
+built, no field deployment was started, and main remains unmerged.
+W01-T007 remains IMPLEMENTED / FIELD_REVALIDATION_PENDING; W05-T005 remains
+IN_PROGRESS — REAL_ENVIRONMENT_EVIDENCE_PENDING; W05-GATE remains BLOCKED.
+
+## W01-T007-H3C-FIELD-COMPATIBILITY — current field-validation dependency
 
 Status: IMPLEMENTED / FIELD_REVALIDATION_PENDING (2026-09-22), branch
 work/wave-05; implementation checkpoint
-a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87. The completed real-device run on
+a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87 (historical H3C parser compatibility
+checkpoint). The completed real-device run on
 S10510X standalone, S10510X IRF and S12508G-AF IRF confirmed the existing
 SNMP CPU/memory/interface/counter/FCS collectors and LAG Attached-authoritative
 / Selected-fallback mapping; those algorithms were not changed. The exposed
@@ -25,9 +55,11 @@ integration 266 PASS; ruff PASS; mypy PASS (137 files); Alembic head 0011, no
 migration. Parser smoke: exact S10510X / S12508G-AF models; both fabrics member
 1 Master + member 2 Standby; synthetic Loading+Loading -> Loading,
 Master+Loading -> Master and Standby+Loading -> None. Checkpoint
-a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87 is the implementation checkpoint to
-build for field revalidation. W01-T007 is NOT REVIEW_PASSED until an image from
-that checkpoint is deployed back to the field and the exact S12508G-AF model
+a7a3e6f7267cc3564ca18aa7a3ee1500ddb71a87 remains the historical parser
+compatibility checkpoint. The next field revalidation must use the full
+low-impact polling application checkpoint
+4c4466e13c23937934f11befaac1f6592f549ba9. W01-T007 is NOT REVIEW_PASSED
+until an image from that checkpoint is deployed back to the field and the exact S12508G-AF model
 plus both normalized Master/Standby IRF role sets are revalidated; Loading does
 not need to be manufactured in the field.
 W05-T005 remains IN_PROGRESS — REAL_ENVIRONMENT_EVIDENCE_PENDING; W05-GATE
