@@ -24,7 +24,7 @@ from backend.collect.session import (
     run_irf_observation,
     run_static_ssh_collection,
 )
-from backend.collect.snmp import SnmpConfig, SnmpError
+from backend.collect.snmp import PollDeadlineExceeded, SnmpConfig, SnmpError
 from backend.collect.ssh import SshConfig, SshError
 
 SNMP = SnmpConfig(host="192.0.2.1", community="unused")
@@ -271,6 +271,55 @@ def test_poll_deadline_before_any_section_is_failed(
     assert outcome.overall_status == FAILED
     assert outcome.deadline_exceeded is True
     assert outcome.ssh_reachable is None
+
+
+def test_ssh_fallback_uses_shared_deadline_and_expiry_is_not_down_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_collect(
+        monkeypatch, failures={name: SnmpError("timeout") for name in ALL_SECTIONS}
+    )
+    clock = lambda: 100.0  # noqa: E731 - identity is part of the assertion
+    with patch("backend.collect.session.H3CSshClient") as ssh_cls:
+        ssh_cls.return_value.check_reachable.side_effect = PollDeadlineExceeded(
+            "device poll deadline exceeded"
+        )
+        outcome = run_collection(
+            SNMP,
+            SSH,
+            "core-s10500x-01",
+            deadline_seconds=5.0,
+            monotonic_clock=clock,
+        )
+
+    ssh_cls.assert_called_once_with(
+        SSH,
+        absolute_deadline=105.0,
+        monotonic_clock=clock,
+    )
+    assert outcome.deadline_exceeded is True
+    assert outcome.ssh_reachable is None
+    assert outcome.overall_status == FAILED
+
+
+def test_ssh_fallback_success_within_shared_deadline_is_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_collect(
+        monkeypatch, failures={name: SnmpError("timeout") for name in ALL_SECTIONS}
+    )
+    with patch_ssh_reachable(True):
+        outcome = run_collection(
+            SNMP,
+            SSH,
+            "core-s10500x-01",
+            deadline_seconds=5.0,
+            monotonic_clock=lambda: 100.0,
+        )
+
+    assert outcome.deadline_exceeded is False
+    assert outcome.ssh_reachable is True
+    assert outcome.overall_status == FAILED
 
 
 def test_static_ssh_collection_success() -> None:

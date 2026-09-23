@@ -151,6 +151,18 @@ def test_poll_deadline_persists_partial_data_without_reachability_evidence(
         deadline_exceeded=True,
     )
     monkeypatch.setattr(poll_module, "run_collection", lambda *a, **k: outcome)
+    reachability_calls: list[object] = []
+    interface_state_calls: list[object] = []
+    monkeypatch.setattr(
+        poll_module,
+        "apply_device_reachability",
+        lambda *a, **k: reachability_calls.append((a, k)),
+    )
+    monkeypatch.setattr(
+        poll_module,
+        "record_interface_states",
+        lambda *a, **k: interface_state_calls.append((a, k)),
+    )
 
     status = poll_device(
         _context(device_id), CYCLE, session_factory=sessionmaker(bind=db_engine)
@@ -161,6 +173,8 @@ def test_poll_deadline_persists_partial_data_without_reachability_evidence(
         assert run.status == "PARTIAL"
         assert run.failed_sections == "cpu"
         assert session.get(DeviceMonitoringState, device_id) is None
+    assert reachability_calls == []
+    assert interface_state_calls == []
 
 
 def _dead(device_name: str, ssh_reachable: bool) -> DeviceCollectionOutcome:

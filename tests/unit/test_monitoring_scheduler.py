@@ -369,14 +369,22 @@ def test_fresh_scheduler_instance_does_not_backfill() -> None:
 def test_deterministic_stagger_keeps_one_logical_cycle_and_does_not_sleep_workers() -> None:
     starts: list[tuple[str, datetime]] = []
     waits: list[float] = []
+    started = threading.Condition()
     executor = ThreadPoolExecutor(max_workers=3)
 
     def record(ctx: DevicePollContext, cycle: datetime) -> str:
-        starts.append((ctx.device_name, cycle))
+        with started:
+            starts.append((ctx.device_name, cycle))
+            started.notify_all()
         return "SUCCESS"
 
     def record_wait(seconds: float) -> bool:
-        waits.append(seconds)
+        with started:
+            waits.append(seconds)
+            # The real wait is 20 seconds, so the prior poll has been
+            # dispatched before the next slot. Preserve that ordering in
+            # this zero-time fake instead of racing executor threads.
+            assert started.wait_for(lambda: len(starts) >= len(waits), timeout=1)
         return True
 
     scheduler = DevicePollScheduler(

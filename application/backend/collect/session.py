@@ -292,7 +292,18 @@ def run_collection(
             device_name,
             ", ".join(outcome.failed_sections),
         )
-        outcome.ssh_reachable = H3CSshClient(ssh).check_reachable()
+        try:
+            outcome.ssh_reachable = H3CSshClient(
+                ssh,
+                absolute_deadline=absolute_deadline,
+                monotonic_clock=monotonic_clock,
+            ).check_reachable()
+        except PollDeadlineExceeded:
+            # Exhausting the collection-control budget is not evidence that
+            # the device is unreachable. Keep ssh_reachable unknown so §9
+            # cannot turn an incomplete probe into a Down observation.
+            outcome.deadline_exceeded = True
+            outcome.ssh_reachable = None
 
     logger.info(
         "collection for %s: %s (failed sections: %s)",

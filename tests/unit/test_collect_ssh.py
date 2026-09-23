@@ -17,6 +17,7 @@ from backend.collect.h3c.ssh_parsers import (
     parse_display_irf_configuration,
     parse_display_version,
 )
+from backend.collect.snmp import PollDeadlineExceeded
 from backend.collect.ssh import ALLOWED_COMMANDS, H3CSshClient, SshConfig, SshError
 
 FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "h3c"
@@ -36,9 +37,11 @@ class _FakeConnection:
     def __init__(self, output: str = "ok") -> None:
         self.output = output
         self.disconnected = False
+        self.commands: list[tuple[str, float]] = []
 
     def send_command(self, command: str, read_timeout: float) -> str:
         assert read_timeout > 0
+        self.commands.append((command, read_timeout))
         return self.output
 
     def disconnect(self) -> None:
@@ -89,6 +92,139 @@ def test_check_reachable_true_and_false() -> None:
         assert _client().check_reachable() is True
     with patch("backend.collect.ssh.ConnectHandler", side_effect=ValueError("bad")):
         assert _client().check_reachable() is False
+
+
+def test_no_deadline_uses_configured_connect_and_read_timeouts() -> None:
+    conn = _FakeConnection()
+    with patch("backend.collect.ssh.ConnectHandler", return_value=conn) as connect:
+        assert _client().run("display version") == "ok"
+
+    assert connect.call_args.kwargs["conn_timeout"] == 10.0
+    assert connect.call_args.kwargs["auth_timeout"] == 10.0
+    assert connect.call_args.kwargs["banner_timeout"] == 10.0
+    assert connect.call_args.kwargs["blocking_timeout"] == 10.0
+    assert connect.call_args.kwargs["timeout"] == 10.0
+    assert conn.commands == [("display version", 15.0)]
+
+
+def test_deadline_limits_connect_then_recalculates_read_budget() -> None:
+    now = [0.0]
+    conn = _FakeConnection()
+
+    def connect_after_three_seconds(**kwargs: object) -> _FakeConnection:
+        now[0] = 3.0
+        return conn
+
+    client = H3CSshClient(
+        SshConfig(host="192.0.2.1", username="user", password="unused"),
+        absolute_deadline=5.0,
+        monotonic_clock=lambda: now[0],
+    )
+    with patch(
+        "backend.collect.ssh.ConnectHandler", side_effect=connect_after_three_seconds
+    ) as connect:
+        assert client.run("display version") == "ok"
+
+    assert connect.call_args.kwargs["conn_timeout"] == 5.0
+    assert connect.call_args.kwargs["auth_timeout"] == 5.0
+    assert connect.call_args.kwargs["banner_timeout"] == 5.0
+    assert connect.call_args.kwargs["blocking_timeout"] == 5.0
+    assert connect.call_args.kwargs["timeout"] == 5.0
+    assert conn.commands == [("display version", 2.0)]
+
+
+def test_deadline_expired_before_connect_starts_no_network_operation() -> None:
+    client = H3CSshClient(
+        SshConfig(host="192.0.2.1", username="user", password="unused"),
+        absolute_deadline=5.0,
+        monotonic_clock=lambda: 5.0,
+    )
+    with patch("backend.collect.ssh.ConnectHandler") as connect:
+        with pytest.raises(PollDeadlineExceeded):
+            client.run("display version")
+    connect.assert_not_called()
+
+
+def test_deadline_expired_after_connect_starts_no_command() -> None:
+    now = [0.0]
+    conn = _FakeConnection()
+
+    def connect_at_deadline(**kwargs: object) -> _FakeConnection:
+        now[0] = 5.0
+        return conn
+
+    client = H3CSshClient(
+        SshConfig(host="192.0.2.1", username="user", password="unused"),
+        absolute_deadline=5.0,
+        monotonic_clock=lambda: now[0],
+    )
+    with patch("backend.collect.ssh.ConnectHandler", side_effect=connect_at_deadline):
+        with pytest.raises(PollDeadlineExceeded):
+            client.run("display version")
+
+    assert conn.commands == []
+    assert conn.disconnected is True
+
+
+def test_small_remaining_read_budget_limits_command_timeout() -> None:
+    now = [9.75]
+    conn = _FakeConnection()
+    client = H3CSshClient(
+        SshConfig(host="192.0.2.1", username="user", password="unused"),
+        absolute_deadline=10.0,
+        monotonic_clock=lambda: now[0],
+    )
+    with patch("backend.collect.ssh.ConnectHandler", return_value=conn):
+        assert client.run("display version") == "ok"
+
+    assert conn.commands == [("display version", 0.25)]
+
+
+def test_command_finishing_after_deadline_is_not_accepted() -> None:
+    now = [0.0]
+
+    class _SlowConnection(_FakeConnection):
+        def send_command(self, command: str, read_timeout: float) -> str:
+            result = super().send_command(command, read_timeout)
+            now[0] = 5.0
+            return result
+
+    conn = _SlowConnection()
+    client = H3CSshClient(
+        SshConfig(host="192.0.2.1", username="user", password="unused"),
+        absolute_deadline=5.0,
+        monotonic_clock=lambda: now[0],
+    )
+    with patch("backend.collect.ssh.ConnectHandler", return_value=conn):
+        with pytest.raises(PollDeadlineExceeded):
+            client.run("display version")
+
+    assert conn.commands == [("display version", 5.0)]
+    assert conn.disconnected is True
+
+
+def test_disconnect_failure_does_not_mask_deadline() -> None:
+    now = [0.0]
+
+    class _DisconnectFailure(_FakeConnection):
+        def send_command(self, command: str, read_timeout: float) -> str:
+            result = super().send_command(command, read_timeout)
+            now[0] = 5.0
+            return result
+
+        def disconnect(self) -> None:
+            raise OSError("secret-bearing transport detail")
+
+    client = H3CSshClient(
+        SshConfig(host="192.0.2.1", username="user", password="unused"),
+        absolute_deadline=5.0,
+        monotonic_clock=lambda: now[0],
+    )
+    with patch(
+        "backend.collect.ssh.ConnectHandler", return_value=_DisconnectFailure()
+    ):
+        with pytest.raises(PollDeadlineExceeded):
+            client.run("display version")
 
 
 def test_parse_display_version() -> None:
