@@ -1,5 +1,21 @@
 # EXECUTION_STATE.md
 
+## 2026-09-23 owner amendment — active work
+
+Current branch: `work/wave-05`, base `16e88c4966dbeceee51451647c2529922f53ec25`.
+Current task: W05-UI-DISCOVERY — IN_PROGRESS (owner-authorized READY work).
+Scope: on-demand interface metadata discovery through PostgreSQL jobs, serial
+worker SNMP, batch priority-interface selection, and offline operations UI.
+Migration target: 0012. No Docker image build, field deployment or main merge.
+Engineering REVIEW_PASSED awaits PostgreSQL integration verification. Existing
+W05-T005 / W01-T007 / W03-T010 / W05-GATE states remain pending or blocked.
+Implementation SHA: `d1146ef4454184b88baf27782ebf81e1dbd2ec84`.
+UI SHA: `8cfad67f2e241a46dfde2de6929dcc2cc6f9bb37`.
+Verification: non-integration pytest 429 PASS; ruff/mypy PASS; Alembic heads
+0012; local wheel includes both static assets. PostgreSQL integration test
+setup timed out at 127.0.0.1:15432; Docker API inaccessible on this host.
+The task remains IN_PROGRESS and is not a REVIEW_PASSED checkpoint.
+
 ## W05-PYSNMP-FIELD-HOTFIX — current owner-approved field fix
 
 Status: IMPLEMENTED / FIELD_REVALIDATION_PENDING (2026-09-23), branch

@@ -1,5 +1,32 @@
 # TASK_GRAPH.md
 
+## W05-UI-DISCOVERY — On-demand interface inventory and operations UI (2026-09-23)
+
+**Status:** IN_PROGRESS — newly authorized READY work on `work/wave-05` by
+owner request of 2026-09-23; engineering review awaits PostgreSQL integration
+tests. Existing W05-T005 and Release Gate states are unchanged.
+
+**Depends On:** W04-T005, W01-T004, W05-T001..T004 (all REVIEW_PASSED).
+
+**Scope:** migration 0012 with one active discovery job per device; serial
+worker SNMP metadata/topology refresh; Web request/status flow; batch
+priority-interface selection; local static assets and cohesive operations UI.
+No Docker image build, field deployment, or main merge in this task.
+
+**Acceptance:** requested OIDs only; credentials remain worker-only; failure
+is secret-safe; rediscovery preserves stable identity and monitored flags;
+no poll/metric/incident/IRF/Coverage writes; authenticated CSRF-protected
+request and batch save; cross-device IDs rejected; empty selection clears;
+HTML escaping; wheel contains offline assets; focused/full/integration tests,
+ruff and mypy pass. Mark REVIEW_PASSED only after integration evidence.
+
+**Engineering evidence so far:** implementation `d1146ef4454184b88baf27782ebf81e1dbd2ec84`;
+UI `8cfad67f2e241a46dfde2de6929dcc2cc6f9bb37`; Alembic head 0012;
+non-integration pytest 429 PASS; ruff and mypy PASS; wheel contains app.css
+and app.js. Focused and full integration could not start test cases: the
+test PostgreSQL at `127.0.0.1:15432` timed out, and this environment cannot
+access the Docker API. No integration acceptance or REVIEW_PASSED claimed.
+
 ## Authority
 
 本文件与 `EXECUTION_STATE.md` 是唯一 Task 状态权威来源。

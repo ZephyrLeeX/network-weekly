@@ -679,6 +679,27 @@ CRC / Error / Drop 观察值不改变总体状态。
 
 ## 20. Web interface
 
+### 20.0 On-demand interface inventory (2026-09-23 amendment)
+
+The priority-interface page requests a fresh, configuration-only interface
+inventory when an administrator selects a device. The Web process has no
+device credentials and never performs SNMP. A CSRF-protected POST creates or
+reuses one active PostgreSQL `interface_discovery_jobs` row per device; the
+worker processes jobs serially using SNMP and persists interface metadata and
+aggregation membership. Its collector reads only IF_DESCR, IF_ALIAS,
+IF_ADMIN_STATUS, IF_OPER_STATUS, IF_SPEED, IF_HIGH_SPEED, and the
+DOT3_AGG_PORT_ATTACHED_AGG_ID / DOT3_AGG_PORT_SELECTED_AGG_ID topology columns.
+It does not call DEVICE_POLL or write poll runs, metrics, reachability,
+interface incidents, IRF observations or Coverage evidence. Failure exposes
+only a fixed, secret-safe message. Existing `monitored` flags survive refresh.
+
+The page shows a local, offline UI with device buttons, discovery progress,
+search over name/description, speed and topology, and a batch checkbox save.
+Batch save validates every interface id against the selected device; an empty
+selection clears that device's flags. Aggregates and members are independent.
+All static CSS/JS is bundled with the application; no CDN or frontend build is
+needed.
+
 Web 只提供日常操作必须页面。
 
 ### 20.1 Login

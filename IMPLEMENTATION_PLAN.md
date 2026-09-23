@@ -344,6 +344,15 @@ monitored toggle
 
 # Wave 5 — Deployment and Stability
 
+## Pre-acceptance UI and interface discovery amendment (2026-09-23)
+
+Before production acceptance, implement migration 0012 for persistent
+interface discovery jobs, a serial worker-only metadata collector, and a
+CSRF-protected Web request/status/checkbox flow. Refreshes must leave formal
+polling, incident state, Coverage and `monitored` selections untouched. Bundle
+the operations UI's static assets locally and verify wheel inclusion. This
+engineering work does not close W05-T005, W01-T007, W03-T010 or W05-GATE.
+
 ## Objective
 
 让系统在满足 runtime capabilities 的 Linux server 隔离环境中可安装、可更新并长期稳定运行。
