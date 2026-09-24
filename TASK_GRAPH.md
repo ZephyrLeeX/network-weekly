@@ -2,9 +2,9 @@
 
 ## W05-UI-DISCOVERY — On-demand interface inventory and operations UI (2026-09-23)
 
-**Status:** IN_PROGRESS — newly authorized READY work on `work/wave-05` by
-owner request of 2026-09-23; engineering review awaits PostgreSQL integration
-tests. Existing W05-T005 and Release Gate states are unchanged.
+**Status:** REVIEW_PASSED (2026-09-24), `work/wave-05`. Engineering checkpoint:
+`bfe154b560b349aa64b545acc7ff4f96348c8a3e`. W05-T005, W01-T007,
+W03-T010 and W05-GATE retain their existing pending or blocked states.
 
 **Depends On:** W04-T005, W01-T004, W05-T001..T004 (all REVIEW_PASSED).
 
@@ -20,20 +20,24 @@ request and batch save; cross-device IDs rejected; empty selection clears;
 HTML escaping; wheel contains offline assets; focused/full/integration tests,
 ruff and mypy pass. Mark REVIEW_PASSED only after integration evidence.
 
-**Engineering evidence so far:** implementation `d1146ef4454184b88baf27782ebf81e1dbd2ec84`;
-UI `8cfad67f2e241a46dfde2de6929dcc2cc6f9bb37`; Alembic head 0012;
-non-integration pytest 429 PASS; ruff and mypy PASS; wheel contains app.css
-and app.js. Focused and full integration could not start test cases: the
-test PostgreSQL at `127.0.0.1:15432` timed out, and this environment cannot
-access the Docker API. No integration acceptance or REVIEW_PASSED claimed.
+**Engineering evidence:** implementation `d1146ef4454184b88baf27782ebf81e1dbd2ec84`;
+UI `8cfad67f2e241a46dfde2de6929dcc2cc6f9bb37`; local PostgreSQL
+focused integration 14 PASS; full integration 272 PASS; full pytest 431 PASS;
+ruff PASS; mypy PASS (145 files); `git diff --check` PASS; Alembic head 0012;
+wheel contains local app.css and app.js. The earlier PostgreSQL setup timeout
+has been resolved and does not limit this engineering review.
 
-**2026-09-23 selector correction (IN_PROGRESS):** devices without cached
-`interfaces` rows request first discovery on selection. Cached devices select
-via GET and require the explicit "刷新接口列表" POST for later refresh. Active
-jobs remain visible and deduplicated; a failed first discovery retains status
-and "重新获取". Focused page unit tests and full non-integration pytest pass;
-ruff/mypy pass; Alembic head remains 0012. Focused and full PostgreSQL
-integration setup time out at 127.0.0.1:15432. No REVIEW_PASSED claim.
+**Final selector and collection semantics:** first selection queues discovery
+only when the device has no cached `interfaces` rows. Device switching with
+cached rows uses GET from PostgreSQL; later discovery requires an explicit
+"刷新接口列表" click. Active pending/running jobs deduplicate; first-request
+failure remains visible with "重新获取". Web holds no device Secret and performs
+no SNMP. Discovery updates interface metadata and aggregation topology only,
+preserves `monitored`, and writes no formal poll, metric, monitoring state,
+incident or IRF rows. Formal DEVICE_POLL is unchanged. Same-device discovery
+and DEVICE_POLL need no mutual exclusion; the owner accepts occasional
+parallel device access from manual refresh. UI static assets are local with
+no CDN. Migration remains 0012.
 
 ## Authority
 

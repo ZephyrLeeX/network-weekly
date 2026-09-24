@@ -1,31 +1,30 @@
 # EXECUTION_STATE.md
 
-## 2026-09-23 W05-UI-DISCOVERY selector correction — active work
+## 2026-09-24 W05-UI-DISCOVERY — engineering review passed
 
-On `work/wave-05`, device selection requests discovery only before cached
-`interfaces` rows exist. Cached devices use `GET /interfaces?device_id=<id>`;
-an explicit "刷新接口列表" button performs later discovery POST. Pending/running
-status and failed-first retry remain visible. Worker collector and DEVICE_POLL
-are unchanged. Focused page unit tests and full non-integration pytest pass;
-ruff/mypy pass; Alembic head remains 0012. Focused and full integration setup
-time out on test PostgreSQL at 127.0.0.1:15432; Docker API is denied.
-W05-UI-DISCOVERY remains IN_PROGRESS without a REVIEW_PASSED checkpoint.
+Status: REVIEW_PASSED on `work/wave-05`. Engineering checkpoint:
+`bfe154b560b349aa64b545acc7ff4f96348c8a3e`. Earlier implementation and
+UI checkpoints: `d1146ef4454184b88baf27782ebf81e1dbd2ec84` and
+`8cfad67f2e241a46dfde2de6929dcc2cc6f9bb37`. Local PostgreSQL
+verification resolved the earlier integration setup timeout: focused
+integration 14 PASS; full integration 272 PASS; full pytest 431 PASS; ruff
+PASS; mypy PASS (145 files); `git diff --check` PASS; Alembic head 0012.
 
-## 2026-09-23 owner amendment — active work
+First device selection requests discovery only when no `interfaces` rows are
+cached. Once cached, switching devices reads PostgreSQL through
+`GET /interfaces?device_id=<id>`; only an explicit "刷新接口列表" requests later
+discovery. Active pending/running jobs are deduplicated, and a failed first
+request retains its status and offers "重新获取". Web has no device Secret and
+does not perform SNMP. The serial worker updates only interface metadata and
+aggregation topology; rediscovery preserves `monitored` flags and does not
+write formal poll, metric, monitoring state, incident or IRF data. DEVICE_POLL
+is unchanged. Discovery and DEVICE_POLL need no same-device mutual exclusion;
+the owner accepts occasional concurrent access during manual refresh. All UI
+static assets are local, with no CDN. Migration remains 0012.
 
-Current branch: `work/wave-05`, base `16e88c4966dbeceee51451647c2529922f53ec25`.
-Current task: W05-UI-DISCOVERY — IN_PROGRESS (owner-authorized READY work).
-Scope: on-demand interface metadata discovery through PostgreSQL jobs, serial
-worker SNMP, batch priority-interface selection, and offline operations UI.
-Migration target: 0012. No Docker image build, field deployment or main merge.
-Engineering REVIEW_PASSED awaits PostgreSQL integration verification. Existing
-W05-T005 / W01-T007 / W03-T010 / W05-GATE states remain pending or blocked.
-Implementation SHA: `d1146ef4454184b88baf27782ebf81e1dbd2ec84`.
-UI SHA: `8cfad67f2e241a46dfde2de6929dcc2cc6f9bb37`.
-Verification: non-integration pytest 429 PASS; ruff/mypy PASS; Alembic heads
-0012; local wheel includes both static assets. PostgreSQL integration test
-setup timed out at 127.0.0.1:15432; Docker API inaccessible on this host.
-The task remains IN_PROGRESS and is not a REVIEW_PASSED checkpoint.
+This closes engineering review only. W05-T005, W01-T007 and W03-T010 retain
+their existing real-environment dependencies; W05-GATE remains BLOCKED. No
+Docker image build, deployment or main merge is part of this checkpoint.
 
 ## W05-PYSNMP-FIELD-HOTFIX — current owner-approved field fix
 
