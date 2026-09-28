@@ -82,10 +82,10 @@ class Device(Base):
     software_version: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
     members: Mapped[list[DeviceMember]] = relationship(
@@ -117,7 +117,7 @@ class DeviceMember(Base):
     software_version: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
     device: Mapped[Device] = relationship(back_populates="members")
@@ -156,7 +156,7 @@ class Interface(Base):
     monitored: Mapped[bool] = mapped_column(default=False, nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
     device: Mapped[Device] = relationship(back_populates="interfaces")
@@ -192,7 +192,7 @@ class AggregationMember(Base):
         ForeignKey("interfaces.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
     aggregation_interface: Mapped[Interface] = relationship(
@@ -226,7 +226,7 @@ class InterfaceDiscoveryJob(Base):
     )
     status: Mapped[str] = mapped_column(Text, nullable=False)
     requested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -271,7 +271,7 @@ class DevicePollRun(Base):
     ssh_reachable: Mapped[bool | None] = mapped_column(nullable=True)
     failed_sections: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
     device: Mapped[Device] = relationship()
@@ -352,7 +352,7 @@ class DeviceMonitoringState(Base):
         DateTime(timezone=True), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -377,7 +377,7 @@ class DeviceReachabilityIncident(Base):
     # First reachable cycle of the confirming recovery run; NULL while Down.
     recovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
     device: Mapped[Device] = relationship()
@@ -469,7 +469,7 @@ class InterfaceMonitoringState(Base):
         DateTime(timezone=True), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -494,7 +494,7 @@ class InterfaceStateIncident(Base):
     # First valid Up sample of the confirming recovery run; NULL while Down.
     recovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
     interface: Mapped[Interface] = relationship()
@@ -512,7 +512,7 @@ class SystemSetting(Base):
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -548,7 +548,7 @@ class IrfMemberObservation(Base):
     role_changed: Mapped[bool] = mapped_column(default=False, nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -595,10 +595,10 @@ class ReportJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -628,10 +628,10 @@ class WeeklyReport(Base):
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -665,10 +665,10 @@ class User(Base):
     # Always true — enforced by the CHECK constraint above (§21: 单管理员).
     singleton: Mapped[bool] = mapped_column(default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -696,7 +696,7 @@ class UserSession(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
     # Idle anchor: updated on every authenticated request.
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

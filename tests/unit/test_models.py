@@ -1,6 +1,6 @@
 """Unit checks for Wave 1/2 ORM model registration (no database required)."""
 
-from sqlalchemy import ColumnDefault, UniqueConstraint, inspect
+from sqlalchemy import ColumnDefault, DateTime, DefaultClause, TextClause, UniqueConstraint, inspect
 
 from backend.db import models  # noqa: F401  (registers tables)
 from backend.db.base import Base
@@ -94,6 +94,27 @@ def test_device_metric_is_one_row_per_poll_run() -> None:
 
 def test_interface_metric_is_one_row_per_interface_and_run() -> None:
     assert ("poll_run_id", "interface_id") in _unique_constraints("interface_metrics")
+
+
+def test_timestamp_server_defaults_are_sql_now_expressions() -> None:
+    """0013 hotfix: ``server_default="now()"`` freezes at DDL time on PostgreSQL.
+
+    A plain Python string is rendered by Alembic/DDL as the quoted literal
+    ``DEFAULT 'now()'``, which PostgreSQL resolves once — while the DDL
+    executes — into a constant timestamp. Every timestamp server default in
+    the ORM metadata must therefore be the SQL expression ``now()`` carried
+    as a TextClause, never a plain string.
+    """
+
+    offenders: list[str] = []
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            default = column.server_default
+            if isinstance(column.type, DateTime) and isinstance(default, DefaultClause):
+                argument = default.arg
+                if not isinstance(argument, TextClause) or argument.text != "now()":
+                    offenders.append(f"{table.name}.{column.name}")
+    assert offenders == []
 
 
 def test_metric_tables_carry_retention_time_columns() -> None:
