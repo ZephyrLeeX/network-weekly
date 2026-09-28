@@ -1,5 +1,67 @@
 # EXECUTION_STATE.md
 
+## 2026-09-28 W05-TIMESTAMP-DEFAULT-HOTFIX — engineering review passed
+
+Status: REVIEW_PASSED on `work/wave-05`. Implementation checkpoint:
+`54555594d49ab946981b5f42a251876eaa7ba32e` (this documentation commit
+follows it, per the checkpoint/state-commit pattern). Verification:
+focused unit 12 PASS; focused timestamp/migration integration 5 PASS; full
+non-integration 432 PASS; full integration 275 PASS; ruff PASS; mypy PASS
+(146 files); `git diff --check` PASS; Alembic head 0013.
+
+Root cause (confirmed against real PostgreSQL behavior): migrations
+0002–0008 declared their timestamp columns with the plain Python string
+`server_default="now()"`. Alembic renders a plain string as the quoted
+literal `DEFAULT 'now()'`, and PostgreSQL resolves that special date/time
+input once — while the DDL executes — storing a constant timestamp in
+`pg_attrdef`. Because Alembic runs one upgrade batch in a single
+transaction, every affected table froze to the SAME constant. Production
+evidence (2026-09-28): `device_poll_runs.created_at` and
+`report_jobs.created_at` rows from different days all carried
+`2026-09-23 07:34:24.520293+00` (the install/migration moment) even
+though `cycle_started_at` had reached 2026-09-27/28.
+
+Fix: migration `0013_fix_timestamp_defaults` re-points the DEFAULT of the
+16 affected columns (devices.created_at/updated_at, device_members,
+interfaces, aggregation_members, device_poll_runs,
+device_monitoring_state, device_reachability_incidents,
+interface_monitoring_state, interface_state_incidents, system_settings,
+irf_member_observations, report_jobs ×2, weekly_reports ×2) to the
+dynamic SQL expression `now()` via catalog-only
+`ALTER COLUMN ... SET DEFAULT now()` — no type/nullability/index/
+constraint change, no table rebuild, online-safe on 0012 databases. The
+ORM (`application/backend/db/models.py`) now expresses all 20 timestamp
+server defaults as `sa_text("now()")` SQL expressions (including
+users/sessions/interface_discovery_jobs whose migrations were already
+correct), so autogenerate/metadata comparison cannot reintroduce the
+string form; a unit regression pins this.
+
+Existing historical rows were intentionally NOT rewritten (answer: NO
+rows modified): the true insert/update times can no longer be
+reconstructed (`cycle_started_at` / `started_at` / `generated_at` are
+business fields, not row-creation instants) and no fabricated history was
+created. Authoritative business timestamps are unaffected — weekly
+statistics keep reading `cycle_started_at`, `collected_at`, `observed_at`,
+`started_at`/`recovered_at`, `generated_at` and report period/started/
+finished fields; poll/report/monitoring behavior, SNMP/SSH collection,
+scheduling, state machines and the Web UI are untouched. Only rows
+inserted after 0013 receive correct dynamic defaults.
+
+Tests: `tests/integration/test_timestamp_defaults.py` pins the frozen
+catalog shape at 0012 (root cause on real PostgreSQL), proves
+0012 -> 0013 preserves every seeded row byte-for-byte, asserts the
+catalog DEFAULT is `now()` for all 16 columns after upgrade, validates
+new `device_poll_runs.created_at` and `report_jobs.created_at`/
+`updated_at` inserts against the database clock, checks the fresh
+0001 -> 0013 end state and exercises the technically-executable
+0013 -> 0012 -> 0013 chain (schema-only downgrade; production never uses
+downgrade as a data remedy). Migration history 0001–0012 is unchanged.
+
+W05-T005, W01-T007, W03-T010 and W05-GATE retain their existing pending
+or blocked states. No Docker image build, no deployment, no main merge
+and no production data change is part of this checkpoint. The S12508
+SNMP/SSH PARTIAL observation is explicitly out of scope.
+
 ## 2026-09-24 W05-UI-DISCOVERY — engineering review passed
 
 Status: REVIEW_PASSED on `work/wave-05`. Engineering checkpoint:

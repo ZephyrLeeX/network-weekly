@@ -1,5 +1,59 @@
 # TASK_GRAPH.md
 
+## W05-TIMESTAMP-DEFAULT-HOTFIX — Dynamic timestamp column defaults (2026-09-28)
+
+**Status:** REVIEW_PASSED (2026-09-28), `work/wave-05`. Implementation checkpoint:
+`54555594d49ab946981b5f42a251876eaa7ba32e`. W05-T005, W01-T007, W03-T010
+and W05-GATE retain their existing pending or blocked states.
+
+**Depends On:** Alembic head 0012 (W05-UI-DISCOVERY engineering state).
+
+**Scope:** production hotfix for frozen timestamp defaults only. Migration
+0013 re-points the DEFAULT of the 16 columns whose plain-string
+`server_default="now()"` (migrations 0002–0008) PostgreSQL froze to a
+constant at DDL time — devices.created_at/updated_at, device_members,
+interfaces, aggregation_members, device_poll_runs,
+device_monitoring_state, device_reachability_incidents,
+interface_monitoring_state, interface_state_incidents, system_settings,
+irf_member_observations, report_jobs ×2, weekly_reports ×2 — to the
+dynamic expression `now()` via catalog-only ALTER COLUMN ... SET DEFAULT.
+ORM metadata unified to `sa_text("now()")` for all 20 timestamp server
+defaults. No SNMP/SSH, S12508 collection, interface discovery, poll
+scheduler/interval/stagger/deadline, monitoring state machine,
+Down/Recovery, IRF, weekly statistics, report generation, auth/session or
+Web UI change; no Docker image build, deployment or main merge.
+
+**Acceptance:** existing historical rows are NOT rewritten (no UPDATE of
+created_at/updated_at; no fabricated history); authoritative business
+timestamps (cycle_started_at, collected_at, observed_at,
+started_at/recovered_at, generated_at, report period/started/finished)
+are unaffected; 0012 -> 0013 upgrades online without table rebuilds and
+touches only DEFAULT expressions; Alembic head = 0013; migration history
+0001–0012 unchanged; the 0013 -> 0012 -> 0013 chain is technically
+executable (schema-only downgrade); PostgreSQL catalog shows `now()` for
+all 16 columns after upgrade; new inserts (device_poll_runs, report_jobs)
+land on the database clock.
+
+**Engineering evidence:** root cause confirmed on real PostgreSQL — a
+plain-string server_default renders as `DEFAULT 'now()'`, which PostgreSQL
+folds once at DDL time into a constant stored in pg_attrdef; one upgrade
+batch runs in a single transaction, so all affected tables froze to the
+same instant (production: `2026-09-23 07:34:24.520293+00` across
+device_poll_runs/report_jobs while cycle_started_at reached
+2026-09-27/28). Tests:
+`tests/integration/test_timestamp_defaults.py` (frozen-literal catalog
+shape at 0012; seeded rows byte-for-byte identical across 0012 -> 0013;
+catalog DEFAULT `now()` on all 16 columns; fresh 0001 -> 0013 end state;
+0013 -> 0012 -> 0013 chain; new-row timestamps within the database-clock
+window for the production-failure tables) and a unit regression in
+`tests/unit/test_models.py` forbidding plain-string timestamp server
+defaults in ORM metadata. Focused unit 12 PASS; focused integration
+5 PASS; full non-integration 432 PASS; integration 275 PASS; ruff PASS;
+mypy PASS (146 files); `git diff --check` PASS; `uv run alembic heads` =
+0013 (head).
+
+---
+
 ## W05-UI-DISCOVERY — On-demand interface inventory and operations UI (2026-09-23)
 
 **Status:** REVIEW_PASSED (2026-09-24), `work/wave-05`. Engineering checkpoint:
